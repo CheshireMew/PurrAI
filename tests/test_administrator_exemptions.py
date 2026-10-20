@@ -6,7 +6,7 @@ from sqlalchemy import select
 from conftest import drain, join, message
 from purrai.models import Action, Group, Member, Rule, Verification, Violation, Whitelist, now
 from test_profile_trust import profile_api
-from test_verification import fixed_challenge, latest
+from test_verification import fixed_challenge, legacy_challenge, latest
 
 
 async def rules(db):
@@ -186,7 +186,7 @@ async def test_timeout_exempts_promoted_admin_without_membership_event(env, monk
 
 
 async def test_progress_exempts_admin_and_invalidates_old_captcha_buttons(env, monkeypatch):
-    verification = await fixed_challenge(env, monkeypatch)
+    verification = await legacy_challenge(env, monkeypatch)
     _, db, tg, svc = env
     await svc.callback(
         {

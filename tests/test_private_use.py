@@ -9,6 +9,7 @@ from conftest import drain, join, message
 from purrai.app import create_app
 from purrai.chat_budget import BudgetExceeded, ChatBudget
 from purrai.chat_model import ChatModel, ChatModelError, ChatReply
+from purrai.config import Settings
 from purrai.management import Management, ManagementError
 from purrai.models import Action, ArchivedMessage, ChatTurn, Group, Inbox, LoginAttempt, Meta, MessageRevision, Verification
 from purrai.runtime import Runtime
@@ -165,6 +166,46 @@ async def test_daily_budget_atomic_and_survives_restart_then_rolls_over(env, mon
     monkeypatch.setattr(ChatBudget, "day", staticmethod(lambda: "2099-01-01"))
     await budget.reserve(-1001, 43, "system", "payload")
     assert (await budget.status(-1001))["group_calls"] == 1
+
+
+@pytest.mark.parametrize("scope,field,old_limit", [
+    ("global", "chat_daily_calls", 500),
+    ("groups", "chat_group_daily_calls", 200),
+    ("users", "chat_user_daily_calls", 60),
+    ("global", "chat_daily_tokens", 1000000),
+    ("groups", "chat_group_daily_tokens", 400000),
+    ("users", "chat_user_daily_tokens", 100000),
+])
+async def test_raised_budget_resumes_same_day_without_resetting_usage(env, scope, field, old_limit):
+    settings, db, _, _ = env
+    new_limit = Settings.model_fields[field].default
+    assert new_limit == old_limit * 5
+    metric = "calls" if field.endswith("calls") else "tokens"
+    data = {"day": ChatBudget.day(), "global": {}, "groups": {"-1001": {}}, "users": {"41": {}}}
+    counter = data[scope] if scope == "global" else data[scope]["-1001" if scope == "groups" else "41"]
+    counter.update(calls=0, tokens=0)
+    counter[metric] = old_limit
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "chat_enabled": True}
+        session.add(Meta(key="private:chat-budget", value=json.dumps(data)))
+    setattr(settings, field, old_limit)
+    with pytest.raises(BudgetExceeded, match="额度已用完"):
+        await ChatBudget(db, settings).reserve(-1001, 41, "system", "payload")
+    updated = settings.model_copy(update={field: new_limit})
+    budget = ChatBudget(db, updated)
+    reservation = await budget.reserve(-1001, 41, "system", "payload")
+    await budget.settle(reservation, 17)
+    async with db.sessions() as session:
+        saved = json.loads((await session.get(Meta, "private:chat-budget")).value)
+    actual = saved[scope] if scope == "global" else saved[scope]["-1001" if scope == "groups" else "41"]
+    assert saved["day"] == data["day"]
+    assert actual[metric] == old_limit + (1 if metric == "calls" else 17)
+    actual[metric] = new_limit
+    async with db.transaction() as session:
+        (await session.get(Meta, "private:chat-budget")).value = json.dumps(saved)
+    with pytest.raises(BudgetExceeded, match="额度已用完"):
+        await ChatBudget(db, updated).reserve(-1001, 41, "system", "payload")
 
 
 @pytest.mark.parametrize("limit", ["chat_daily_calls", "chat_group_daily_calls", "chat_user_daily_calls"])

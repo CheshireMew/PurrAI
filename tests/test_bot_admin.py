@@ -81,7 +81,7 @@ async def test_private_bot_admin_needs_no_web_login_and_denies_other_users(env):
     await deliver(runtime, {"message": private("/admin", 7)})
     assert "不是机器人已加入群的管理员" in texts(telegram)[-1]
     await deliver(runtime, {"message": private("/start", 7)})
-    assert "数字键盘" in texts(telegram)[-1]
+    assert "完整答案" in texts(telegram)[-1]
 
 
 async def test_bot_settings_validate_persist_across_runtime_restart_and_cancel_navigation(env):
@@ -183,7 +183,11 @@ async def test_bot_buttons_are_actor_bound_expire_and_survive_restart(env):
     row["expires"] = 0
     await runtime.admin.remember(key, row)
     await deliver(runtime, {"callback_query": query})
-    assert "过期" in texts(telegram)[-1] or "失效" in texts(telegram)[-1]
+    async with database.sessions() as session:
+        assert not (await session.get(Group, -1001)).enabled
+    assert "检查并启用" in str(markup(telegram))
+    assert any("已接续" in args.get("text", "") for method, args in telegram.calls
+               if method == "answer_callback_query")
 
 
 async def test_bot_verification_confirm_double_click_only_releases_once(env, monkeypatch):
@@ -377,12 +381,14 @@ async def test_bot_captcha_callbacks_still_reach_verification_handler(env, monke
     await drain(service)
     async with database.sessions() as session:
         verification = await session.scalar(select(Verification))
-        data = captcha.keyboard(verification.id, verification.nonce)["inline_keyboard"][0][0]["callback_data"]
+        answers = captcha.keyboard(verification.id, verification.nonce, verification.choices)
+        data = next(button["callback_data"] for row in answers["inline_keyboard"]
+                    for button in row if button["text"] == "123456")
     runtime = Runtime(database, telegram, service)
     query = {"id": "captcha-through-dispatcher", "from": {"id": 42}, "chat_instance": "group", "data": data}
     await deliver(runtime, {"callback_query": query})
     async with database.sessions() as session:
-        assert len((await session.scalar(select(Verification))).input_digits) == 1
+        assert (await session.scalar(select(Verification))).state == "releasing"
 
 
 async def test_ready_does_not_require_optional_web_oidc(env):

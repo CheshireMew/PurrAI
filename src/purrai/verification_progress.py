@@ -52,7 +52,7 @@ class VerificationProgress:
     @staticmethod
     async def snapshot(session, action):
         verification = await session.get(Verification, action.payload.get("verification_id"))
-        if not verification or verification.state != "pending" or not verification.message_id:
+        if not verification or verification.state != "pending" or not verification.message_id or verification.choices:
             return None
         member = await session.get(Member, (verification.group_id, verification.user_id))
         if (
@@ -73,6 +73,7 @@ class VerificationProgress:
             join_request=verification.flow == "join_request",
             group_title=group.title,
             failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
+            multiple_choice=bool(verification.choices),
         )
         return {
             "group_id": group.id,
@@ -83,7 +84,7 @@ class VerificationProgress:
             "nonce": verification.nonce,
             "caption": caption,
             "hash": hashlib.sha256(caption.encode()).hexdigest(),
-            "reply_markup": captcha.keyboard(verification.id, verification.nonce),
+            "reply_markup": captcha.keyboard(verification.id, verification.nonce, verification.choices),
         }
 
     async def run_one(self, identifier=None):

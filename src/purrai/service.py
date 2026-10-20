@@ -490,7 +490,12 @@ class Service:
             if verification.deadline <= now():
                 await self.fail_verification(session, verification, "验证超时")
                 answer = "验证已超时。"
-            elif key == "ok":
+            elif verification.choices or key == "ok":
+                if verification.choices:
+                    if key not in {f"c{index}" for index in range(len(verification.choices))}:
+                        return "请点击当前图片下方的完整答案按钮。"
+                    verification.input_digits = verification.choices[int(key[1:])]
+                    verification.updated_at = now()
                 if len(verification.input_digits) != 6:
                     answer = "请先输入完整的 6 位数字。"
                 elif secrets.compare_digest(
@@ -1181,6 +1186,7 @@ class Service:
             code, image = captcha.make_image()
             verification.answer_hash = captcha.digest(code, verification.nonce)
             verification.input_digits = ""
+            verification.choices = captcha.make_choices(code)
             response = await self.action_call(session, action, 
                 "send_photo",
                 chat_id=verification.prompt_chat_id or group.id,
@@ -1194,8 +1200,9 @@ class Service:
                     join_request=verification.flow == "join_request",
                     group_title=group.title,
                     failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
+                    multiple_choice=bool(verification.choices),
                 ),
-                reply_markup=captcha.keyboard(verification.id, verification.nonce),
+                reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
             )
             verification.message_id = response["message_id"]
             verification.state = "pending"

@@ -8,7 +8,7 @@ from conftest import drain, join, message
 from purrai.models import Action, Group, Inbox, Meta, Rule, Verification, Violation, now, uid
 from purrai.runtime import Runtime
 from purrai.service import Service, enqueue
-from test_verification import fixed_challenge, latest
+from test_verification import legacy_challenge as fixed_challenge, latest
 
 
 async def press(service, verification, key, identifier=None):

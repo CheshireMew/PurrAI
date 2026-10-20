@@ -88,6 +88,7 @@ class Verification(Base):
     nonce: Mapped[str] = mapped_column(String, default=lambda: uuid.uuid4().hex[:8])
     answer_hash: Mapped[str] = mapped_column(String, default="")
     input_digits: Mapped[str] = mapped_column(String, default="")
+    choices: Mapped[list[str]] = mapped_column(JSON, default=list)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     deadline: Mapped[float] = mapped_column(Float)

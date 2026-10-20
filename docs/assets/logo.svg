@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" color="#267563" role="img" aria-labelledby="title desc">
+  <title id="title">PurrAI</title>
+  <desc id="desc">The cat mark used by the PurrAI admin console.</desc>
+<path d="M8 23 6 8l13 8a23 23 0 0 1 10 0l13-8-2 15c3 4 4 8 2 12-3 7-12 9-18 9S9 42 6 35c-2-4-1-8 2-12Z" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="m4 28 9 2m-9 5 9-1m31-6-9 2m9 5-9-1M20 34l4 3 4-3" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    <ellipse cx="17" cy="27" rx="2" ry="3" fill="currentColor"/>
+    <ellipse cx="31" cy="27" rx="2" ry="3" fill="currentColor"/>
+</svg>

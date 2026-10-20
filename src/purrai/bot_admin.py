@@ -2,6 +2,7 @@
 
 import json
 import secrets
+import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -129,6 +130,45 @@ CHAT_FIELDS = {
     "chat_antifraud_packs": "防诈贴纸包（addstickers 链接或短名称，多个用空格或换行分隔，- 清空）",
     "chat_antifraud_interval": "防诈提醒最短间隔（3600 至 604800 秒）",
 }
+CHAT_BUTTON_LABELS = {
+    "chat_name": "聊天昵称",
+    "chat_persona": "性格与说话习惯",
+    "chat_history": "最近消息条数",
+    "chat_interval": "主动接话检查间隔",
+    "chat_sticker_packs": "聊天贴纸包",
+    "chat_sticker_interval": "聊天贴纸最短间隔",
+    "chat_antifraud_packs": "防诈贴纸包",
+    "chat_antifraud_interval": "防诈提醒最短间隔",
+}
+# Navigation is durable. Execution buttons retain a short lifetime and reopen
+# their current screen when stale instead of abandoning the administration flow.
+NAVIGATION_ACTIONS = {
+    "groups", "group", "access_panel", "settings", "archive", "archive_detail",
+    "list", "detail", "members", "emoji_packs", "admins", "system", "failures",
+    "prompt", "confirm", "emoji_packs_clear_confirm", "permissions",
+}
+
+
+def keyboard_rows(buttons):
+    if len(buttons) < 6:
+        return [[item] for item in buttons]
+    rows, pair = [], []
+    for item in buttons:
+        label = item["text"]
+        width = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in label)
+        if width > 32 or label.startswith(("返回", "取消", "切换群")):
+            if pair:
+                rows.append(pair)
+                pair = []
+            rows.append([item])
+        else:
+            pair.append(item)
+            if len(pair) == 2:
+                rows.append(pair)
+                pair = []
+    if pair:
+        rows.append(pair)
+    return rows
 
 
 def clock(value):
@@ -163,8 +203,10 @@ class BotAdmin:
     async def send(self, chat_id, text):
         return await self.tg.call("send_message", chat_id=chat_id, text=text[:4000])
 
-    async def panel(self, actor, text, buttons, group_id=None, message_id=None):
+    async def panel(self, actor, text, buttons, group_id=None, message_id=None, *, resume=None):
         keyboard = []
+        resume = resume or ({"action": "group", "data": {"id": group_id}} if group_id is not None
+                            else {"action": "groups", "data": {}})
         async with self.db.transaction() as session:
             for label, action, data in buttons:
                 token = secrets.token_hex(8)
@@ -177,14 +219,15 @@ class BotAdmin:
                                 "group_id": group_id,
                                 "action": action,
                                 "data": data,
-                                "expires": now() + 900,
+                                "expires": None if action in NAVIGATION_ACTIONS else now() + 900,
+                                "resume": resume,
                             },
                             ensure_ascii=False,
                         ),
                     )
                 )
-                keyboard.append([{"text": label[:60], "callback_data": f"a:{token}"}])
-        markup = {"inline_keyboard": keyboard}
+                keyboard.append({"text": label[:60], "callback_data": f"a:{token}"})
+        markup = {"inline_keyboard": keyboard_rows(keyboard)}
         if message_id:
             try:
                 await self.tg.call(
@@ -224,6 +267,7 @@ class BotAdmin:
             ),
             buttons,
             message_id=message_id,
+            resume={"action": "groups", "data": {"page": page}},
         )
 
     async def group_panel(self, actor, group_id, message_id=None):
@@ -312,6 +356,7 @@ class BotAdmin:
             buttons,
             group_id,
             message_id,
+            resume={"action": "archive", "data": {"filters": data, "page": page}},
         )
 
     async def archive_detail(self, actor, group_id, data, message_id=None):
@@ -370,9 +415,13 @@ class BotAdmin:
             f"待处理：{status['pending']}\n" + (f"最近问题：{status['error']}\n" if status["error"] else "")
         )
         budget = status.get("budget", {})
-        text += (f"今日请求：{budget.get('group_calls', 0)}/{budget.get('group_call_limit', '—')}；"
-                 f"Token 预算：{budget.get('group_tokens', 0)}/{budget.get('group_token_limit', '—')}\n"
-                 "每日额度由所有者设置，包含保持安静和重试的模型调用；验证和防广告不占此额度。")
+        refreshed = datetime.fromtimestamp(now(), ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+        text += (f"统计刷新：{refreshed}（北京时间；点击刷新才更新）\n"
+                 f"本群今日累计请求：已用 {budget.get('group_calls', 0)} 次 / 上限 {budget.get('group_call_limit', '—')} 次\n"
+                 f"本群今日 Token 额度占用：{budget.get('group_tokens', 0):,} / {budget.get('group_token_limit', 0):,}\n"
+                 "统计包含全群所有成员和话题，保持安静和重试也计数。\n"
+                 "Token 含历史上下文及请求预留，按实际用量结算后可能回落；不是单条消息用量。\n"
+                 "每日额度由所有者设置，北京时间零点重置；验证和防广告不占此额度。")
         buttons = [
             button(
                 f"{'已开启' if cfg.chat_enabled else '已关闭'} · 群聊天",
@@ -398,14 +447,15 @@ class BotAdmin:
         if status.get("stickers", {}).get("error"):
             text += status["stickers"]["error"] + "\n"
         buttons += [
-            button(label, "prompt", kind="chat_setting", key=key) for key, label in CHAT_FIELDS.items()
+            button(CHAT_BUTTON_LABELS[key], "prompt", kind="chat_setting", key=key) for key in CHAT_FIELDS
         ]
         buttons += [
             button("重新开始聊天上下文", "chat_reset"),
             button("刷新聊天状态", "settings", section="chat"),
             button("返回群管理", "group", id=group_id),
         ]
-        await self.panel(actor, text, buttons, group_id, message_id)
+        await self.panel(actor, text, buttons, group_id, message_id,
+                         resume={"action": "settings", "data": {"section": "chat"}})
 
     async def settings_panel(self, actor, group_id, section, message_id=None):
         if section == "chat":
@@ -479,6 +529,7 @@ class BotAdmin:
             buttons,
             group_id,
             message_id,
+            resume={"action": "settings", "data": {"section": section}},
         )
 
     async def emoji_packs_panel(self, actor, group_id, page=0, message_id=None):
@@ -503,6 +554,7 @@ class BotAdmin:
             + ("当前条目：\n" + "\n".join(visible) if packs else "当前名单为空。")
             + "\n移除或清空名单不会自动解除已有禁言。",
             buttons, group_id, message_id,
+            resume={"action": "emoji_packs", "data": {"page": page}},
         )
 
     async def list_panel(self, actor, group_id, kind, page=0, message_id=None):
@@ -561,7 +613,8 @@ class BotAdmin:
         if count > page * 5 + 5:
             buttons.append(button("下一页", "list", kind=kind, page=page + 1))
         buttons.append(button("返回群管理", "group", id=group_id))
-        await self.panel(actor, "\n".join(lines), buttons, group_id, message_id)
+        await self.panel(actor, "\n".join(lines), buttons, group_id, message_id,
+                         resume={"action": "list", "data": {"kind": kind, "page": page}})
 
     async def detail(self, actor, group_id, kind, identifier, message_id=None):
         await self.management.authorize(actor, group_id)
@@ -694,7 +747,8 @@ class BotAdmin:
             elif row.kind in ("retry", "retry_event"):
                 text += f"\n目标记录：{result.get('event_id', result.get('action_id', '—'))}"
         buttons.append(button("返回列表", "list", kind=kind))
-        await self.panel(actor, text, buttons, group_id, message_id)
+        await self.panel(actor, text, buttons, group_id, message_id,
+                         resume={"action": "detail", "data": {"kind": kind, "id": identifier}})
 
     async def prompt(self, actor, group_id, data):
         await self.management.authorize(actor, group_id, write=True)
@@ -945,6 +999,7 @@ class BotAdmin:
                 button("返回选群", "groups"),
             ],
             message_id=message_id,
+            resume={"action": "system", "data": {}},
         )
 
     async def failures(self, actor, event=False, page=0, message_id=None):
@@ -975,7 +1030,8 @@ class BotAdmin:
         if len(rows) > 5:
             buttons.append(button("下一页", "failures", event=event, page=page + 1))
         buttons.append(button("返回系统状态", "system"))
-        await self.panel(actor, text, buttons, message_id=message_id)
+        await self.panel(actor, text, buttons, message_id=message_id,
+                         resume={"action": "failures", "data": {"event": event, "page": page}})
 
     async def route(self, actor, token, record, message_id):
         action, group_id, data = record["action"], record["group_id"], record["data"]
@@ -1133,7 +1189,42 @@ class BotAdmin:
             result = await self.management.backup(actor, request_id)
             await self.send(actor, f"一致性备份已保存：{result['file']}")
         else:
-            raise ManagementError(422, "此按钮不再可用，请发送 /admin 刷新")
+            if group_id is not None:
+                await self.group_panel(actor, group_id, message_id)
+            else:
+                await self.choose_groups(actor, message_id=message_id)
+
+    @staticmethod
+    def legacy_resume(record):
+        action, group_id, data = record["action"], record["group_id"], record["data"]
+        if action in ("chat_toggle", "chat_reset"):
+            return {"action": "settings", "data": {"section": "chat"}}
+        if action in ("toggle", "failure_policy"):
+            return {"action": "settings", "data": {"section": data.get("section", "verification")}}
+        if action in ("archive_toggle", "archive_export"):
+            return {"action": "archive", "data": {"filters": data.get("filters", {})}}
+        if action in ("rule_toggle", "rule_mode", "rule_scope", "white_toggle"):
+            return {"action": "detail", "data": {"kind": "whitelist" if action == "white_toggle" else "rule",
+                                                  "id": data["id"]}}
+        if action == "emoji_pack_remove":
+            return {"action": "emoji_packs", "data": {"page": data.get("page", 0)}}
+        if action == "group_access":
+            return {"action": "access_panel", "data": {"id": data["id"]}}
+        if action == "retry":
+            return {"action": "failures", "data": {"event": data.get("event", False)}}
+        if action == "backup":
+            return {"action": "system", "data": {}}
+        return ({"action": "group", "data": {"id": group_id}} if group_id is not None
+                else {"action": "groups", "data": {}})
+
+    async def resume_panel(self, actor, token, record, message_id):
+        if record["action"] == "execute":
+            return await self.confirmation(actor, record["group_id"], record["data"], message_id)
+        if record["action"] == "emoji_packs_clear":
+            resume = {"action": "emoji_packs_clear_confirm", "data": {}}
+        else:
+            resume = record.get("resume") or self.legacy_resume(record)
+        await self.route(actor, token, {**record, **resume}, message_id)
 
     async def callback(self, query):
         if not query.get("data", "").startswith("a:"):
@@ -1145,8 +1236,19 @@ class BotAdmin:
                 raise ManagementError(403, "请在与机器人的私聊中操作管理面板")
             token = query["data"][2:]
             record = await self.recall(f"bot_button:{token}")
-            if not record or record["actor"] != actor or record["expires"] <= now():
-                raise ManagementError(403, "按钮已过期或不属于你，请发送 /admin 重新打开")
+            if not record:
+                group_id = await self.recall(f"bot_selected:{actor}")
+                resume = self.legacy_resume({"action": "missing", "group_id": group_id, "data": {}})
+                await self.management.service.acknowledge(query["id"], "正在恢复管理面板")
+                await self.route(actor, token, {**resume, "group_id": group_id}, message.get("message_id"))
+                return True
+            if record["actor"] != actor:
+                raise ManagementError(403, "此按钮属于其他管理员，请使用你自己的管理面板")
+            expires = record.get("expires")
+            if record["action"] not in NAVIGATION_ACTIONS and expires is not None and expires <= now():
+                await self.management.service.acknowledge(query["id"], "已接续面板，请核对后再次选择要执行的操作")
+                await self.resume_panel(actor, token, record, message.get("message_id"))
+                return True
             await self.management.service.acknowledge(query["id"], "正在处理")
             await self.route(actor, token, record, message.get("message_id"))
         except (ManagementError, ValidationError) as exc:
@@ -1241,7 +1343,7 @@ class BotAdmin:
                     except ManagementError:
                         await self.send(
                             chat_id,
-                            "入群验证请在机器人发出的验证码图片下方使用数字键盘作答。群管理员可发送 /admin；查看自己的数字 ID 请发送 /id。",
+                            "入群验证请在验证码图片下方选择与图片数字相同的完整答案，点击一次即可。群管理员可发送 /admin；查看自己的数字 ID 请发送 /id。",
                         )
                         return True
                     await self.choose_groups(actor)

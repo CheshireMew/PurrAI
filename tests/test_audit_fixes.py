@@ -19,8 +19,11 @@ async def challenge(env):
     _, db, _, service = env
     await service.member_event(join())
     await drain(service)
-    async with db.sessions() as session:
-        return await session.scalar(select(Verification))
+    async with db.transaction() as session:
+        verification = await session.scalar(select(Verification))
+        # These regressions cover persisted callbacks from the old digit keyboard.
+        verification.choices = []
+        return verification
 
 
 def callback(v, update_id=102):
@@ -60,6 +63,8 @@ async def test_pa01_blocked_stream_cannot_hide_other_member_after_first_page(env
     await drain(service)
     async with db.sessions() as session:
         other = await session.scalar(select(Verification).where(Verification.user_id == 43))
+    async with db.transaction() as session:
+        (await session.get(Verification, other.id)).choices = []
     runtime = Runtime(db, tg, service)
     event = join(old="member", new="left")
     event["from"].update(is_bot=False, first_name="管理员")

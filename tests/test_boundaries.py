@@ -9,11 +9,11 @@ from conftest import drain, join
 from purrai import captcha
 from purrai.models import Action, Verification
 from purrai.telegram import ALL_PERMISSIONS
-from test_verification import enter_code, fixed_challenge, latest
+from test_verification import enter_code, legacy_challenge, fixed_challenge, latest
 
 
 async def test_duplicate_callback_is_applied_once_even_when_ack_lost(env, monkeypatch):
-    verification = await fixed_challenge(env, monkeypatch)
+    verification = await legacy_challenge(env, monkeypatch)
     _, database, telegram, service = env
     telegram.fail["answer_callback_query"] = 1
     query = {"id": "same-event", "from": {"id": 42}, "data": f"v:{verification.id}:{verification.nonce}:1"}
@@ -95,7 +95,7 @@ async def test_rate_limit_uses_telegram_retry_after(env, monkeypatch):
 
 
 async def test_timeout_and_correct_submit_cannot_both_apply(env, monkeypatch):
-    verification = await fixed_challenge(env, monkeypatch)
+    verification = await legacy_challenge(env, monkeypatch)
     _, database, telegram, service = env
     for digit in "123456":
         await service.callback(

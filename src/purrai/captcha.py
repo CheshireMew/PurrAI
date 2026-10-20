@@ -32,10 +32,24 @@ def make_image() -> tuple[str, bytes]:
     return code, output.getvalue()
 
 
-def keyboard(verification_id: str, nonce: str) -> dict:
+def make_choices(code: str) -> list[str]:
+    choices = {code}
+    while len(choices) < 6:
+        choices.add(f"{secrets.randbelow(1_000_000):06d}")
+    choices = list(choices)
+    secrets.SystemRandom().shuffle(choices)
+    return choices
+
+
+def keyboard(verification_id: str, nonce: str, choices=()) -> dict:
     def button(text: str, key: str):
         return {"text": text, "callback_data": f"v:{verification_id}:{nonce}:{key}"}
 
+    if choices:
+        buttons = [button(code, f"c{index}") for index, code in enumerate(choices)]
+        return {"inline_keyboard": [buttons[start:start + 2] for start in range(0, len(buttons), 2)]}
+
+    # Keep already-issued digit keyboards working until their verification ends.
     return {
         "inline_keyboard": [[button(str(n), str(n)) for n in range(start, start + 3)] for start in (1, 4, 7)]
         + [[button("退格", "back"), button("0", "0"), button("提交", "ok")]]
@@ -51,17 +65,22 @@ def caption(
     join_request=False,
     group_title="",
     failure_action="permanent_mute",
+    multiple_choice=True,
 ) -> str:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     time_text = datetime.fromtimestamp(deadline, ZoneInfo("Asia/Shanghai")).strftime("%H:%M:%S")
     return (f"入群申请 · {group_title[:80]}\n" if join_request else "") + (
-        f"{name[:60]}，欢迎加入！请用下方键盘输入图片中的 6 位数字。\n"
-        "⚠️ 注意：图片预览可能不完整，请点击图片查看全部 6 位数字，再返回下方键盘输入。\n"
-        f"已输入：{'●' * len(digits)}{'○' * (6 - len(digits))}\n"
-        "可连续按键，输入满 6 位后点提交，无需等待圆点刷新。\n"
-        f"剩余提交次数：{maximum - attempts} · 截止 {time_text}（北京时间）\n"
+        (
+            f"{name[:60]}，欢迎加入！请点击下方与图片中 6 位数字完全相同的答案。\n"
+            "只需选择一次，无需逐位输入或再次提交。图片看不清时可点击放大。\n"
+            if multiple_choice
+            else f"{name[:60]}，欢迎加入！请用下方键盘输入图片中的 6 位数字。\n"
+            f"已输入：{'●' * len(digits)}{'○' * (6 - len(digits))}\n"
+            "请等按钮回应后继续输入，满 6 位后点提交。\n"
+        )
+        + f"剩余作答次数：{maximum - attempts} · 截止 {time_text}（北京时间）\n"
         + (
             "完成验证后批准入群。只有你本人能够操作。"
             if join_request

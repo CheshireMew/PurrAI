@@ -16,7 +16,14 @@ async def latest(database):
 
 
 async def enter_code(service, verification, code, user_id=42):
-    for key in list(code) + ["ok"]:
+    if verification.choices:
+        if code not in verification.choices:
+            code = next(value for value in verification.choices
+                        if captcha.digest(value, verification.nonce) != verification.answer_hash)
+        keys = [f"c{verification.choices.index(code)}"]
+    else:
+        keys = list(code) + ["ok"]
+    for key in keys:
         await service.callback(
             {
                 "id": f"cb-{uid()}",
@@ -32,6 +39,12 @@ async def fixed_challenge(env, monkeypatch):
     await service.member_event(join())
     await drain(service)
     return await latest(database)
+
+
+async def legacy_challenge(env, monkeypatch):
+    # Exercise the compatibility path for digit keyboards issued before upgrade.
+    monkeypatch.setattr(captcha, "make_choices", lambda code: [])
+    return await fixed_challenge(env, monkeypatch)
 
 
 async def test_full_verification_preserves_group_permissions(env, monkeypatch):
@@ -167,7 +180,7 @@ def test_real_captcha_is_readable_png_and_callbacks_fit_telegram():
     assert (
         max(
             len(b["callback_data"].encode())
-            for r in captcha.keyboard("a" * 32, "b" * 8)["inline_keyboard"]
+            for r in captcha.keyboard("a" * 32, "b" * 8, captcha.make_choices(code))["inline_keyboard"]
             for b in r
         )
         <= 64

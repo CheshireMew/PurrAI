@@ -159,7 +159,8 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014"
+        assert json.loads(connection.execute("SELECT choices FROM verifications").fetchone()[0]) == []
         assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0
         assert connection.execute("SELECT present,last_event_id FROM members").fetchone() == (1, 0)
