@@ -1,0 +1,19 @@
+[Unit]
+Description=PurrAI Telegram group verification and moderation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=purrai
+Group=purrai
+WorkingDirectory=/opt/purrai
+EnvironmentFile=/etc/purrai.env
+ExecStart=/opt/purrai/.venv/bin/purrai run --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
