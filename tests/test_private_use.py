@@ -235,7 +235,7 @@ async def test_model_output_limit_cannot_be_overridden_by_vendor_options(env):
 
     def handler(request):
         requests.append(json.loads(request.content))
-        return httpx.Response(200, json={"choices": [{"message": {"content": '{"reply":null}'}}],
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"should_reply":true,"reply":null}'}}],
                                         "usage": {"total_tokens": 17}})
 
     model = ChatModel(settings, transport=httpx.MockTransport(handler))

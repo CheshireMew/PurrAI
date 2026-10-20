@@ -12,6 +12,7 @@ class ChatReply:
     text: str | None = None
     sticker: str | None = None
     total_tokens: int | None = None
+    should_reply: bool = True
 
 
 class ChatModelError(Exception):
@@ -72,18 +73,20 @@ class ChatModel:
             if content.startswith("```"):
                 content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             result = json.loads(content)
-            if not isinstance(result, dict) or "reply" not in result:
-                raise ValueError
-            reply = result["reply"]
-            if reply is not None and not isinstance(reply, str):
-                raise ValueError
-            sticker = result.get("sticker")
-            if sticker is not None and (not isinstance(sticker, str) or not sticker.strip() or len(sticker) > 64):
+            if not isinstance(result, dict) or type(result.get("should_reply")) is not bool:
                 raise ValueError
             usage = data.get("usage") or {}
             total_tokens = usage.get("total_tokens")
             if type(total_tokens) is not int or total_tokens < 0:
                 total_tokens = None
+            if not result["should_reply"]:
+                return ChatReply(total_tokens=total_tokens, should_reply=False)
+            reply = result.get("reply")
+            if reply is not None and not isinstance(reply, str):
+                raise ValueError
+            sticker = result.get("sticker")
+            if sticker is not None and (not isinstance(sticker, str) or not sticker.strip() or len(sticker) > 64):
+                raise ValueError
             return ChatReply((reply.strip()[:800] or None) if reply else None,
                              sticker.strip() if sticker else None, total_tokens)
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:

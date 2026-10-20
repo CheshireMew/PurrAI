@@ -16,7 +16,7 @@ from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, Meta, V
 from purrai.schemas import GroupSettings
 from purrai.stickers import DEFAULT_CHAT_PACKS, emoji_key, pack_name, sticker_emojis
 from test_bot_admin import click, deliver, markup, open_group, private
-from test_chat import configured, due
+from test_chat import age_reply, configured, due
 
 
 def item(identifier, emoji="😸", name="myadestes"):
@@ -64,7 +64,7 @@ def test_defaults_and_link_validation():
         GroupSettings(chat_sticker_packs=["https://t.me/addemoji/not-a-sticker"])
 
 
-async def test_chat_sends_one_sticker_and_keeps_only_short_meaning_in_context(env):
+async def test_chat_sends_text_then_sticker_and_keeps_both_in_context(env):
     chat, model = await configured(env, chat_proactive=False)
     model.result = ChatReply("周末出去玩吧！", "😸")
     await cache(chat)
@@ -74,14 +74,16 @@ async def test_chat_sends_one_sticker_and_keeps_only_short_meaning_in_context(en
     sent = [data for method, data in chat.tg.calls if method == "send_sticker"]
     assert len(sent) == 1 and sent[0]["sticker"] == "file-1"
     assert sent[0]["message_thread_id"] == 77 and sent[0]["reply_parameters"]["message_id"] == 1
-    assert not any(method == "send_message" for method, _ in chat.tg.calls)
+    outgoing = [(method, data) for method, data in chat.tg.calls if method in ("send_message", "send_sticker")]
+    assert [method for method, _ in outgoing] == ["send_message", "send_sticker"]
+    assert outgoing[0][1]["text"] == "周末出去玩吧！"
     assert len(model.calls) == 1 and model.calls[0][1]["sticker_emojis"] == ["😸"]
     assert "file-1" not in model.payloads[0] and "myadestes" not in model.payloads[0]
     async with chat.db.sessions() as session:
-        own = await session.scalar(select(ChatMessage).where(ChatMessage.is_bot))
-        assert own.text == "[贴纸 😸]"
-        archived = await session.scalar(select(ArchivedMessage))
-        assert archived.message_type == "sticker" and archived.text == ""
+        own = (await session.scalars(select(ChatMessage).where(ChatMessage.is_bot).order_by(ChatMessage.id))).all()
+        assert [row.text for row in own] == ["周末出去玩吧！", "[贴纸 😸]"]
+        archived = (await session.scalars(select(ArchivedMessage).order_by(ArchivedMessage.message_id))).all()
+        assert [row.message_type for row in archived] == ["text", "sticker"]
     await state(chat, last_sticker=now() - 70)
     await cache(chat, items=[item(1), item(2, "🐱")])
     model.result = ChatReply("喵", "🐱")
@@ -122,7 +124,7 @@ async def test_stickers_have_group_wide_cooldown_across_topics(env):
     await due(chat)
     await asyncio.gather(chat.run_one(), chat.run_one())
     assert len([1 for method, _ in chat.tg.calls if method == "send_sticker"]) == 1
-    assert len([1 for method, _ in chat.tg.calls if method == "send_message"]) == 1
+    assert len([1 for method, _ in chat.tg.calls if method == "send_message"]) == 2
 
 
 async def test_sticker_rate_limit_reuses_same_file_and_model_reply_after_restart(env):
@@ -182,7 +184,7 @@ async def test_unknown_send_result_is_not_retried(env):
     await chat.run_one()
     await chat.recover()
     assert not await chat.run_one()
-    assert not any(method == "send_message" for method, _ in chat.tg.calls)
+    assert [data["text"] for method, data in chat.tg.calls if method == "send_message"] == ["备用文字"]
     async with chat.db.sessions() as session:
         assert await session.scalar(select(ChatTurn.state)) == "failed"
 
@@ -288,14 +290,15 @@ async def test_chat_uses_sticker_tag_outside_old_emotion_categories(env):
     assert [data["sticker"] for method, data in chat.tg.calls if method == "send_sticker"] == ["file-1"]
 
 
-async def test_ordinary_emoji_text_is_unrestricted_by_sticker_catalog(env):
+async def test_inline_emoji_is_removed_when_no_matching_sticker_is_available(env):
     chat, model = await configured(env)
     text = "喝杯咖啡歇歇 ☕😌🙊👨🏿‍🎓🎉🫪"
     model.result = ChatReply(text)
     await chat.observe(message(1, "柴郡喵休息一下"))
     await due(chat)
     await chat.run_one()
-    assert [data["text"] for method, data in chat.tg.calls if method == "send_message"] == [text]
+    assert [data["text"] for method, data in chat.tg.calls if method == "send_message"] == ["喝杯咖啡歇歇"]
+    assert not any(method == "send_sticker" for method, _ in chat.tg.calls)
 
 
 async def test_active_group_reminder_sends_once_without_model_or_chat_context(env, monkeypatch):
@@ -417,6 +420,7 @@ async def test_disabling_stickers_during_rate_limit_uses_saved_fallback(env):
     async with chat.db.transaction() as session:
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "chat_stickers": False}
+    await age_reply(chat)
     await due(chat)
     await chat.run_one()
     assert len(model.calls) == 1
@@ -429,7 +433,7 @@ async def test_disabling_stickers_during_rate_limit_uses_saved_fallback(env):
 ])
 async def test_model_sticker_contract(sticker, valid):
     model = ChatModel(Settings(_env_file=None, chat_api_key="offline"), httpx.MockTransport(lambda _: httpx.Response(
-        200, json={"choices": [{"message": {"content": json.dumps({"reply": None, "sticker": sticker})}}]},
+        200, json={"choices": [{"message": {"content": json.dumps({"should_reply": True, "reply": None, "sticker": sticker})}}]},
     )))
     try:
         if valid:
