@@ -66,6 +66,7 @@ class Member(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     joined_at: Mapped[float] = mapped_column(Float, default=now)
+    join_observed: Mapped[bool] = mapped_column(Boolean, default=False)
     passed_at: Mapped[float] = mapped_column(Float, default=0)
     generation: Mapped[str] = mapped_column(String, default=uid)
     owned_restriction: Mapped[dict | None] = mapped_column(JSON, nullable=True)

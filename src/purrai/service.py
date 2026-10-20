@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from purrai import captcha
 from purrai.emoji_status import EmojiStatusGuard
-from purrai.media_gate import remember_text, text_count_before, visual_media
+from purrai.media_gate import completed_text_count, remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.archive import capture, deletion_result, mark_reasons
 from purrai.models import (
     Action,
@@ -261,6 +261,7 @@ class Service:
                     approved.previous_permissions = {**approved.previous_permissions, "entry_consumed": True}
                     approved.state, approved.error, approved.updated_at = "passed", "", now()
                     member.present, member.joined_at, member.passed_at = True, event["date"], now()
+                    member.join_observed = True
                     member.last_event_id, member.request_until = event_id, 0
                     await self.cleanup(session, approved)
                     pending = (
@@ -283,6 +284,7 @@ class Service:
                 member = Member(group_id=group.id, user_id=user["id"])
                 session.add(member)
             member.joined_at = event["date"]
+            member.join_observed = True
             member.last_event_id = event_id
             member.present = True
             member.generation = uid()
@@ -403,6 +405,7 @@ class Service:
                 item.state = "superseded"
                 await self.cleanup(session, item)
             member.generation, member.present, member.passed_at = uid(), False, 0
+            member.join_observed = False
             member.joined_at, member.observed_messages, member.last_event_id = event["date"], 0, event_id
             member.owned_restriction, member.restriction_conflict = None, False
             white = await session.get(Whitelist, (group.id, user["id"]))
@@ -733,12 +736,12 @@ class Service:
                 )
                 return
             minimum = group.settings.get("media_min_text_messages", 3)
-            if minimum and visual_media(message):
+            if minimum and restricted_newcomer(member, now()) and visual_media(message):
                 count = await text_count_before(session, message, minimum)
                 if count < minimum:
                     if not admin_checked:
                         return True
-                    await self.delete_early_media(session, group, message, edited, update_id, count, minimum)
+                    await self.delete_early_media(session, group, member, message, edited, update_id, count, minimum)
                     return
         text, urls = message_content(message)
         generation = member.generation if member else ""
@@ -914,7 +917,7 @@ class Service:
             violation.reasons = list(dict.fromkeys(violation.reasons + reasons))
         await self.apply_penalty(session, group, violation, member)
 
-    async def delete_early_media(self, session, group, message, edited, update_id, count, minimum):
+    async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):
         reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片或表情整条消息"
         await mark_reasons(session, message, edited, update_id, [reason])
         violation = await session.scalar(
@@ -951,8 +954,25 @@ class Service:
             f"delete:{violation.id}",
             group.id,
             message["from"]["id"],
-            {"message_id": message["message_id"], "violation_id": violation.id},
+            {"message_id": message["message_id"], "violation_id": violation.id,
+             "media_gate": True, "generation": member.generation},
             1,
+        )
+
+    async def media_gate_exemption(self, session, action, group, member):
+        if action.actor_id or not group or action.payload.get("chat_id", group.id) != group.id:
+            return False
+        violation = await session.get(Violation, action.payload.get("violation_id", ""))
+        # Also recognize queued tasks from before this update. A combined
+        # advertising/profile violation must still follow its own policy.
+        if not violation or violation.profile_violation or not violation.reasons or not all(
+            reason.startswith("独立文字发言不足 ") for reason in violation.reasons
+        ):
+            return False
+        minimum = group.settings.get("media_min_text_messages", 3)
+        return (
+            not group.enabled or not minimum or not restricted_newcomer(member, now())
+            or await completed_text_count(session, group.id, action.user_id) >= minimum
         )
 
     async def apply_penalty(self, session, group, violation, member, actor_id=None, reason=""):
@@ -1462,6 +1482,9 @@ class Service:
             )
             member.owned_restriction = None
         elif action.kind == "delete":
+            if await self.media_gate_exemption(session, action, group, member):
+                action.state, action.error = "cancelled", "成员已免除新成员发图门槛"
+                return
             try:
                 await self.action_call(session, action, 
                     "delete_message",

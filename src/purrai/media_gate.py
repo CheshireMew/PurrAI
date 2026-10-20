@@ -13,6 +13,24 @@ EMOJI = re.compile(
     "[\U0001f000-\U0001faff\u2300-\u23ff\u2600-\u27bf\u2b00-\u2bff\u00a9\u00ae\u203c\u2049\u2122\u2139\u3030\u303d\u3297\u3299]"
 )
 MEDIA = ("photo", "sticker", "animation")
+NEW_MEMBER_SECONDS = 15 * 86400
+
+
+def restricted_newcomer(member, at):
+    return bool(
+        member
+        and member.present
+        and member.join_observed
+        and 0 < member.joined_at <= at < member.joined_at + NEW_MEMBER_SECONDS
+    )
+
+
+async def completed_text_count(session, group_id, user_id):
+    return await session.scalar(
+        select(func.count()).select_from(MemberText).where(
+            MemberText.group_id == group_id, MemberText.user_id == user_id
+        )
+    )
 
 
 def visible_text(message):

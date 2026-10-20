@@ -4,9 +4,16 @@ import pytest
 from sqlalchemy import select
 
 from conftest import drain, join, message
-from purrai.models import Action, ArchivedMessage, Group, Inbox, MemberText, Rule, Violation, Whitelist
+from purrai.models import Action, ArchivedMessage, Group, Inbox, Member, MemberText, Rule, Violation, Whitelist
 from purrai.runtime import Runtime
 from purrai.service import Service
+
+
+@pytest.fixture(autouse=True)
+async def observed_newcomer(env):
+    async with env[1].transaction() as session:
+        session.add(Member(group_id=-1001, user_id=42, joined_at=time.time() - 60,
+                           join_observed=True, passed_at=time.time()))
 
 
 def photo(identifier, caption="", user_id=42):
@@ -72,6 +79,7 @@ async def test_third_distinct_text_unlocks_media_and_caption_does_not_count(env)
     await service.message(photo(2, "第二句图片说明"))
     await service.message(message(3, "第二句"))
     await service.message(photo(4))
+    await drain(service)
     await service.message(message(5, "第三句"))
     await service.message(photo(6, "这条图片可以发送"))
     await drain(service)
@@ -105,6 +113,7 @@ async def test_text_credit_survives_restart_and_rejoin_but_is_group_local(env):
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "verification_enabled": False}
         session.add(Group(approved=True, id=-1002, title="其他群", settings=group.settings, enabled=True))
+        session.add(Member(group_id=-1002, user_id=42, joined_at=time.time() - 60, join_observed=True))
     await restarted.member_event(join(date=time.time() + 1))
     await restarted.message(photo(20))
     incoming = photo(20)
@@ -122,6 +131,7 @@ async def test_archive_disabled_still_tracks_text_and_caption_deleted_whole(env)
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "archive_enabled": False}
     await service.message(photo(1, "说明文字一起删"))
+    await drain(service)
     await speak(service, start=2)
     await service.message(photo(10))
     await drain(service)
@@ -169,6 +179,7 @@ async def test_media_threshold_can_be_changed_or_disabled(env):
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "media_min_text_messages": 1}
     await service.message(photo(1))
+    await drain(service)
     await service.message(message(2, "第一句"))
     await service.message(photo(3))
     async with database.transaction() as session:
@@ -275,3 +286,105 @@ async def test_setting_via_bot_changes_actual_media_gate(env):
     await service.message(photo(1001))
     await drain(service)
     assert not deleted(telegram)
+
+
+@pytest.mark.parametrize("known,age,restricted", [
+    (True, 0, True), (True, 15 * 86400 - 1, True),
+    (True, 15 * 86400, False), (True, 30 * 86400, False),
+    (False, 60, False), (False, 30 * 86400, False), (True, -60, False),
+])
+async def test_media_gate_applies_only_to_reliably_observed_recent_joins(env, monkeypatch, known, age, restricted):
+    _, db, tg, svc = env
+    at = time.time()
+    monkeypatch.setattr("purrai.service.now", lambda: at)
+    async with db.transaction() as session:
+        member = await session.get(Member, (-1001, 42))
+        member.joined_at, member.join_observed = at - age, known
+    await svc.message(photo(10))
+    await drain(svc)
+    assert deleted(tg) == ([10] if restricted else [])
+
+
+async def test_no_membership_record_exempts_media_but_advertising_is_still_deleted(env):
+    _, db, tg, svc = env
+    async with db.transaction() as session:
+        session.add(Rule(group_id=-1001, kind="keyword", value="广告"))
+    await svc.message(photo(1, user_id=45))
+    await svc.message(photo(2, "广告", user_id=45))
+    await drain(svc)
+    assert deleted(tg) == [2]
+    async with db.sessions() as session:
+        assert await session.get(Member, (-1001, 45)) is None
+
+
+async def test_observed_entry_starts_tenure_even_without_captcha_and_survives_restart(env):
+    settings, db, tg, svc = env
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "verification_enabled": False}
+    await svc.member_event(join(user_id=45), event_id=50)
+    restarted = Service(db, tg, settings)
+    await restarted.message(photo(1, user_id=45))
+    await drain(restarted)
+    assert deleted(tg) == [1]
+    async with db.sessions() as session:
+        assert (await session.get(Member, (-1001, 45))).join_observed
+
+
+@pytest.mark.parametrize("change", ["texts", "age", "unknown", "disabled", "threshold", "rejoin", "legacy"])
+async def test_queued_media_deletion_rechecks_current_eligibility(env, change):
+    _, db, tg, svc = env
+    await svc.message(photo(10))
+    async with db.transaction() as session:
+        action = await session.scalar(select(Action).where(Action.kind == "delete"))
+        assert action and action.state == "pending"
+        member = await session.get(Member, (-1001, 42))
+        group = await session.get(Group, -1001)
+        if change == "age":
+            member.joined_at = time.time() - 15 * 86400
+        elif change in ("unknown", "legacy"):
+            member.join_observed = False
+        elif change == "disabled":
+            group.settings = {**group.settings, "media_min_text_messages": 0}
+        elif change == "threshold":
+            group.settings = {**group.settings, "media_min_text_messages": 1}
+        elif change == "rejoin":
+            member.generation = "new-entry"
+        if change == "legacy":
+            action.payload = {key: value for key, value in action.payload.items()
+                              if key not in ("media_gate", "generation")}
+    if change == "texts":
+        await speak(svc, start=11)
+    elif change == "threshold":
+        await svc.message(message(11, "有效文字"))
+    await drain(svc)
+    assert not deleted(tg)
+    async with db.sessions() as session:
+        assert (await session.scalar(select(Action).where(Action.kind == "delete"))).state == "cancelled"
+
+
+async def test_queued_media_exemption_does_not_cancel_an_advertising_violation(env):
+    _, db, tg, svc = env
+    async with db.transaction() as session:
+        session.add(Rule(group_id=-1001, kind="keyword", value="广告"))
+        (await session.get(Member, (-1001, 42))).join_observed = False
+    await svc.message(photo(10, "广告"))
+    await speak(svc, start=11)
+    await drain(svc)
+    assert deleted(tg) == [10]
+
+
+async def test_media_eligibility_is_rechecked_after_slow_telegram_role_lookup(env, monkeypatch):
+    _, db, tg, svc = env
+    await svc.message(photo(10))
+    original = tg.call
+
+    async def changed(method, **kwargs):
+        if method == "get_chat_member" and kwargs.get("user_id") == 42:
+            async with db.transaction() as session:
+                (await session.get(Member, (-1001, 42))).joined_at = time.time() - 15 * 86400
+        return await original(method, **kwargs)
+
+    monkeypatch.setattr(tg, "call", changed)
+    await drain(svc)
+    assert not deleted(tg)

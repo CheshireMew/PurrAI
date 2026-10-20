@@ -216,6 +216,8 @@ test('发图文字门槛默认三条并可以逐群关闭', async ({ page }) => 
   await page.getByRole('button', { name: '群设置', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
   const field = dialog.locator('.el-form-item').filter({ hasText: '发图及表情前独立文字条数' }).getByRole('spinbutton')
+  await expect(dialog.getByText('发图门槛仅限有可靠入群记录的新成员', { exact: false })).toBeVisible()
+  await expect(dialog.getByText('或入群满 15 天即解除', { exact: false })).toBeVisible()
   await expect(field).toHaveValue('3')
   await field.fill('0'); await field.press('Tab')
   const saved = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))

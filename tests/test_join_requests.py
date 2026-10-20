@@ -46,6 +46,8 @@ async def test_request_is_verified_in_private_then_approved_without_group_mute(e
     await enter_code(service, verification, "123456")
     await drain(service)
     assert (await latest(database)).state == "passed"
+    async with database.sessions() as session:
+        assert not (await session.get(Member, (-1001, 42))).join_observed
     assert len([1 for method, _ in telegram.calls if method == "approve_chat_join_request"]) == 1
     assert any(method == "delete_message" and data["chat_id"] == 10042 for method, data in telegram.calls)
     await service.member_event(join(actor=telegram.user_id), event_id=99999)
@@ -53,6 +55,7 @@ async def test_request_is_verified_in_private_then_approved_without_group_mute(e
     assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
     async with database.sessions() as session:
         assert (await session.get(Member, (-1001, 42))).present
+        assert (await session.get(Member, (-1001, 42))).join_observed
         assert len((await session.scalars(select(Verification))).all()) == 1
 
 

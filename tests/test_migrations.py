@@ -159,7 +159,8 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013"
+        assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0
         assert connection.execute("SELECT present,last_event_id FROM members").fetchone() == (1, 0)
         assert connection.execute("SELECT observed_messages FROM members").fetchone()[0] == 1000000
@@ -242,5 +243,40 @@ def test_additional_status_pack_appends_without_replacing_existing_rules(tmp_pat
             rows = connection.execute(sa.text("SELECT settings FROM groups ORDER BY id")).scalars().all()
             for saved, packs in zip(rows, expected, strict=True):
                 assert json.loads(saved) == {"emoji_status_blocked_packs": packs, "repeat_count": 9}
+    finally:
+        engine.dispose()
+
+
+def test_join_evidence_migration_keeps_unknown_and_manual_records_exempt(tmp_path, monkeypatch):
+    import importlib.util
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    script = Path(__file__).resolve().parents[1] / "migrations/versions/0013_observed_member_join.py"
+    spec = importlib.util.spec_from_file_location("observed_join", script)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'join-evidence.sqlite3'}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("CREATE TABLE members (group_id INTEGER, user_id INTEGER, joined_at FLOAT, generation TEXT)"))
+            connection.execute(sa.text("CREATE TABLE verifications (group_id INTEGER, user_id INTEGER, generation TEXT, flow TEXT, previous_permissions JSON)"))
+            for identifier in range(1, 7):
+                connection.execute(sa.text("INSERT INTO members VALUES (-1001,:id,:joined,'current')"),
+                                   {"id": identifier, "joined": 0 if identifier == 6 else 100})
+            for identifier, generation, flow, permissions in [
+                (2, "current", "joined", {}),
+                (3, "current", "join_request", {"entry_consumed": True}),
+                (4, "current", "join_request", {}),
+                (5, "prior", "joined", {}),
+                (6, "current", "joined", {}),
+            ]:
+                connection.execute(sa.text("INSERT INTO verifications VALUES (-1001,:id,:generation,:flow,:permissions)"),
+                                   {"id": identifier, "generation": generation, "flow": flow,
+                                    "permissions": json.dumps(permissions)})
+            monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+            migration.upgrade()
+            assert connection.execute(sa.text("SELECT join_observed FROM members ORDER BY user_id")).scalars().all() == [0, 1, 1, 0, 0, 0]
     finally:
         engine.dispose()

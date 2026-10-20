@@ -57,7 +57,7 @@ async def test_all_message_filters_exempt_current_owner_and_admin(env, monkeypat
     await rules(db)
     await profile_api(tg, monkeypatch)
     async with db.transaction() as session:
-        session.add(Member(group_id=-1001, user_id=42, joined_at=now(), passed_at=now()))
+        session.add(Member(group_id=-1001, user_id=42, joined_at=now(), join_observed=True, passed_at=now()))
     tg.members[(-1001, 42)] = {"status": role}
     incoming = message(1, "普通内容")
     if variant == "nickname":
@@ -148,6 +148,8 @@ async def test_queued_tasks_recheck_role_even_without_promotion_update(env, monk
     elif variant == "profile":
         incoming["from"]["first_name"] = "推广"
     elif variant == "media":
+        async with db.transaction() as session:
+            session.add(Member(group_id=-1001, user_id=42, joined_at=now(), join_observed=True))
         incoming["photo"] = [{"file_id": "image"}]
     elif variant == "keyword":
         incoming["text"] = "广告"
