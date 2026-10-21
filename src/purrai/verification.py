@@ -18,7 +18,7 @@ from purrai.models import (
     now,
     uid,
 )
-from purrai.verification_cleanup import cleanup
+from purrai.verification_cleanup import cleanup, observe_callback_prompt
 from purrai.verification_progress import queue_progress
 from purrai.verification_state import ACTIVE
 
@@ -122,6 +122,8 @@ class VerificationService:
     async def apply_callback(self, session, query, identifier, nonce, key):
         answer = "验证已失效，请联系管理员重新出题。"
         verification = await session.get(Verification, identifier)
+        if verification:
+            await observe_callback_prompt(session, verification, query, nonce, self.tg.user_id)
         if verification and verification.user_id != query["from"]["id"]:
             answer = "只有被验证者本人能够操作。"
         elif verification and verification.state == "pending" and verification.nonce == nonce:

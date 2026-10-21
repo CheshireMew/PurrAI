@@ -14,11 +14,12 @@ FOLLOWUP_WINDOW = 90
 REPLY_INTERVAL = 8
 
 
-def following_up(state, sender_id, received_at):
+def following_up(state, sender_id, received_at, *, allow_join=False):
     # Classify when the message arrived, so waiting for a worker cannot turn a
     # timely continuation into an unrelated ambient message.
     return (
-        state.get("last_user") == sender_id
+        (state.get("last_user") == sender_id or allow_join)
+        and state.get("last_reply", 0) > 0
         and received_at - state.get("last_reply", 0) < FOLLOWUP_WINDOW
     )
 

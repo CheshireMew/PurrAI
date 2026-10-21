@@ -68,7 +68,7 @@ async def test_chat_sends_text_then_sticker_and_keeps_both_in_context(env):
     chat, model = await configured(env, chat_proactive=False)
     model.result = ChatReply("周末出去玩吧！", "😸")
     await cache(chat)
-    await chat.observe(message(1, "柴郡喵好开心呀", message_thread_id=77))
+    await chat.observe(message(1, "柴郡喵好开心呀", message_thread_id=77, is_topic_message=True))
     await due(chat)
     assert await chat.run_one()
     sent = [data for method, data in chat.tg.calls if method == "send_sticker"]
@@ -92,7 +92,7 @@ async def test_chat_sends_text_then_sticker_and_keeps_both_in_context(env):
         value = json.loads(row.value)
         value.update(last_reply=now() - 10, last_attempt=now() - 10)
         row.value = json.dumps(value)
-    await chat.observe(message(2, "柴郡喵你也卖个萌", message_thread_id=77))
+    await chat.observe(message(2, "柴郡喵你也卖个萌", message_thread_id=77, is_topic_message=True))
     await due(chat)
     assert await chat.run_one()
     assert [data["sticker"] for method, data in chat.tg.calls if method == "send_sticker"] == ["file-1", "file-2"]
@@ -119,8 +119,8 @@ async def test_stickers_have_group_wide_cooldown_across_topics(env):
     chat, model = await configured(env)
     await cache(chat, items=[item(1), item(2)])
     model.result = ChatReply("先文字接话", "😸")
-    await chat.observe(message(1, "柴郡喵你好", message_thread_id=77))
-    await chat.observe(message(2, "柴郡喵这里也在聊", message_thread_id=88))
+    await chat.observe(message(1, "柴郡喵你好", message_thread_id=77, is_topic_message=True))
+    await chat.observe(message(2, "柴郡喵这里也在聊", message_thread_id=88, is_topic_message=True))
     await due(chat)
     await asyncio.gather(chat.run_one(), chat.run_one())
     assert len([1 for method, _ in chat.tg.calls if method == "send_sticker"]) == 1

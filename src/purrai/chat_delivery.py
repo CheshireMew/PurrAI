@@ -30,9 +30,13 @@ class ChatDelivery:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
             if not valid:
                 current.state = "skipped"
+                current.error = "发送前，聊天设置或目标消息已变更"
+                logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             if not result.text and not result.sticker:
                 current.state = "silent"
+                current.error = "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容"
+                logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             cfg = GroupSettings.model_validate(group.settings)
             options = await self.stickers.options(session, turn.group_id, cfg)
@@ -55,11 +59,15 @@ class ChatDelivery:
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)
                 current.state = "silent"
+                current.error = "没有匹配的可发送贴纸"
+                logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
             return True
         async with self.db.transaction() as session:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
             if not valid:
                 current.state = "skipped"
+                current.error = "发送前，聊天设置或目标消息已变更"
+                logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             latest_cfg = GroupSettings.model_validate(group.settings)
             rules = (await session.scalars(select(Rule).where(Rule.group_id == turn.group_id))).all()
@@ -82,6 +90,8 @@ class ChatDelivery:
                 selected_sticker = None
             if not selected_sticker and not result.text:
                 current.state = "silent"
+                current.error = "发送前贴纸设置已变更，无可发送内容"
+                logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             current.response = json.dumps(
                 {
@@ -120,6 +130,8 @@ class ChatDelivery:
                 current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
                 if not valid:
                     current.state = "skipped"
+                    current.error = "发送贴纸前，聊天设置或目标消息已变更"
+                    logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                     return True
                 latest_cfg = GroupSettings.model_validate(group.settings)
                 options = await self.stickers.options(session, turn.group_id, latest_cfg)
@@ -133,8 +145,13 @@ class ChatDelivery:
             await self.send_sticker(turn, cfg, group, sender_id, selected_sticker, text_message_id, kwargs)
         async with self.db.transaction() as session:
             current = await session.get(ChatTurn, turn.id)
-            current.state, current.error = "done" if current.sent_message_id is not None else "silent", ""
+            current.state = "done" if current.sent_message_id is not None else "silent"
+            current.error = "" if current.state == "done" else "贴纸发送前设置已变更，无可发送内容"
             current.response = ""
+            logger.info(
+                "聊天发送结束 turn=%s group=%s state=%s sent_message=%s reason=%s",
+                turn.id, turn.group_id, current.state, current.sent_message_id, current.error,
+            )
         return True
 
     async def send_sticker(self, turn, cfg, group, sender_id, selected_sticker, text_message_id, kwargs):

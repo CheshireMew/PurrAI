@@ -62,7 +62,7 @@ async def test_fast_followups_merge_and_survive_restart_without_a_second_mention
 
 @pytest.mark.parametrize("values", [
     {"user_id": 43},
-    {"message_thread_id": 77},
+    {"message_thread_id": 77, "is_topic_message": True},
     {"reply_to_message": {"message_id": 500, "from": {"id": 43, "is_bot": False}}},
 ])
 async def test_continuation_does_not_capture_other_people_or_topics(env, values):

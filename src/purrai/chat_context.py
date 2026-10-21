@@ -178,7 +178,7 @@ class ChatContext:
                 "date": int(now()),
                 **({"sticker": sticker} if sticker else {"text": text}),
                 "reply_to_message": {"message_id": turn.message_id},
-                **({"message_thread_id": turn.topic_id} if turn.topic_id else {}),
+                **({"message_thread_id": turn.topic_id, "is_topic_message": True} if turn.topic_id else {}),
             },
             settings=self.settings,
         )

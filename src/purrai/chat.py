@@ -8,7 +8,7 @@ from contextlib import suppress
 from aiogram.exceptions import TelegramRetryAfter
 from sqlalchemy import delete, func, select, update
 
-from purrai.chat_budget import BudgetExceeded, ChatBudget
+from purrai.chat_budget import BudgetCooldown, BudgetExceeded, ChatBudget
 from purrai.chat_context import ChatContext
 from purrai.chat_delivery import ChatDelivery
 from purrai.chat_generation import ChatGeneration
@@ -64,7 +64,9 @@ class GroupChat:
                 return  # Editing and redelivery never create another reply.
             if not eligible or edited or not cfg.chat_enabled or not self.settings.chat_ready:
                 return
-            topic_id = message.get("message_thread_id") or 0
+            # Ordinary supergroup replies also carry a thread ID. Only forum
+            # topic messages belong to separate conversations and send targets.
+            topic_id = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
             await self.stickers.activity(session, group_id, topic_id, cfg.chat_antifraud_interval)
             reply = message.get("reply_to_message") or {}
             row = ChatMessage(
@@ -96,15 +98,28 @@ class GroupChat:
             _, state = await session_state(session, group_id, topic_id)
             direct = addressed(message, self.tg, cfg.chat_name)
             reply_elsewhere = bool(reply and reply.get("from", {}).get("id") != self.tg.user_id)
-            followup = not reply_elsewhere and following_up(state, sender["id"], row.received_at)
-            if not direct and not followup and (
-                not cfg.chat_proactive
-                or len(text) < 4
-                or now() < state.get("blocked_until", 0)
-                or now() - state.get("last_attempt", 0) < cfg.chat_interval
-            ):
-                return
+            followup = not reply_elsewhere and following_up(
+                state, sender["id"], row.received_at, allow_join=cfg.chat_proactive
+            )
+            if not direct and not followup:
+                reason = (
+                    "主动聊天关闭，且不是直接对话或续聊" if not cfg.chat_proactive
+                    else "普通插话内容过短" if len(text) < 4
+                    else "聊天失败后的暂停尚未结束" if now() < state.get("blocked_until", 0)
+                    else "主动插话冷却尚未结束"
+                    if now() - state.get("last_attempt", 0) < cfg.chat_interval else ""
+                )
+                if reason:
+                    logger.info(
+                        "聊天未进入模型 group=%s topic=%s message=%s reason=%s",
+                        group_id, topic_id, message_id, reason,
+                    )
+                    return
             if now() - message["date"] > 120:
+                logger.info(
+                    "聊天未进入模型 group=%s topic=%s message=%s reason=消息已过期",
+                    group_id, topic_id, message_id,
+                )
                 return  # Recovered history supplies context, never belated interjections.
             session.add(
                 ChatTurn(
@@ -182,10 +197,21 @@ class GroupChat:
                         or not self.settings.chat_ready
                     ):
                         item.state = "skipped"
+                        item.error = "聊天任务已过期或群聊天已停用"
+                        logger.info("聊天跳过 turn=%s group=%s reason=%s", item.id, item.group_id, item.error)
                 batch = [item for item in batch if item.state == "pending"]
                 if not batch:
                     continue
+                state_row, state = await session_state(session, *key)
                 leader = next((item for item in reversed(batch) if item.direct), batch[-1])
+                if not leader.direct and len(batch) > 1 and state.get("last_user"):
+                    continuing_ids = set(await session.scalars(select(ChatMessage.message_id).where(
+                        ChatMessage.group_id == first.group_id,
+                        ChatMessage.topic_id == first.topic_id,
+                        ChatMessage.sender_id == state["last_user"],
+                        ChatMessage.message_id.in_([item.message_id for item in batch]),
+                    )))
+                    leader = next((item for item in reversed(batch) if item.message_id in continuing_ids), leader)
                 partial = has_sent_text(leader)
                 target = await session.scalar(
                     select(ChatMessage).where(
@@ -203,8 +229,9 @@ class GroupChat:
                 ):
                     for item in batch:
                         item.state = "skipped"
+                        item.error = "目标消息已过期、失效或被群规则排除"
+                    logger.info("聊天跳过 turn=%s group=%s reason=%s", leader.id, leader.group_id, leader.error)
                     continue
-                state_row, state = await session_state(session, *key)
                 if (
                     now() < state.get("blocked_until", 0)
                     or not partial
@@ -215,7 +242,9 @@ class GroupChat:
                             state.get("blocked_until", 0), state.get("last_reply", 0) + REPLY_INTERVAL
                         )
                     continue
-                followup = following_up(state, target.sender_id, target.received_at)
+                followup = following_up(
+                    state, target.sender_id, target.received_at, allow_join=cfg.chat_proactive
+                )
                 audience = "none"
                 if target.reply_to_id:
                     source = await session.scalar(
@@ -230,6 +259,8 @@ class GroupChat:
                 if not leader.direct and not partial and not (cfg.chat_proactive or followup):
                     for item in batch:
                         item.state = "skipped"
+                        item.error = "主动聊天关闭，且不是直接对话或续聊"
+                    logger.info("聊天跳过 turn=%s group=%s reason=%s", leader.id, leader.group_id, leader.error)
                     continue
                 mode = "direct" if leader.direct else "followup" if followup else "ambient"
                 if mode == "followup" and not leader.attempts and now() < state.get("last_attempt", 0) + REPLY_INTERVAL:
@@ -246,6 +277,8 @@ class GroupChat:
                     ):
                         for item in batch:
                             item.state = "skipped"
+                            item.error = "主动插话冷却尚未结束"
+                        logger.info("聊天跳过 turn=%s group=%s reason=%s", leader.id, leader.group_id, leader.error)
                         continue
                     activity["last_attempt"] = now()
                     encoded = json.dumps(activity)
@@ -257,6 +290,8 @@ class GroupChat:
                 if not any(row["id"] == leader.message_id for row in context):
                     for item in batch:
                         item.state = "skipped"
+                        item.error = "目标消息未进入有效上下文"
+                    logger.info("聊天跳过 turn=%s group=%s reason=%s", leader.id, leader.group_id, leader.error)
                     continue
                 for item in batch:
                     item.state = "generating" if item.id == leader.id else "merged"
@@ -274,7 +309,7 @@ class GroupChat:
         key = turn.group_id, turn.topic_id
         try:
             partial = has_sent_text(turn)
-            if turn.direct and not turn.response:
+            if mode in ("direct", "followup") and not turn.response:
                 with suppress(Exception):
                     await self.tg.call(
                         "send_chat_action",
@@ -296,6 +331,8 @@ class GroupChat:
                     or not any(row["id"] == turn.message_id for row in context)
                 ):
                     current.state = "skipped"
+                    current.error = "请求模型前，聊天任务、群设置或目标消息已失效"
+                    logger.info("聊天跳过 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                     return True
                 if not partial:
                     await self.contexts.remember_sent_context(session, turn, context)
@@ -304,10 +341,21 @@ class GroupChat:
                 turn, cfg, context, sender_id, mode, audience, sticker_options
             )
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)
+        except BudgetCooldown as exc:
+            async with self.db.transaction() as session:
+                current = await session.get(ChatTurn, turn.id)
+                if current.state == "generating":
+                    current.state, current.available_at, current.error = "pending", exc.retry_at, str(exc)
+                    current.attempts -= 1  # No model request was made.
+                    logger.info(
+                        "聊天等待 turn=%s group=%s retry_at=%.3f reason=%s",
+                        turn.id, turn.group_id, exc.retry_at, current.error,
+                    )
         except BudgetExceeded as exc:
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)
                 current.state, current.error = "skipped", str(exc)
+                logger.info("聊天未请求模型 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -328,7 +376,7 @@ class GroupChat:
                     self.settings,
                     exc,
                     "聊天回复重试" if retry else "聊天回复失败",
-                    f"turn={turn.id} group={turn.group_id}",
+                    f"turn={turn.id} group={turn.group_id} topic={turn.topic_id} message={turn.message_id}",
                     terminal=not retry,
                 )
                 if not retry:

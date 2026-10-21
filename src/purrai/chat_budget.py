@@ -14,6 +14,12 @@ class BudgetExceeded(Exception):
     pass
 
 
+class BudgetCooldown(BudgetExceeded):
+    def __init__(self, message, retry_at):
+        super().__init__(message)
+        self.retry_at = retry_at
+
+
 @dataclass(frozen=True)
 class Reservation:
     day: str
@@ -75,7 +81,10 @@ class ChatBudget:
                 if counter.get("calls", 0) >= calls or counter.get("tokens", 0) + tokens > limit:
                     raise BudgetExceeded(f"{label}今日 AI 聊天额度已用完；明日恢复，验证和防广告不受影响")
                 if now() - counter.get("last_attempt", 0) < interval:
-                    raise BudgetExceeded(f"{label}调用太频繁，请稍后再聊；验证和防广告不受影响")
+                    raise BudgetCooldown(
+                        f"{label}调用间隔未到，已排队等待；验证和防广告不受影响",
+                        counter["last_attempt"] + interval,
+                    )
             for counter in counters:
                 counter.update(calls=counter.get("calls", 0) + 1,
                                tokens=counter.get("tokens", 0) + tokens, last_attempt=now())

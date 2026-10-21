@@ -2,8 +2,8 @@ import asyncio
 import time
 
 import pytest
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import DeleteMessage
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
+from aiogram.methods import DeleteMessage, SendPhoto
 from sqlalchemy import select
 
 from conftest import drain, join
@@ -11,6 +11,7 @@ from purrai.models import Action, Group, Member, Verification
 from purrai.runtime import Runtime
 from purrai.service import Service
 from test_failure_options import expire
+from test_captcha_choices import choice_query
 from test_join_requests import prepare, request
 from test_verification import fixed_challenge
 
@@ -248,3 +249,120 @@ async def test_runtime_starts_cleanup_worker_and_recovers_orphan(env, monkeypatc
     assert (await cleanup_task(database, verification)).state == "succeeded"
     assert any(name == "delete_message" and data["message_id"] == verification.message_id
                for name, data in telegram.calls)
+
+
+async def lost_challenge_receipt(env, monkeypatch):
+    telegram = env[2]
+    original, sent = telegram.call, {}
+
+    async def lose_receipt(method, **kwargs):
+        result = await original(method, **kwargs)
+        if method == "send_photo":
+            sent.update(result)
+            raise TelegramNetworkError(method=SendPhoto(chat_id=-1001, photo="test"), message="Request timeout")
+        return result
+
+    monkeypatch.setattr(telegram, "call", lose_receipt)
+    verification = await fixed_challenge(env, monkeypatch)
+    return verification, sent["message_id"]
+
+
+async def test_lost_send_receipt_does_not_retry_or_replace_the_question(env, monkeypatch):
+    verification, _ = await lost_challenge_receipt(env, monkeypatch)
+    settings, database, telegram, _ = env
+    assert verification.state == "pending" and verification.message_id is None
+    assert "未重复出题" in verification.error
+    restarted = Service(database, telegram, settings)
+    assert not await restarted.run_one_action()
+    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+
+
+async def test_callback_recovers_lost_receipt_and_completion_cleans_original_picture(env, monkeypatch):
+    verification, message_id = await lost_challenge_receipt(env, monkeypatch)
+    _, database, telegram, service = env
+    query = choice_query(verification)
+    query["message"]["message_id"] = message_id
+    assert "答案正确" in await service.callback(query)
+    await drain(service)
+    async with database.sessions() as session:
+        row = await session.get(Verification, verification.id)
+        assert row.state == "passed" and row.message_id == message_id
+        task = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        assert task.state == "succeeded" and task.payload["challenge_delivery"] == "recovered"
+    assert any(method == "delete_message" and data["message_id"] == message_id for method, data in telegram.calls)
+    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+
+
+async def test_expired_unknown_picture_is_cleaned_when_its_buttons_reveal_message_id(env, monkeypatch):
+    verification, message_id = await lost_challenge_receipt(env, monkeypatch)
+    _, database, telegram, service = env
+    query = choice_query(verification)
+    query["message"]["message_id"] = message_id
+    await expire(database, service, verification)
+    await drain(service)
+    assert "失效" in await service.callback(query)
+    await drain(service)
+    assert any(method == "delete_message" and data["message_id"] == message_id for method, data in telegram.calls)
+    async with database.sessions() as session:
+        assert (await session.get(Verification, verification.id)).state == "failed"
+
+
+@pytest.mark.parametrize("origin", ["old_picture", "other_chat", "other_bot"])
+async def test_stale_duplicate_callback_cleans_only_the_exact_bot_picture(env, monkeypatch, origin):
+    verification = await fixed_challenge(env, monkeypatch)
+    _, database, telegram, service = env
+    query = choice_query(verification)
+    query["message"]["message_id"] += 50
+    query["message"]["from"] = {"id": telegram.user_id}
+    if origin == "other_chat":
+        query["message"]["chat"]["id"] = -1002
+    elif origin == "other_bot":
+        query["message"]["from"]["id"] = 555
+    assert "失效" in await service.callback(query)
+    await drain(service)
+    deleted = [data["message_id"] for method, data in telegram.calls if method == "delete_message"]
+    assert deleted == ([query["message"]["message_id"]] if origin == "old_picture" else [])
+    async with database.sessions() as session:
+        row = await session.get(Verification, verification.id)
+        assert row.state == "pending" and row.attempts == 0 and row.message_id == verification.message_id
+
+
+async def test_crash_during_picture_send_does_not_resend_after_restart(env, monkeypatch):
+    verification = await fixed_challenge(env, monkeypatch)
+    settings, database, telegram, _ = env
+    async with database.transaction() as session:
+        row = await session.get(Verification, verification.id)
+        row.state, row.message_id = "muting", None
+        action = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        action.state = "pending"
+        action.payload = {**action.payload, "challenge_delivery": "sending"}
+    assert await Service(database, telegram, settings).run_one_action()
+    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+    async with database.sessions() as session:
+        assert (await session.get(Verification, verification.id)).state == "pending"
+
+
+async def test_explicit_picture_rate_limit_remains_retryable(env, monkeypatch):
+    telegram = env[2]
+    original, attempts = telegram.call, 0
+
+    async def rate_limit_once(method, **kwargs):
+        nonlocal attempts
+        if method == "send_photo":
+            attempts += 1
+            if attempts == 1:
+                raise TelegramRetryAfter(method=SendPhoto(chat_id=-1001, photo="test"), message="wait", retry_after=1)
+        return await original(method, **kwargs)
+
+    monkeypatch.setattr(telegram, "call", rate_limit_once)
+    verification = await fixed_challenge(env, monkeypatch)
+    _, database, _, service = env
+    async with database.transaction() as session:
+        action = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        assert action.state == "pending" and action.payload["challenge_delivery"] == "rejected"
+        action.available_at = 0
+    assert await service.run_one_action()
+    async with database.sessions() as session:
+        row = await session.get(Verification, verification.id)
+        assert row.state == "pending" and row.message_id
+    assert attempts == 2

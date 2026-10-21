@@ -1,5 +1,7 @@
 """Telegram effects of verification decisions."""
 
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter
+
 from purrai import captcha
 from purrai.action_queue import enqueue
 from purrai.models import (
@@ -27,30 +29,47 @@ class VerificationActions:
         )
 
     async def challenge(self, session, action, group, verification, member):
+        if action.payload.get("challenge_delivery") in ("sending", "uncertain"):
+            verification.state = "pending"
+            action.payload = {**action.payload, "challenge_delivery": "uncertain"}
+            raise ValueError("验证码发送结果未确认，未重复出题；原图片仍可验证，也可请管理员重新出题")
         await cleanup(session, verification)
         code, image = captcha.make_image()
         verification.answer_hash = captcha.digest(code, verification.nonce)
         verification.input_digits = ""
         verification.choices = captcha.make_choices(code)
-        response = await self.action_call(
-            session,
-            action,
-            "send_photo",
-            chat_id=verification.prompt_chat_id or group.id,
-            photo=image,
-            caption=captcha.caption(
-                verification.user_name,
-                "",
-                verification.attempts,
-                group.settings["max_attempts"],
-                verification.deadline,
-                join_request=verification.flow == "join_request",
-                group_title=group.title,
-                failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
-                multiple_choice=bool(verification.choices),
-            ),
-            reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
-        )
+        verification.message_id = None
+        # Persist before Telegram I/O. A lost receipt or restart must not send a
+        # second picture and forget the first one's message ID.
+        action.payload = {**action.payload, "challenge_delivery": "sending"}
+        try:
+            response = await self.action_call(
+                session,
+                action,
+                "send_photo",
+                chat_id=verification.prompt_chat_id or group.id,
+                photo=image,
+                caption=captcha.caption(
+                    verification.user_name,
+                    "",
+                    verification.attempts,
+                    group.settings["max_attempts"],
+                    verification.deadline,
+                    join_request=verification.flow == "join_request",
+                    group_title=group.title,
+                    failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
+                    multiple_choice=bool(verification.choices),
+                ),
+                reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
+            )
+        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
+            action.payload = {**action.payload, "challenge_delivery": "rejected"}
+            raise
+        except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
+            verification.state = "pending"
+            action.payload = {**action.payload, "challenge_delivery": "uncertain"}
+            raise ValueError("验证码发送结果未确认，未重复出题；原图片仍可验证，也可请管理员重新出题") from exc
+        action.payload = {**action.payload, "challenge_delivery": "confirmed"}
         verification.message_id = response["message_id"]
         verification.state = "pending"
         verification.error = ""

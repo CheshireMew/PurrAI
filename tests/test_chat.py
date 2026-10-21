@@ -90,8 +90,8 @@ async def test_topics_and_groups_have_separate_context_and_telegram_targets(env)
     _, db, tg, _ = env
     async with db.transaction() as session:
         session.add(Group(approved=True, id=-1002, title="另一个群", settings={**default_settings(), "chat_enabled": True}))
-    await chat.observe(message(1, "柴郡喵聊聊爬山", message_thread_id=10))
-    await chat.observe(message(2, "柴郡喵聊聊电影", message_thread_id=20))
+    await chat.observe(message(1, "柴郡喵聊聊爬山", message_thread_id=10, is_topic_message=True))
+    await chat.observe(message(2, "柴郡喵聊聊电影", message_thread_id=20, is_topic_message=True))
     await chat.observe(message(3, "柴郡喵聊聊音乐", chat={"id": -1002, "type": "supergroup"}))
     await due(chat)
     for _ in range(3):

@@ -33,7 +33,7 @@ async def test_inline_emoji_becomes_separate_sticker_and_both_outputs_are_saved(
     chat, model = await configured(env)
     model.result = ChatReply("我也觉得挺好 🐱")
     await cache(chat, items=[item(1, "🐱")])
-    await chat.observe(message(1, "柴郡喵你觉得呢", message_thread_id=77))
+    await chat.observe(message(1, "柴郡喵你觉得呢", message_thread_id=77, is_topic_message=True))
     await due(chat)
     await chat.run_one()
     outgoing = [(kind, data) for kind, data in chat.tg.calls if kind in ("send_message", "send_sticker")]
@@ -50,7 +50,7 @@ async def test_inline_emoji_becomes_separate_sticker_and_both_outputs_are_saved(
         value = json.loads(row.value)
         value.update(last_reply=now() - 10, last_attempt=now() - 10)
         row.value = json.dumps(value)
-    await chat.observe(message(2, "柴郡喵接着聊", message_thread_id=77))
+    await chat.observe(message(2, "柴郡喵接着聊", message_thread_id=77, is_topic_message=True))
     await due(chat)
     await chat.run_one()
     assert [row["text"] for row in model.calls[-1][1]["messages"] if row["bot"]] == ["我也觉得挺好", "[贴纸 🐱]"]
@@ -93,8 +93,8 @@ async def test_model_negative_decision_ignores_accidental_reply_content():
 async def test_ambient_checks_share_cooldown_across_topics_and_can_resume(env):
     chat, model = await configured(env, chat_interval=90)
     model.result = ChatReply(should_reply=False)
-    await chat.observe(message(1, "大家在讨论周末活动", message_thread_id=77))
-    await chat.observe(message(2, "另一个话题的群友闲聊", message_thread_id=88))
+    await chat.observe(message(1, "大家在讨论周末活动", message_thread_id=77, is_topic_message=True))
+    await chat.observe(message(2, "另一个话题的群友闲聊", message_thread_id=88, is_topic_message=True))
     await due(chat)
     await asyncio.gather(chat.run_one(), chat.run_one())
     assert len(model.calls) == 1
@@ -102,7 +102,7 @@ async def test_ambient_checks_share_cooldown_across_topics_and_can_resume(env):
         row = await session.get(Meta, "chat_attention:-1001")
         row.value = json.dumps({"last_attempt": now() - 100})
     model.result = ChatReply("这个建议不错，可以试试。")
-    await chat.observe(message(3, "大家有没有合适的活动建议", user_id=43, message_thread_id=99))
+    await chat.observe(message(3, "大家有没有合适的活动建议", user_id=43, message_thread_id=99, is_topic_message=True))
     await due(chat)
     await chat.run_one()
     assert len(model.calls) == 2 and model.calls[-1][1]["reply_mode"] == "ambient"
