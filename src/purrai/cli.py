@@ -87,7 +87,6 @@ def main():
         from purrai.management import Management
         from purrai.models import Group
         from purrai.process_lock import ProcessLock
-        from purrai.service import Service
         from purrai.telegram import TelegramGateway
 
         async def group_access():
@@ -99,7 +98,7 @@ def main():
                     raise RuntimeError("请先执行 purrai init-db")
                 if args.approve is not None or args.revoke is not None:
                     lock.acquire()
-                    management = Management(database, gateway, Service(database, gateway, settings), settings)
+                    management = Management(database, gateway, settings=settings)
                     await management.set_group_access(args.approve if args.approve is not None else args.revoke,
                                                       args.approve is not None)
                 async with database.sessions() as session:

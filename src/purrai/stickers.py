@@ -3,9 +3,7 @@
 import asyncio
 import json
 import random
-import re
 from datetime import datetime
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramRetryAfter
@@ -13,15 +11,15 @@ from sqlalchemy import select
 
 from purrai.models import Group, Meta, now
 
-DEFAULT_CHAT_PACKS = (
-    "myadestes", "Beach_Bat_Responses_by_fStikBot", "poi466", "LLMG_GIF", "cookprivet",
-    "tofupack_by_fStikBot", "catvideopack_by_fStikBot", "superCheshire", "sumyy3", "HMS_Cheshire",
-    "p1_wmtz1349120938_by_WuMingv2Bot", "Cheshire_the_kitten", "sticker_ab2f7c92_by_moe_sticker_bot",
-    "sese11_by_WuMingv2Bot", "p0_wmtz1678979585_by_WuMingv2Bot", "p0_wmtz1296407908_by_WuMingv2Bot",
-    "GreatCheshire", "BigCheshire", "goodCheshire", "AwesomeCheshireCat",
+from purrai.pack_names import (
+    DEFAULT_CHAT_PACKS as DEFAULT_CHAT_PACKS,
+    DEFAULT_ANTIFRAUD_PACKS as DEFAULT_ANTIFRAUD_PACKS,
 )
-DEFAULT_ANTIFRAUD_PACKS = ("FTX888",)
 
+
+from purrai.pack_names import sticker_pack_name
+
+pack_name = sticker_pack_name
 
 def emoji_key(value):
     # Presentation selectors are interchangeable; joiners, skin tones and flags are not.
@@ -34,17 +32,6 @@ def sticker_emojis(packs, recent=()):
                    if s["file_unique_id"] not in recent and emoji_key(s.get("emoji", ""))})
 
 
-def pack_name(value):
-    value = value.strip()
-    if "://" in value or value.startswith("t.me/"):
-        parsed = urlsplit(value if "://" in value else "https://" + value)
-        parts = parsed.path.strip("/").split("/")
-        if parsed.hostname not in ("t.me", "www.t.me") or len(parts) != 2 or parts[0] != "addstickers":
-            raise ValueError("聊天贴纸请填写 t.me/addstickers 链接或贴纸包短名称")
-        value = parts[1]
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,64}", value):
-        raise ValueError("贴纸包短名称只能包含字母、数字和下划线，最长 64 个字符")
-    return value
 
 
 def sticker_text(message):

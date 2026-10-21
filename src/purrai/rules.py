@@ -4,6 +4,8 @@ import unicodedata
 from collections import Counter
 from urllib.parse import urlsplit
 
+CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
+
 
 def normalize(text: str) -> str:
     return "".join(
@@ -69,10 +71,25 @@ def is_similar(left: str, left_length: int, right: str, right_length: int, thres
     return 100 * (64 - (int(left, 16) ^ int(right, 16)).bit_count()) >= threshold * 64
 
 
-def domain(value: str) -> str:
+def parsed_url(value: str):
     value = normalize(value)
-    host = (urlsplit(value if "://" in value else "https://" + value).hostname or "").rstrip(".")
-    return host.removeprefix("www.").encode("idna").decode("ascii")
+    try:
+        return urlsplit(value if "://" in value else "https://" + value)
+    except (ValueError, UnicodeError):
+        return None
+
+
+def domain(value: str) -> str:
+    parsed = parsed_url(value)
+    if parsed is None:
+        return ""
+    try:
+        host = (parsed.hostname or "").rstrip(".")
+        return host.removeprefix("www.").encode("idna").decode("ascii")
+    except (ValueError, UnicodeError):
+        # Text and Telegram entities can contain incomplete or invalid URLs.
+        # They must not abort the other moderation rules for this message.
+        return ""
 
 
 def domain_matches(host: str, configured: str) -> bool:
@@ -106,7 +123,7 @@ def assess(
     burst: int = 0,
     sender_name: str = "",
 ) -> dict:
-    reasons, names = [], []
+    reasons, names, mute_reasons = [], [], []
     active = [r for r in rules if r.get("enabled", True)]
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]
     for rule in active:
@@ -138,6 +155,8 @@ def assess(
                         names.append(f"昵称{label}：{value}")
                     if body_hit and scope in ("message", "either"):
                         reasons.append(f"{label}：{value}")
+                        if rule.get("penalty") == "permanent_mute":
+                            mute_reasons.append(f"{label}：{value}")
     allowed_mentions = {normalize(r["value"]).lstrip("@") for r in active if r["kind"] == "allow_mention"}
     blocked_mentions = {normalize(r["value"]).lstrip("@") for r in active if r["kind"] == "block_mention"}
     for username in mentions(sender_name):
@@ -152,19 +171,18 @@ def assess(
             reasons.append("新成员观察期提及未允许账号")
     for url in urls:
         host = domain(url)
+        parsed = parsed_url(url)
+        path = parsed.path if parsed else ""
         if any(domain_matches(host, item) for item in allowed):
             continue
         if host in ("t.me", "telegram.me"):
-            username = (
-                urlsplit(url if "://" in url else "https://" + url).path.strip("/").split("/")[0].casefold()
-            )
+            username = path.strip("/").split("/")[0].casefold()
             if username in allowed_mentions:
                 continue
             if username in blocked_mentions:
                 reasons.append(f"禁止引流账号：@{username}")
         if any(domain_matches(host, r["value"]) for r in active if r["kind"] == "block_domain"):
             reasons.append(f"禁止域名：{host}")
-        path = urlsplit(url if "://" in url else "https://" + url).path
         if (
             settings.get("block_invites")
             and host in ("t.me", "telegram.me")
@@ -173,15 +191,16 @@ def assess(
             reasons.append("群邀请链接")
         if newcomer and settings.get("newcomer_links"):
             reasons.append("新成员限制期发送链接")
-    if newcomer and contact and settings.get("newcomer_contacts"):
-        reasons.append("新成员限制期发送联系人")
+    if contact:
+        reasons.append(CONTACT_REASON)
     if settings.get("repeat_enabled") and repeats >= settings["repeat_count"]:
         reasons.append("重复刷屏")
     if settings.get("similar_enabled") and similar >= settings.get("similar_count", 4):
         reasons.append("近似内容刷屏")
     if settings.get("burst_enabled") and burst >= settings.get("burst_count", 8):
         reasons.append("短时间连续发送")
-    return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names))}
+    return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
+            "mute_reasons": list(dict.fromkeys(mute_reasons))}
 
 
 def evaluate(*args, **kwargs) -> list[str]:

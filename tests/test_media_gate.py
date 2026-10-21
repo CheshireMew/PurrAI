@@ -296,7 +296,8 @@ async def test_setting_via_bot_changes_actual_media_gate(env):
 async def test_media_gate_applies_only_to_reliably_observed_recent_joins(env, monkeypatch, known, age, restricted):
     _, db, tg, svc = env
     at = time.time()
-    monkeypatch.setattr("purrai.service.now", lambda: at)
+    monkeypatch.setattr("purrai.moderation.now", lambda: at)
+    monkeypatch.setattr("purrai.media_gate.now", lambda: at)
     async with db.transaction() as session:
         member = await session.get(Member, (-1001, 42))
         member.joined_at, member.join_observed = at - age, known

@@ -112,6 +112,7 @@ class Rule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     scope: Mapped[str] = mapped_column(String, default="message")
     context_value: Mapped[str] = mapped_column(String, default="")
+    penalty: Mapped[str] = mapped_column(String, default="delete")
 
 
 class Whitelist(Base):
@@ -137,11 +138,16 @@ class Violation(Base):
     created_at: Mapped[float] = mapped_column(Float, default=now)
     sender_name: Mapped[str] = mapped_column(String, default="")
     profile_violation: Mapped[bool] = mapped_column(Boolean, default=False)
+    rule_mute: Mapped[bool] = mapped_column(Boolean, default=False)
     message_violation: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Fingerprint(Base):
     __tablename__ = "fingerprints"
+    __table_args__ = (
+        Index("ix_fingerprints_member_window", "group_id", "user_id", "generation", "created_at", "message_id"),
+        Index("ix_fingerprints_batch", "group_id", "user_id", "generation", "batch_key"),
+    )
     group_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -265,8 +271,10 @@ class Inbox(Base):
 
 class Action(Base):
     __tablename__ = "actions"
+    __table_args__ = (Index("ix_actions_batch_state", "batch_id", "state"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     dedupe_key: Mapped[str] = mapped_column(String, unique=True)
+    batch_id: Mapped[str | None] = mapped_column(String, nullable=True)
     group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     kind: Mapped[str] = mapped_column(String)

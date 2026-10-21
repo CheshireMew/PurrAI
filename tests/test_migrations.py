@@ -4,8 +4,123 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import time
 
-from purrai.models import default_settings
+from sqlalchemy import create_engine, insert
+
+from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, MemberText, Verification, default_settings
+
+
+def test_moderation_retention_migration_preserves_credit_history_and_recovers_stranded_cycles(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "bounded.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}",
+                   "PURRAI_BACKUP_DIR": str(tmp_path / "backups")}
+
+    def run(*arguments):
+        result = subprocess.run([sys.executable, *arguments], cwd=root, env=environment,
+                                capture_output=True, text=True, encoding="utf-8", timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    run("-m", "alembic", "upgrade", "0016")
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(insert(Group).values(id=-1001, approved=True, enabled=True))
+        connection.execute(insert(Member).values(group_id=-1001, user_id=42, generation="current",
+                                                  observed_messages=700))
+        for identifier in range(1, 701):
+            connection.execute(insert(Fingerprint).values(
+                group_id=-1001, user_id=42, message_id=identifier, generation="current", sequence=identifier,
+                digest=str(identifier), batch_key=f"m:{identifier}",
+                created_at=time.time() - (7200 if identifier <= 100 else 100),
+            ))
+        connection.execute(insert(Fingerprint).values(
+            group_id=-1001, user_id=42, message_id=900, generation="previous", sequence=1,
+            digest="old", created_at=time.time() - 7200,
+        ))
+        for identifier in range(1, 111):
+            connection.execute(insert(MemberText).values(
+                group_id=-1001, user_id=42, message_id=identifier, digest=str(identifier),
+            ))
+        connection.execute(insert(ArchivedMessage).values(
+            id="preserved-archive", group_id=-1001, message_id=999, sent_at=1, text="保留业务历史",
+        ))
+        for identifier, state in (("stranded-release", "releasing"), ("stranded-failure", "failing"),
+                                  ("current-failure", "failing")):
+            connection.execute(insert(Verification).values(
+                id=identifier, group_id=-1001, user_id=42, generation="current", state=state,
+                nonce="current-nonce", error="验证超时", deadline=time.time() - 1,
+            ))
+            kind = "release" if state == "releasing" else "verification_failure"
+            prefix = "release" if state == "releasing" else "verification-failure"
+            connection.execute(insert(Action).values(
+                id=identifier + "-old", dedupe_key=f"{prefix}:{identifier}", kind=kind,
+                group_id=-1001, user_id=42, state="cancelled" if kind == "release" else "succeeded",
+                payload={"verification_id": identifier, "expected_nonce": "obsolete-nonce"},
+            ))
+        connection.execute(insert(Action).values(
+            id="keep-failed-receipt", dedupe_key="current-failed", kind="verification_failure",
+            group_id=-1001, user_id=42, state="failed", error="等待管理员处理",
+            payload={"verification_id": "current-failure", "expected_nonce": "current-nonce"},
+        ))
+    engine.dispose()
+    run("-m", "purrai.cli", "init-db")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT count(*),min(message_id),max(message_id) FROM member_texts").fetchone() == (100, 1, 100)
+        assert connection.execute("SELECT count(*) FROM fingerprints").fetchone()[0] == 600
+        assert connection.execute("SELECT sequence FROM fingerprints WHERE message_id=1").fetchone()[0] == 1
+        assert connection.execute("SELECT text FROM archived_messages").fetchone()[0] == "保留业务历史"
+        assert connection.execute("SELECT state,error FROM actions WHERE id='keep-failed-receipt'").fetchone() == (
+            "failed", "等待管理员处理",
+        )
+        recovered = connection.execute("SELECT kind,payload FROM actions WHERE state='pending'").fetchall()
+        assert len(recovered) == 2
+        assert {json.loads(payload)["verification_id"] for _, payload in recovered} == {
+            "stranded-release", "stranded-failure",
+        }
+        for query, index in (
+            ("SELECT * FROM fingerprints WHERE group_id=-1001 AND user_id=42 AND generation='current' "
+             "AND created_at>0 ORDER BY created_at DESC LIMIT 500", "ix_fingerprints_member_window"),
+            ("SELECT * FROM fingerprints WHERE group_id=-1001 AND user_id=42 AND generation='current' "
+             "AND batch_key='m:1'", "ix_fingerprints_batch"),
+        ):
+            plan = [row[-1] for row in connection.execute("EXPLAIN QUERY PLAN " + query)]
+            assert any(index in row for row in plan)
+            assert not any("TEMP B-TREE" in row for row in plan)
+
+
+def test_action_batch_migration_preserves_old_receipts_and_indexes_children(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "batches.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}",
+                   "PURRAI_BACKUP_DIR": str(tmp_path / "backups")}
+
+    def run(*arguments):
+        result = subprocess.run([sys.executable, *arguments], cwd=root, env=environment,
+                                capture_output=True, text=True, encoding="utf-8", timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    run("-m", "alembic", "upgrade", "0015")
+    with sqlite3.connect(database) as connection:
+        for identifier, kind, state, payload in (
+            ("old-batch", "batch_release", "succeeded", {"action_ids": ["old-child-1", "old-child-2"]}),
+            ("old-child-1", "release", "pending", {"verification_id": "v1"}),
+            ("old-child-2", "release", "succeeded", {"verification_id": "v2"}),
+        ):
+            connection.execute("INSERT INTO actions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                identifier, identifier, None, 42, kind, json.dumps(payload), state,
+                0, 0, 1, "", 1, "保留已有批次", 1, 1,
+            ))
+    run("-m", "purrai.cli", "init-db")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT id,batch_id,state FROM actions ORDER BY id").fetchall() == [
+            ("old-batch", None, "succeeded"),
+            ("old-child-1", "old-batch", "pending"),
+            ("old-child-2", "old-batch", "succeeded"),
+        ]
+        plan = connection.execute("EXPLAIN QUERY PLAN SELECT state,count(*) FROM actions "
+                                  "WHERE batch_id='old-batch' GROUP BY state").fetchall()
+        assert any("ix_actions_batch_state" in row[-1] for row in plan)
 
 
 def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_path):
@@ -159,7 +274,7 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017"
         assert json.loads(connection.execute("SELECT choices FROM verifications").fetchone()[0]) == []
         assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, time } from './api'
 
 const props = defineProps<{ groupId: number; enabled: boolean }>()
@@ -10,7 +10,7 @@ const applied = ref('')
 const states: Record<string, string> = { not_requested: '未发起删除', pending: '等待删除', failed: '删除失败', deleted: 'PurrAI 已确认删除', already_absent: '删除时已不存在' }
 const types: Record<string, string> = { text: '文字', photo: '图片', video: '视频', document: '文件', animation: '动图', sticker: '贴纸', voice: '语音', audio: '音频', video_note: '视频留言', contact: '联系人', location: '位置', poll: '投票', service: '群事件', unknown: '历史摘录' }
 const exportUrl = computed(() => `/api/groups/${props.groupId}/messages/export?${applied.value}`)
-let version = 0
+let version = 0, detailVersion = 0
 async function load(apply = false) {
   error.value = ''; busy.value = true
   const current = ++version
@@ -32,11 +32,17 @@ async function load(apply = false) {
   finally { if (current === version) busy.value = false }
 }
 async function show(row: any) {
+  const current = ++detailVersion
   detail.value = null; opened.value = true; detailBusy.value = true; error.value = ''
-  try { detail.value = await api(`/api/groups/${props.groupId}/messages/${row.id}`) }
-  catch (e) { error.value = (e as Error).message }
-  finally { detailBusy.value = false }
+  try {
+    const result = await api(`/api/groups/${props.groupId}/messages/${row.id}`)
+    if (current === detailVersion) detail.value = result
+  } catch (e) { if (current === detailVersion) error.value = (e as Error).message }
+  finally { if (current === detailVersion) detailBusy.value = false }
 }
+watch(opened, value => { if (!value) { detailVersion++; detail.value = null; detailBusy.value = false } }, { flush: 'sync' })
+watch(() => props.groupId, () => { opened.value = false; load(true) })
+onUnmounted(() => { version++; detailVersion++ })
 onMounted(() => load(true))
 </script>
 

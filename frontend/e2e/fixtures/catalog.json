@@ -1,0 +1,425 @@
+{
+  "settings": {
+    "defaults": {
+      "chat_enabled": false,
+      "chat_proactive": true,
+      "chat_name": "柴郡喵",
+      "chat_persona": "随和、有一点幽默，关心群友，有自己的看法。",
+      "chat_history": 40,
+      "chat_interval": 90,
+      "chat_stickers": true,
+      "chat_sticker_packs": [
+        "myadestes",
+        "Beach_Bat_Responses_by_fStikBot",
+        "poi466",
+        "LLMG_GIF",
+        "cookprivet",
+        "tofupack_by_fStikBot",
+        "catvideopack_by_fStikBot",
+        "superCheshire",
+        "sumyy3",
+        "HMS_Cheshire",
+        "p1_wmtz1349120938_by_WuMingv2Bot",
+        "Cheshire_the_kitten",
+        "sticker_ab2f7c92_by_moe_sticker_bot",
+        "sese11_by_WuMingv2Bot",
+        "p0_wmtz1678979585_by_WuMingv2Bot",
+        "p0_wmtz1296407908_by_WuMingv2Bot",
+        "GreatCheshire",
+        "BigCheshire",
+        "goodCheshire",
+        "AwesomeCheshireCat"
+      ],
+      "chat_sticker_interval": 60,
+      "chat_antifraud": true,
+      "chat_antifraud_packs": [
+        "FTX888"
+      ],
+      "chat_antifraud_interval": 21600,
+      "archive_enabled": true,
+      "join_requests": false,
+      "verification_enabled": true,
+      "verification_timeout": 180,
+      "max_attempts": 3,
+      "verification_failure_action": "permanent_mute",
+      "failure_ban_seconds": 600,
+      "newcomer_seconds": 600,
+      "newcomer_links": true,
+      "newcomer_contacts": true,
+      "newcomer_messages": 3,
+      "media_min_text_messages": 3,
+      "emoji_status_blocked_packs": [
+        "bygbb666",
+        "gshechaba"
+      ],
+      "newcomer_mentions": true,
+      "repeat_enabled": true,
+      "repeat_window": 30,
+      "repeat_count": 5,
+      "similar_enabled": true,
+      "similar_window": 60,
+      "similar_count": 4,
+      "similar_threshold": 85,
+      "similar_min_length": 12,
+      "burst_enabled": true,
+      "burst_window": 10,
+      "burst_count": 8,
+      "warning_window": 86400,
+      "warning_limit": 3,
+      "mute_seconds": 259200,
+      "block_invites": false
+    },
+    "fields": {
+      "chat_enabled": {
+        "default": false,
+        "title": "Chat Enabled",
+        "type": "boolean"
+      },
+      "chat_proactive": {
+        "default": true,
+        "title": "Chat Proactive",
+        "type": "boolean"
+      },
+      "chat_name": {
+        "default": "柴郡喵",
+        "maxLength": 24,
+        "minLength": 2,
+        "title": "Chat Name",
+        "type": "string"
+      },
+      "chat_persona": {
+        "default": "随和、有一点幽默，关心群友，有自己的看法。",
+        "maxLength": 1000,
+        "title": "Chat Persona",
+        "type": "string"
+      },
+      "chat_history": {
+        "default": 40,
+        "maximum": 80,
+        "minimum": 10,
+        "title": "Chat History",
+        "type": "integer"
+      },
+      "chat_interval": {
+        "default": 90,
+        "maximum": 3600,
+        "minimum": 15,
+        "title": "Chat Interval",
+        "type": "integer"
+      },
+      "chat_stickers": {
+        "default": true,
+        "title": "Chat Stickers",
+        "type": "boolean"
+      },
+      "chat_sticker_packs": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 50,
+        "title": "Chat Sticker Packs",
+        "type": "array"
+      },
+      "chat_sticker_interval": {
+        "default": 60,
+        "maximum": 86400,
+        "minimum": 15,
+        "title": "Chat Sticker Interval",
+        "type": "integer"
+      },
+      "chat_antifraud": {
+        "default": true,
+        "title": "Chat Antifraud",
+        "type": "boolean"
+      },
+      "chat_antifraud_packs": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 20,
+        "title": "Chat Antifraud Packs",
+        "type": "array"
+      },
+      "chat_antifraud_interval": {
+        "default": 21600,
+        "maximum": 604800,
+        "minimum": 3600,
+        "title": "Chat Antifraud Interval",
+        "type": "integer"
+      },
+      "archive_enabled": {
+        "default": true,
+        "title": "Archive Enabled",
+        "type": "boolean"
+      },
+      "join_requests": {
+        "default": false,
+        "title": "Join Requests",
+        "type": "boolean"
+      },
+      "verification_enabled": {
+        "default": true,
+        "title": "Verification Enabled",
+        "type": "boolean"
+      },
+      "verification_timeout": {
+        "default": 180,
+        "maximum": 3600,
+        "minimum": 30,
+        "title": "Verification Timeout",
+        "type": "integer"
+      },
+      "max_attempts": {
+        "default": 3,
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Max Attempts",
+        "type": "integer"
+      },
+      "verification_failure_action": {
+        "default": "permanent_mute",
+        "enum": [
+          "kick",
+          "permanent_mute"
+        ],
+        "title": "Verification Failure Action",
+        "type": "string"
+      },
+      "failure_ban_seconds": {
+        "default": 600,
+        "maximum": 86400,
+        "minimum": 30,
+        "title": "Failure Ban Seconds",
+        "type": "integer"
+      },
+      "newcomer_seconds": {
+        "default": 600,
+        "maximum": 86400,
+        "minimum": 0,
+        "title": "Newcomer Seconds",
+        "type": "integer"
+      },
+      "newcomer_links": {
+        "default": true,
+        "title": "Newcomer Links",
+        "type": "boolean"
+      },
+      "newcomer_contacts": {
+        "default": true,
+        "title": "Newcomer Contacts",
+        "type": "boolean"
+      },
+      "newcomer_messages": {
+        "default": 3,
+        "maximum": 100,
+        "minimum": 0,
+        "title": "Newcomer Messages",
+        "type": "integer"
+      },
+      "media_min_text_messages": {
+        "default": 3,
+        "maximum": 100,
+        "minimum": 0,
+        "title": "Media Min Text Messages",
+        "type": "integer"
+      },
+      "emoji_status_blocked_packs": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "title": "Emoji Status Blocked Packs",
+        "type": "array"
+      },
+      "newcomer_mentions": {
+        "default": true,
+        "title": "Newcomer Mentions",
+        "type": "boolean"
+      },
+      "repeat_enabled": {
+        "default": true,
+        "title": "Repeat Enabled",
+        "type": "boolean"
+      },
+      "repeat_window": {
+        "default": 30,
+        "maximum": 3600,
+        "minimum": 5,
+        "title": "Repeat Window",
+        "type": "integer"
+      },
+      "repeat_count": {
+        "default": 5,
+        "maximum": 100,
+        "minimum": 2,
+        "title": "Repeat Count",
+        "type": "integer"
+      },
+      "similar_enabled": {
+        "default": true,
+        "title": "Similar Enabled",
+        "type": "boolean"
+      },
+      "similar_window": {
+        "default": 60,
+        "maximum": 3600,
+        "minimum": 5,
+        "title": "Similar Window",
+        "type": "integer"
+      },
+      "similar_count": {
+        "default": 4,
+        "maximum": 100,
+        "minimum": 2,
+        "title": "Similar Count",
+        "type": "integer"
+      },
+      "similar_threshold": {
+        "default": 85,
+        "maximum": 100,
+        "minimum": 70,
+        "title": "Similar Threshold",
+        "type": "integer"
+      },
+      "similar_min_length": {
+        "default": 12,
+        "maximum": 200,
+        "minimum": 8,
+        "title": "Similar Min Length",
+        "type": "integer"
+      },
+      "burst_enabled": {
+        "default": true,
+        "title": "Burst Enabled",
+        "type": "boolean"
+      },
+      "burst_window": {
+        "default": 10,
+        "maximum": 300,
+        "minimum": 2,
+        "title": "Burst Window",
+        "type": "integer"
+      },
+      "burst_count": {
+        "default": 8,
+        "maximum": 100,
+        "minimum": 3,
+        "title": "Burst Count",
+        "type": "integer"
+      },
+      "warning_window": {
+        "default": 86400,
+        "maximum": 604800,
+        "minimum": 60,
+        "title": "Warning Window",
+        "type": "integer"
+      },
+      "warning_limit": {
+        "default": 3,
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Warning Limit",
+        "type": "integer"
+      },
+      "mute_seconds": {
+        "default": 259200,
+        "maximum": 2592000,
+        "minimum": 30,
+        "title": "Mute Seconds",
+        "type": "integer"
+      },
+      "block_invites": {
+        "default": false,
+        "title": "Block Invites",
+        "type": "boolean"
+      }
+    },
+    "numbers": {
+      "verification_timeout": "验证时限（秒）",
+      "max_attempts": "最多错误次数",
+      "failure_ban_seconds": "手动封禁及申请重试间隔（秒）",
+      "newcomer_seconds": "新成员限制期（秒）",
+      "newcomer_messages": "前几条消息继续观察（0 关闭）",
+      "media_min_text_messages": "发图及表情前独立文字条数（0 关闭）",
+      "repeat_window": "重复检测窗口（秒）",
+      "repeat_count": "重复消息触发条数",
+      "similar_window": "近似内容窗口（秒）",
+      "similar_count": "近似内容触发条数",
+      "similar_threshold": "近似程度（百分比）",
+      "similar_min_length": "近似检测最短长度",
+      "burst_window": "连续发送窗口（秒）",
+      "burst_count": "连续发送触发条数",
+      "mute_seconds": "手动禁言（秒）"
+    },
+    "booleans": {
+      "archive_enabled": "记录群消息归档",
+      "join_requests": "申请入群先验证",
+      "verification_enabled": "图片验证",
+      "newcomer_links": "新成员限制链接",
+      "newcomer_mentions": "新成员限制 @引流",
+      "repeat_enabled": "重复刷屏检测",
+      "block_invites": "群邀请链接拦截",
+      "similar_enabled": "近似内容刷屏检测",
+      "burst_enabled": "连续发送检测"
+    }
+  },
+  "states": {
+    "unapproved": "等待所有者批准",
+    "pending": "等待处理",
+    "active": "保护中",
+    "paused": "已暂停",
+    "error": "需要处理",
+    "muting": "正在禁言",
+    "releasing": "等待恢复发言",
+    "removing": "正在移出",
+    "failing": "正在执行失败处理",
+    "passed": "已通过",
+    "failed": "失败",
+    "succeeded": "已完成",
+    "cancelled": "已取消",
+    "left": "已退群",
+    "superseded": "已换新验证"
+  },
+  "operations": {
+    "release": "放行",
+    "reissue": "重新出题",
+    "ban": "临时封禁",
+    "mute": "临时禁言",
+    "unmute": "解除 PurrAI 禁言",
+    "unban": "解除 PurrAI 封禁",
+    "revoke_warning": "撤销警告",
+    "manual_mute": "手动禁言",
+    "manual_ban": "手动封禁",
+    "challenge": "重新出题",
+    "settings": "修改配置",
+    "rule": "修改规则",
+    "whitelist": "白名单",
+    "activate": "启用保护",
+    "verify_mute": "验证禁言",
+    "moderation_mute": "违规禁言",
+    "delete": "删除消息",
+    "warn": "群内通知",
+    "progress": "更新验证输入",
+    "batch_release": "批量放行",
+    "admin_notify": "执行结果回执",
+    "admin": "管理员授权",
+    "backup": "生成备份",
+    "retry": "重试任务",
+    "retry_event": "重试事件",
+    "profile_mute": "昵称命中永久禁言",
+    "emoji_status_check": "检查名字旁状态表情",
+    "emoji_status_mute": "状态表情命中永久禁言",
+    "contact_kick": "分享联系人踢出群聊",
+    "rule_mute": "正文广告规则永久禁言",
+    "join_link": "生成申请入群链接",
+    "verification_failure": "验证失败处理",
+    "archive_export": "导出消息归档"
+  },
+  "active_verifications": [
+    "muting",
+    "pending",
+    "releasing",
+    "removing",
+    "failing"
+  ]
+}

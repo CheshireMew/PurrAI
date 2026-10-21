@@ -7,7 +7,7 @@ from purrai.api import install_api
 from purrai.auth import install_auth
 from purrai.config import Settings
 from purrai.db import Database
-from purrai.management import ManagementError
+from purrai.errors import ManagementError
 from purrai.process_lock import ProcessLock
 from purrai.runtime import Runtime
 from purrai.service import Service

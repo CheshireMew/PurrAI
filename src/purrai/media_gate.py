@@ -3,9 +3,9 @@
 import hashlib
 import re
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
-from purrai.models import ArchivedMessage, Inbox, MemberText, MessageRevision, Meta, Violation
+from purrai.models import ArchivedMessage, Inbox, MemberText, MessageRevision, Meta, Violation, now
 from purrai.rules import compact
 
 KEYCAP = re.compile(r"[0-9#*]\ufe0f?\u20e3")
@@ -14,6 +14,7 @@ EMOJI = re.compile(
 )
 MEDIA = ("photo", "sticker", "animation")
 NEW_MEMBER_SECONDS = 15 * 86400
+MAX_TEXT_CREDIT = 100  # Largest configurable media_min_text_messages.
 
 
 def restricted_newcomer(member, at):
@@ -109,8 +110,23 @@ async def remember_text(session, message, edited=False):
         if message_id < same_text.message_id:
             same_text.message_id = message_id
         return
+    # Keep the earliest distinct messages, sufficient for every allowed
+    # threshold and for delayed originals. Credit persists across rejoins.
+    boundary = await session.scalar(select(MemberText.message_id).where(
+        MemberText.group_id == group_id, MemberText.user_id == user_id,
+    ).order_by(MemberText.message_id).offset(MAX_TEXT_CREDIT - 1).limit(1))
+    if boundary is not None and message_id >= boundary:
+        return
     session.add(MemberText(group_id=group_id, user_id=user_id, message_id=message_id, digest=digest))
     await session.flush()
+    if boundary is not None:
+        excess = select(MemberText.message_id).where(
+            MemberText.group_id == group_id, MemberText.user_id == user_id,
+        ).order_by(MemberText.message_id).offset(MAX_TEXT_CREDIT)
+        await session.execute(delete(MemberText).where(
+            MemberText.group_id == group_id, MemberText.user_id == user_id,
+            MemberText.message_id.in_(excess),
+        ).execution_options(synchronize_session=False))
 
 
 async def text_count_before(session, message, minimum):
@@ -171,3 +187,20 @@ async def text_count_before(session, message, minimum):
     else:
         session.add(Meta(key=key, value=str(minimum)))
     return total
+
+
+async def media_gate_exemption( session, action, group, member):
+    if action.actor_id or not group or action.payload.get("chat_id", group.id) != group.id:
+        return False
+    violation = await session.get(Violation, action.payload.get("violation_id", ""))
+    # Also recognize queued tasks from before this update. A combined
+    # advertising/profile violation must still follow its own policy.
+    if not violation or violation.profile_violation or not violation.reasons or not all(
+        reason.startswith("独立文字发言不足 ") for reason in violation.reasons
+    ):
+        return False
+    minimum = group.settings.get("media_min_text_messages", 3)
+    return (
+        not group.enabled or not minimum or not restricted_newcomer(member, now())
+        or await completed_text_count(session, group.id, action.user_id) >= minimum
+    )

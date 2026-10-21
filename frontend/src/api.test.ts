@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, label, setCsrf, time } from './api'
+import { configureCatalog } from './catalog'
+import catalogFixture from '../e2e/fixtures/catalog.json'
+import type { AdminCatalog } from './types'
 
 afterEach(() => vi.unstubAllGlobals())
 describe('后台接口契约', () => {
@@ -15,6 +18,7 @@ describe('后台接口契约', () => {
     await expect(api('/api/test')).rejects.toBeInstanceOf(ApiError)
   })
   it('操作仍在等待时不会显示成已完成', () => {
+    configureCatalog(catalogFixture as AdminCatalog)
     expect(label('pending')).toBe('等待处理'); expect(label('succeeded')).toBe('已完成')
   })
   it('明确使用北京时间展示时间', () => {

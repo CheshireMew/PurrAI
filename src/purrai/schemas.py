@@ -1,8 +1,8 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from purrai.emoji_status import DEFAULT_BLOCKED_PACKS, pack_name
-from purrai.stickers import DEFAULT_ANTIFRAUD_PACKS, DEFAULT_CHAT_PACKS, pack_name as sticker_pack_name
+from purrai.pack_names import DEFAULT_BLOCKED_PACKS, emoji_pack_name as pack_name
+from purrai.pack_names import DEFAULT_ANTIFRAUD_PACKS, DEFAULT_CHAT_PACKS, sticker_pack_name
 
 
 class GroupSettings(BaseModel):
@@ -30,7 +30,7 @@ class GroupSettings(BaseModel):
     failure_ban_seconds: int = Field(default=600, ge=30, le=86400)
     newcomer_seconds: int = Field(default=600, ge=0, le=86400)
     newcomer_links: bool = True
-    newcomer_contacts: bool = True
+    newcomer_contacts: bool = True  # Legacy setting; contact sharing now always removes ordinary members.
     newcomer_messages: int = Field(default=3, ge=0, le=100)
     media_min_text_messages: int = Field(default=3, ge=0, le=100)
     emoji_status_blocked_packs: list[str] = Field(
@@ -121,6 +121,7 @@ class RuleInput(BaseModel):
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
     scope: Literal["message", "name", "either", "name_and_message"] = "message"
     context_value: str = Field(default="", max_length=250)
+    penalty: Literal["delete", "permanent_mute"] = "delete"
     enabled: bool = True
 
     @field_validator("value")

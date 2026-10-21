@@ -17,6 +17,7 @@ from purrai.models import (
     uid,
 )
 from purrai.schemas import ArchiveFilter
+from purrai.serialization import row_dict as values
 
 MEDIA = (
     "photo",
@@ -37,8 +38,6 @@ MEDIA = (
 )
 
 
-def values(row):
-    return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
 
 def snapshot(message):

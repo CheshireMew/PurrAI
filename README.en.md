@@ -108,7 +108,8 @@ Management access follows the current Telegram administrator identity. Group own
 | Join verification | 180 seconds and up to 3 wrong answers; a wrong answer creates a new challenge without extending the deadline; saved choices survive restarts |
 | Failed verification | Permanent mute while remaining in the group; configurable to removal with rejoining allowed. Failed join requests are declined with a 10-minute retry interval |
 | Name or username violation | Permanent mute on joining; a violating message is also deleted when the member speaks |
-| Text, link, or flooding violation | A standalone match deletes the message; keyword, domain, and promotional-account lists start empty |
+| Text, link, or flooding violation | Deletes the message by default; individual keyword rules can also permanently mute the sender; rule lists start empty |
+| Sharing a contact card | Deletes the message and removes ordinary members regardless of membership age; rejoining is allowed |
 | New-member media gate | For members with a reliable join record: lifted after 3 distinct text-only messages or 15 days in the group; this gate alone only deletes the message |
 | Profile status emoji | The `bygbb666` and `GsHeChaba` packs are blocked by default with a permanent mute; the list is editable |
 | Manual unmute by an administrator | Adds the member to the group's whitelist, cancels queued penalties, and exempts future verification and automatic handling |

@@ -160,7 +160,9 @@ async def test_bot_authorization_checks_scoped_grants_and_current_telegram_role(
         assert not (await session.get(Group, -1001)).settings["verification_enabled"]
     telegram.members[(-1001, 2)] = {"status": "member"}
     await click(runtime, telegram, "图片验证", 2)
-    assert "不是机器人已加入群的管理员" in texts(telegram)[-1]
+    assert "不是此群的 Telegram 管理员" in texts(telegram)[-1]
+    async with database.sessions() as session:
+        assert not (await session.get(Group, -1001)).settings["verification_enabled"]
 
 
 async def test_bot_buttons_are_actor_bound_expire_and_survive_restart(env):

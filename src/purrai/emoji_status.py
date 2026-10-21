@@ -2,8 +2,6 @@
 
 import asyncio
 import logging
-import re
-from urllib.parse import urlsplit
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import select
@@ -12,27 +10,15 @@ from purrai.models import Action, Group, Member, Whitelist, now, uid
 from purrai.diagnostics import failure
 from purrai.telegram import is_admin
 
-DEFAULT_BLOCKED_PACKS = ("bygbb666", "gshechaba")
+from purrai.pack_names import DEFAULT_BLOCKED_PACKS as DEFAULT_BLOCKED_PACKS
+
+from purrai.pack_names import emoji_pack_name
+
+pack_name = emoji_pack_name
 
 logger = logging.getLogger(__name__)
 
 
-def pack_name(value):
-    value = value.strip()
-    if "://" in value or value.startswith("t.me/"):
-        parsed = urlsplit(value if "://" in value else "https://" + value)
-        parts = parsed.path.strip("/").split("/")
-        if (
-            parsed.scheme != "https"
-            or parsed.netloc.lower() != "t.me"
-            or len(parts) != 2
-            or parts[0] != "addemoji"
-        ):
-            raise ValueError("请填写 https://t.me/addemoji/表情包名称，不能填写发布者的 @用户名")
-        value = parts[1]
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,64}", value):
-        raise ValueError("请填写表情包短名称或 t.me/addemoji 链接")
-    return value.lower()
 
 
 class EmojiStatusGuard:

@@ -361,7 +361,7 @@ async def test_pa03_expired_lost_restriction_is_never_applied_again(env, monkeyp
         expired = row.owned_restriction["until_date"] + 1
         (await session.get(Action, result["id"])).available_at = 0
     tg.members[(-1001, 43)] = {"status": "member" if kind == "mute" else "left"}
-    monkeypatch.setattr("purrai.service.now", lambda: expired)
+    monkeypatch.setattr("purrai.restriction_actions.now", lambda: expired)
     await service.run_one_action(include_progress=False)
     async with db.sessions() as session:
         action = await session.get(Action, result["id"])

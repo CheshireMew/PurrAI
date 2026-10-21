@@ -15,14 +15,14 @@ async def test_panel_labels_group_totals_and_refresh_time_without_consuming_budg
     async with db.transaction() as session:
         session.add(Meta(key=KEY, value=json.dumps(data)))
     runtime = Runtime(db, tg, service)
-    monkeypatch.setattr("purrai.bot_admin.now", lambda: 1792494056)
+    monkeypatch.setattr("purrai.bot_configuration_panels.now", lambda: 1792494056)
     await runtime.admin.chat_panel(1, -1001)
     text = markup(tg)["text"]
     assert "统计刷新：2026-10-20 19:00:56（北京时间；点击刷新才更新）" in text
     assert "本群今日累计请求：已用 53 次 / 上限 1000 次" in text
     assert "本群今日 Token 额度占用：138,471 / 2,000,000" in text
     assert "全群所有成员和话题" in text and "请求预留" in text and "结算后可能回落" in text
-    monkeypatch.setattr("purrai.bot_admin.now", lambda: 1792494066)
+    monkeypatch.setattr("purrai.bot_configuration_panels.now", lambda: 1792494066)
     await runtime.admin.chat_panel(1, -1001, message_id=123)
     assert "2026-10-20 19:01:06" in markup(tg)["text"]
     async with db.sessions() as session:

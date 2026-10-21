@@ -17,6 +17,31 @@ EDIT_INTERVAL = 1.0
 logger = logging.getLogger(__name__)
 
 
+async def queue_progress( session, verification):
+    key = f"progress:{verification.id}:{verification.nonce}"
+    action = await session.scalar(select(Action).where(Action.dedupe_key == key))
+    if action is None:
+        session.add(
+            Action(
+                id=uid(),
+                kind="progress",
+                dedupe_key=key,
+                group_id=verification.group_id,
+                user_id=verification.user_id,
+                payload={"verification_id": verification.id, "expected_nonce": verification.nonce},
+                priority=2,
+                state="pending",
+                attempts=0,
+                available_at=now() + DEBOUNCE,
+                error="",
+            )
+        )
+    elif action.state != "pending":
+        action.state, action.attempts, action.error = "pending", 0, ""
+        action.available_at = max(now() + DEBOUNCE, action.payload.get("rendered_at", 0) + EDIT_INTERVAL)
+        action.updated_at = now()
+
+
 class VerificationProgress:
     def __init__(self, db, telegram, settings, exempt_administrator):
         self.db, self.tg = db, telegram
@@ -24,29 +49,7 @@ class VerificationProgress:
         self.exempt_administrator = exempt_administrator
         self.lock = asyncio.Lock()
 
-    async def queue(self, session, verification):
-        key = f"progress:{verification.id}:{verification.nonce}"
-        action = await session.scalar(select(Action).where(Action.dedupe_key == key))
-        if action is None:
-            session.add(
-                Action(
-                    id=uid(),
-                    kind="progress",
-                    dedupe_key=key,
-                    group_id=verification.group_id,
-                    user_id=verification.user_id,
-                    payload={"verification_id": verification.id, "expected_nonce": verification.nonce},
-                    priority=2,
-                    state="pending",
-                    attempts=0,
-                    available_at=now() + DEBOUNCE,
-                    error="",
-                )
-            )
-        elif action.state != "pending":
-            action.state, action.attempts, action.error = "pending", 0, ""
-            action.available_at = max(now() + DEBOUNCE, action.payload.get("rendered_at", 0) + EDIT_INTERVAL)
-            action.updated_at = now()
+    queue = staticmethod(queue_progress)
         # A pending retry keeps its deadline: new digits never bypass Telegram's cooldown.
 
     @staticmethod

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from purrai.management import ManagementError
+from purrai.errors import ManagementError
 from purrai.models import LoginAttempt, Session, now
 
 
@@ -29,7 +29,6 @@ async def identity(request: Request) -> Identity:
             request.headers.get("x-csrf-token", ""), login.csrf
         ):
             raise HTTPException(403, "会话校验失败，请刷新页面后重试")
-    await request.app.state.management.principal(login.user_id)
     return Identity(login.user_id, root, login.csrf)
 
 
@@ -46,7 +45,10 @@ async def authorize_group(request: Request, user: Identity, group_id: int, write
 async def group_ids(request: Request, user: Identity) -> list[int] | None:
     if user.root:
         return None
-    return [row["id"] for row in await request.app.state.management.groups(user.id)]
+    groups = await request.app.state.management.groups(user.id)
+    if not groups:
+        raise ManagementError(403, "你目前不是机器人已加入群的管理员，请先在 Telegram 群中设置管理员身份")
+    return [row["id"] for row in groups]
 
 
 def install_auth(app):

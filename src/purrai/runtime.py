@@ -14,6 +14,7 @@ from purrai.chat import GroupChat
 from purrai.telegram import telegram_data
 from purrai.private_access import approved, discover, update_group_id
 from purrai.traffic import RateLimit
+from purrai.work_claims import WorkClaims
 
 logger = logging.getLogger(__name__)
 ALLOWED_UPDATES = [
@@ -29,15 +30,15 @@ ALLOWED_UPDATES = [
 class Runtime:
     def __init__(self, db, telegram, service):
         self.db, self.tg, self.service = db, telegram, service
-        self.management = Management(db, telegram, service, service.settings)
-        self.admin = BotAdmin(self.management)
         self.chat = GroupChat(db, telegram, service.settings)
-        self.management.chat = self.chat
+        self.management = Management(db, telegram, settings=service.settings, chat=self.chat, access=service.access)
+        self.admin = BotAdmin(self.management)
         self.dispatcher = Dispatcher()
         self.tasks = []
         self.ack_tasks = set()
         self.ack_slots = asyncio.Semaphore(8)
-        self.inbox_ready = {lane: asyncio.Event() for lane in ("messages", "verification")}
+        self.inbox_ready = {lane: asyncio.Event() for lane in ("messages", "control", "verification")}
+        self.inbox_claims = WorkClaims()
         self.last_poll = 0.0
         self.last_error = ""
         self.current_update_id = ContextVar("purrai_update_id", default=0)
@@ -173,35 +174,82 @@ class Runtime:
                 self.tg.connected = False
                 await asyncio.sleep(5)
 
+    @staticmethod
+    def inbox_scope(payload):
+        callback = payload.get("callback_query", {})
+        data = callback.get("data", "").split(":")
+        if len(data) == 4 and data[0] == "v":
+            return "verification", data[1]
+        for field in ("message", "edited_message", "chat_member", "my_chat_member", "chat_join_request"):
+            event = payload.get(field, {})
+            chat = event.get("chat", {})
+            if chat.get("type") == "private":
+                return "control", chat["id"]
+            if chat.get("type") in ("group", "supergroup"):
+                return "group", chat["id"]
+        if callback:
+            return "control", callback.get("from", {}).get("id")
+        return "update", payload["update_id"]
+
+    async def claim_inbox(self, lane):
+        is_verification = func.coalesce(Inbox.payload["callback_query"]["data"].as_string().like("v:%"), False)
+        is_control = or_(
+            func.coalesce(Inbox.payload["message"]["chat"]["type"].as_string() == "private", False),
+            func.coalesce(Inbox.payload["edited_message"]["chat"]["type"].as_string() == "private", False),
+            func.coalesce(Inbox.payload["callback_query"]["data"].as_string().like("a:%"), False),
+        )
+        query = select(Inbox).where(Inbox.state == "pending")
+        if lane == "verification":
+            query = query.where(is_verification)
+        elif lane == "messages":
+            query = query.where(~is_verification, ~is_control)
+        elif lane == "control":
+            query = query.where(is_control)
+        async with self.inbox_claims.lock:
+            async with self.db.sessions() as session:
+                if lane == "verification":
+                    item = await self.verification_item(session, query)
+                    if item is None:
+                        return None
+                    scope = self.inbox_scope(item.payload)
+                    if self.inbox_claims.claim(item.id, scope):
+                        return item.id, item.payload, scope
+                    return None
+                cursor, blocked = -1, set()
+                while True:
+                    rows = (await session.scalars(query.where(Inbox.id > cursor).order_by(Inbox.id).limit(100))).all()
+                    if not rows:
+                        return None
+                    for item in rows:
+                        cursor = item.id
+                        scope = self.inbox_scope(item.payload)
+                        if scope in blocked:
+                            continue
+                        # A delayed or in-flight update owns only its group's or
+                        # administrator's stream. Other streams remain runnable.
+                        blocked.add(scope)
+                        if item.available_at > now() or not self.inbox_claims.available(item.id, scope):
+                            continue
+                        if scope[0] == "verification" and await self.verification_barrier(session, item):
+                            continue
+                        self.inbox_claims.claim(item.id, scope)
+                        return item.id, item.payload, scope
+
     async def process_one(self, lane=None):
-        async with self.db.sessions() as session:
-            is_verification = func.coalesce(
-                Inbox.payload["callback_query"]["data"].as_string().like("v:%"), False
-            )
-            query = select(Inbox).where(Inbox.state == "pending")
-            if lane == "verification":
-                # Do not skip a delayed digit and process later digits out of order.
-                query = query.where(is_verification)
-            else:
-                query = query.where(Inbox.available_at <= now())
-                if lane == "messages":
-                    query = query.where(~is_verification)
-            item = (await self.verification_item(session, query)) if lane == "verification" else await session.scalar(query.order_by(Inbox.id).limit(1))
-            if item is None:
-                return False
-            if lane == "verification":
-                if item.available_at > now():
-                    return False
-            identifier, payload = item.id, item.payload
-            group_id = await update_group_id(session, payload)
-            permitted = group_id is None or await approved(session, group_id)
-        if not permitted:
-            async with self.db.transaction() as session:
-                item = await session.get(Inbox, identifier)
-                item.state, item.payload, item.error = "done", {"update_id": identifier}, "此群未获准接入，已跳过"
-            return True
+        claimed = await self.claim_inbox(lane)
+        if claimed is None:
+            return False
+        identifier, payload, scope = claimed
         token = self.current_update_id.set(identifier)
         try:
+            async with self.db.sessions() as session:
+                group_id = await update_group_id(session, payload)
+                permitted = group_id is None or await approved(session, group_id)
+            if not permitted:
+                async with self.db.transaction() as session:
+                    item = await session.get(Inbox, identifier)
+                    item.state, item.payload, item.error = "done", {"update_id": identifier}, "此群未获准接入，已跳过"
+                return True
             # Bind during validation so Dispatcher need not round-trip SDK defaults.
             update = Update.model_validate(payload, context={"bot": self.tg.bot})
             await self.dispatcher.feed_update(self.tg.bot, update)
@@ -223,7 +271,25 @@ class Runtime:
                     item.state = "failed"
         finally:
             self.current_update_id.reset(token)
+            self.inbox_claims.release(identifier, scope)
+            for event in self.inbox_ready.values():
+                event.set()
         return True
+
+    async def verification_barrier(self, session, item):
+        data = item.payload.get("callback_query", {}).get("data", "").split(":")
+        verification = await session.get(Verification, data[1]) if len(data) == 4 else None
+        if verification is None:
+            return False
+        relevant = []
+        for key in ("chat_member", "my_chat_member", "chat_join_request"):
+            event = Inbox.payload[key]
+            same_group = event["chat"]["id"].as_integer() == verification.group_id
+            user = event["from"]["id"] if key == "chat_join_request" else event["new_chat_member"]["user"]["id"]
+            relevant.append(same_group if key == "my_chat_member" else same_group & (user.as_integer() == verification.user_id))
+        return await session.scalar(select(Inbox.id).where(
+            Inbox.id < item.id, Inbox.state != "done", or_(*relevant),
+        ).limit(1)) is not None
 
     async def verification_item(self, session, query):
         # The oldest key owns its verification stream, not every group's input.
@@ -242,19 +308,10 @@ class Runtime:
                 blocked.add(stream)
                 if item.available_at > now():
                     continue
-                verification = await session.get(Verification, stream)
-                if verification is not None:
-                    relevant = []
-                    for key in ("chat_member", "my_chat_member", "chat_join_request"):
-                        event = Inbox.payload[key]
-                        same_group = event["chat"]["id"].as_integer() == verification.group_id
-                        user = event["from"]["id"] if key == "chat_join_request" else event["new_chat_member"]["user"]["id"]
-                        relevant.append(same_group if key == "my_chat_member" else same_group & (user.as_integer() == verification.user_id))
-                    barrier = await session.scalar(select(Inbox.id).where(
-                        Inbox.id < item.id, Inbox.state != "done", or_(*relevant),
-                    ).limit(1))
-                    if barrier is not None:
-                        continue
+                if not self.inbox_claims.available(item.id, self.inbox_scope(item.payload)):
+                    continue
+                if await self.verification_barrier(session, item):
+                    continue
                 return item
 
     async def inbox_loop(self, lane="messages"):
@@ -280,9 +337,13 @@ class Runtime:
         if self.tg.bot:
             self.tasks = [
                 asyncio.create_task(self.poll_loop(), name="telegram-poll"),
-                asyncio.create_task(self.inbox_loop(), name="inbox-messages"),
+                *[asyncio.create_task(self.inbox_loop(), name=f"inbox-messages-{i}") for i in range(4)],
+                *[asyncio.create_task(self.inbox_loop("control"), name=f"inbox-control-{i}") for i in range(2)],
                 asyncio.create_task(self.inbox_loop("verification"), name="inbox-verification"),
-                asyncio.create_task(self.service.action_loop(), name="actions"),
+                *[asyncio.create_task(self.service.action_loop("member"), name=f"actions-members-{i}") for i in range(4)],
+                *[asyncio.create_task(self.service.action_loop("notification"), name=f"actions-notifications-{i}") for i in range(2)],
+                asyncio.create_task(self.service.timeout_loop(), name="verification-timeouts"),
+                asyncio.create_task(self.service.cleanup_loop(), name="verification-cleanup"),
                 asyncio.create_task(self.service.progress.loop(), name="verification-progress"),
                 asyncio.create_task(self.service.emoji_status.loop(), name="emoji-status"),
                 asyncio.create_task(self.chat.run(), name="chat"),
