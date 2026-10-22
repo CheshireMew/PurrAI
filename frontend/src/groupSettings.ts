@@ -4,6 +4,7 @@ export interface GroupSettings {
   chat_proactive: boolean
   chat_name: string
   chat_persona: string
+  chat_ignored_texts: string[]
   chat_history: number
   chat_interval: number
   chat_stickers: boolean

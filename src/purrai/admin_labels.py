@@ -111,6 +111,7 @@ SCOPES = {
 CHAT_FIELDS = {
     "chat_name": "聊天昵称",
     "chat_persona": "性格与说话习惯",
+    "chat_ignored_texts": "聊天忽略口令（每行一条，完整匹配，- 清空）",
     "chat_history": "最近消息条数",
     "chat_interval": "主动接话检查间隔（秒）",
     "chat_sticker_packs": "聊天贴纸包（addstickers 链接或短名称，多个用空格或换行分隔，- 清空）",
@@ -123,6 +124,7 @@ CHAT_FIELDS = {
 CHAT_BUTTON_LABELS = {
     "chat_name": "聊天昵称",
     "chat_persona": "性格与说话习惯",
+    "chat_ignored_texts": "聊天忽略口令",
     "chat_history": "最近消息条数",
     "chat_interval": "主动接话检查间隔",
     "chat_sticker_packs": "聊天贴纸包",

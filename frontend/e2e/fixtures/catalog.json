@@ -5,6 +5,14 @@
       "chat_proactive": true,
       "chat_name": "柴郡喵",
       "chat_persona": "随和、有一点幽默，关心群友，有自己的看法。",
+      "chat_ignored_texts": [
+        "签到",
+        "积分",
+        "抽奖",
+        "注册币安",
+        "注册 OKX",
+        "币圈教程"
+      ],
       "chat_history": 40,
       "chat_interval": 90,
       "chat_stickers": true,
@@ -92,6 +100,14 @@
         "maxLength": 1000,
         "title": "Chat Persona",
         "type": "string"
+      },
+      "chat_ignored_texts": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "title": "Chat Ignored Texts",
+        "type": "array"
       },
       "chat_history": {
         "default": 40,

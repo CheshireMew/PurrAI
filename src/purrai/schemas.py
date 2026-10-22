@@ -10,6 +10,10 @@ class GroupSettings(BaseModel):
     chat_proactive: bool = True
     chat_name: str = Field(default="柴郡喵", min_length=2, max_length=24)
     chat_persona: str = Field(default="随和、有一点幽默，关心群友，有自己的看法。", max_length=1000)
+    chat_ignored_texts: list[str] = Field(
+        default_factory=lambda: ["签到", "积分", "抽奖", "注册币安", "注册 OKX", "币圈教程"],
+        max_length=100,
+    )
     chat_history: int = Field(default=40, ge=10, le=80)
     chat_interval: int = Field(default=90, ge=15, le=3600)
     chat_stickers: bool = True
@@ -60,6 +64,19 @@ class GroupSettings(BaseModel):
         if len(value) < 2 or "\n" in value:
             raise ValueError("聊天昵称请填写 2 至 24 个字符，不能换行")
         return value
+
+    @field_validator("chat_ignored_texts")
+    @classmethod
+    def normalize_chat_ignored_texts(cls, value):
+        phrases = {}
+        for item in value:
+            item = item.strip()
+            if not item:
+                continue
+            if len(item) > 80 or "\n" in item or "\r" in item:
+                raise ValueError("聊天忽略口令每条最多 80 个字符，不能换行")
+            phrases.setdefault("".join(item.split()).casefold(), item)
+        return list(phrases.values())
 
     @field_validator("emoji_status_blocked_packs")
     @classmethod

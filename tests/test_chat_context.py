@@ -118,21 +118,31 @@ async def test_bots_commands_service_notifications_are_excluded_but_own_chat_can
     assert all(row["id"] != 9 for row in model.calls[-1][1]["messages"])
 
 
-async def test_already_sent_source_and_own_reply_are_kept_after_deletion(env):
-    chat, model = await configured(env, chat_proactive=False, archive_enabled=False)
+@pytest.mark.parametrize("reason", ["pending", "failed", "succeeded", "violation", "archive"])
+async def test_already_sent_source_and_own_reply_are_removed_after_moderation(env, reason):
+    chat, model = await configured(env, chat_proactive=False, archive_enabled=reason == "archive")
     await chat.observe(message(1, "柴郡喵旧的话题"))
     await due(chat)
     assert await chat.run_one()
     async with chat.db.sessions() as session:
         turn = await session.scalar(select(ChatTurn).where(ChatTurn.state == "done"))
         sent_id = turn.sent_message_id
-    await remove(chat, 1)
+    if reason == "violation":
+        async with chat.db.transaction() as session:
+            session.add(Violation(group_id=-1001, message_id=1, user_id=42, reasons=["广告"]))
+    elif reason == "archive":
+        async with chat.db.transaction() as session:
+            row = await capture(session, message(1, "柴郡喵旧的话题"))
+            row.deletion_state = "deleted"
+    else:
+        await remove(chat, 1, reason)
     await age_reply(chat)
     await chat.observe(message(2, "柴郡喵聊个新话题"))
     await due(chat)
     assert await chat.run_one()
     ids = [row["id"] for row in model.calls[-1][1]["messages"]]
-    assert ids == [1, sent_id, 2]
+    assert ids == [2]
+    assert sent_id not in ids
 
 
 async def test_removal_during_typing_is_filtered_before_model_request(env):
@@ -152,7 +162,7 @@ async def test_removal_during_typing_is_filtered_before_model_request(env):
     assert [row["id"] for row in model.calls[0][1]["messages"]] == [2]
 
 
-async def test_history_removed_after_request_is_not_rewritten_or_regenerated(env):
+async def test_history_removed_during_generation_cancels_unsent_answer_without_regeneration(env):
     chat, model = await configured(env, chat_proactive=False)
     await chat.observe(message(1, "后来被删除的历史内容"))
     await chat.observe(message(2, "柴郡喵聊聊周末"))
@@ -165,14 +175,14 @@ async def test_history_removed_after_request_is_not_rewritten_or_regenerated(env
     finally:
         model.release.set()
         await running
-    assert len([method for method, _ in chat.tg.calls if method == "send_message"]) == 1
+    assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
     async with chat.db.sessions() as session:
         turn = await session.scalar(select(ChatTurn))
-        assert turn.state == "done"
+        assert turn.state == "skipped" and "上下文" in turn.error
     assert len(model.calls) == 1
 
 
-async def test_rate_limited_response_is_reused_if_already_sent_context_was_removed(env):
+async def test_rate_limited_response_is_not_reused_after_source_removal(env):
     chat, model = await configured(env, chat_proactive=False)
     await chat.observe(message(1, "缓存回答引用的旧内容"))
     await chat.observe(message(2, "柴郡喵你觉得呢"))
@@ -189,14 +199,13 @@ async def test_rate_limited_response_is_reused_if_already_sent_context_was_remov
     await due(chat)
     assert await chat.run_one()
     await remove(chat, 1)
-    previous = model.result
-    model.result = "这段不应再次生成。"
+    model.result = "只接着正常的新问题聊。"
     await due(chat)
     assert await chat.run_one()
-    assert len(model.calls) == 1
-    assert [row["id"] for row in model.calls[-1][1]["messages"]] == [1, 2]
+    assert len(model.calls) == 2
+    assert [row["id"] for row in model.calls[-1][1]["messages"]] == [2]
     sent = [values for method, values in chat.tg.calls if method == "send_message"]
-    assert len(sent) == 1 and sent[0]["text"] == previous
+    assert len(sent) == 1 and sent[0]["text"] == model.result
 
 
 async def test_private_cleanup_with_same_message_id_does_not_hide_group_message(env):
@@ -209,7 +218,7 @@ async def test_private_cleanup_with_same_message_id_does_not_hide_group_message(
     assert [row["id"] for row in model.calls[0][1]["messages"]] == [1, 2]
 
 
-async def test_sent_prefix_is_unchanged_by_later_edits_deletions_and_reply_mode(env):
+async def test_eligible_sent_prefix_is_unchanged_by_later_edits_and_reply_mode(env):
     chat, model = await configured(env, chat_interval=15)
     model.result = None
     await chat.observe(message(1, "周末大家一起出去走走怎么样"))
@@ -218,7 +227,6 @@ async def test_sent_prefix_is_unchanged_by_later_edits_deletions_and_reply_mode(
     system, first = model.calls[0]
     assert first["reply_mode"] == "ambient"
     await chat.observe(message(1, "后来被编辑的内容", edit_date=int(now()) + 1), edited=True, update_id=2)
-    await remove(chat, 1)
     await chat.observe(message(2, "柴郡喵你觉得呢"))
     await due(chat)
     assert await chat.run_one()
@@ -240,7 +248,6 @@ async def test_sent_prefix_survives_restart_and_unsent_dirty_messages_are_still_
     await chat.observe(message(1, "柴郡喵原来的讨论"))
     await due(chat)
     assert await chat.run_one()
-    await remove(chat, 1)
     await chat.observe(message(2, "尚未发送的广告"))
     await remove(chat, 2)
     restored_model = FakeModel()

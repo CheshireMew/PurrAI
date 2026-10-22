@@ -121,6 +121,8 @@ class BotInput:
                 import re
 
                 value = [] if text.strip() == "-" else re.split(r"[\s,，]+", text.strip())
+            elif key == "chat_ignored_texts":
+                value = [] if text.strip() == "-" else text.splitlines()
             await self.management.setting(actor, group_id, key, value, request_id)
             await self.panels.chat_panel(actor, group_id)
         elif kind.startswith("archive_"):

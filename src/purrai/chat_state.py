@@ -12,25 +12,72 @@ from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
 
 FOLLOWUP_WINDOW = 90
 REPLY_INTERVAL = 8
+REPLY_DELAY = 10
+IMAGE_BURST_WINDOW = 10
+UNREADABLE_IMAGE = "[无法读取的图片]"
 
 
-def following_up(state, sender_id, received_at, *, allow_join=False):
+def has_image(message):
+    return bool(message.get("photo") or (message.get("document") or {}).get("mime_type", "").startswith("image/"))
+
+
+def message_bursts(rows):
+    """Time-connected messages from one sender; no semantic topic guessing."""
+    result, latest = [], {}
+    for row in sorted(rows, key=lambda item: (item.sent_at, item.message_id)):
+        if row.is_bot:
+            continue
+        key = row.topic_id, row.sender_id
+        burst = latest.get(key)
+        if burst is None or row.sent_at - burst[-1].sent_at > IMAGE_BURST_WINDOW:
+            burst = []
+            latest[key] = burst
+            result.append(burst)
+        burst.append(row)
+    return result
+
+
+def image_message_ids(rows):
+    return {
+        row.message_id
+        for burst in message_bursts(rows)
+        if any(not item.eligible and item.text == UNREADABLE_IMAGE for item in burst)
+        for row in burst
+    }
+
+
+def following_up(state, sender_id, received_at, *, allow_join=False, message_id=0, burst_ids=()):
     # Classify when the message arrived, so waiting for a worker cannot turn a
     # timely continuation into an unrelated ambient message.
+    elapsed = received_at - state.get("last_reply", 0)
+    queued_supplement = (
+        state.get("last_user") == sender_id
+        and message_id > state.get("last_request", 0) > 0
+        and state["last_request"] in burst_ids
+        and -FOLLOWUP_WINDOW < elapsed < 0
+    )
     return (
         (state.get("last_user") == sender_id or allow_join)
         and state.get("last_reply", 0) > 0
-        and received_at - state.get("last_reply", 0) < FOLLOWUP_WINDOW
+        and (0 <= elapsed < FOLLOWUP_WINDOW or queued_supplement)
     )
 
 
-def human_message(message):
+def ignored_text(text, phrases):
+    # Reply keyboards send ordinary text. Match the whole button label, never a
+    # word inside a real question; whitespace and Latin case are insignificant.
+    canonical = "".join(text.split()).casefold()
+    return canonical in {"".join(phrase.split()).casefold() for phrase in phrases}
+
+
+def human_message(message, ignored_texts=()):
     sender = message.get("from") or {}
     origin = message.get("forward_origin") or {}
     text = sticker_text(message)
     return bool(
         text
-        and not text.startswith("/")
+        and not text.lstrip().startswith("/")
+        and not ignored_text(text, ignored_texts)
         and sender.get("id")
         and not sender.get("is_bot")
         and not message.get("sender_chat")

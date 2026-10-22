@@ -15,6 +15,7 @@ const copySettings = (value: GroupSettings): GroupSettings => JSON.parse(JSON.st
 const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
+const ignoredChatText = ref('')
 const chatStatus = ref<Partial<ChatStatus>>({})
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
 type BooleanKey = { [K in keyof GroupSettings]: GroupSettings[K] extends boolean ? K : never }[keyof GroupSettings]
@@ -30,6 +31,7 @@ watch(() => props.group, group => {
   settingsBaseline.value = copySettings({ ...form })
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n'); chatStatus.value = {}; error.value = ''
+  ignoredChatText.value = form.chat_ignored_texts.join('\n')
   dialog.value = true
   api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
     .catch(() => { if (current === version) chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
@@ -64,6 +66,7 @@ async function save() {
     if (emojiPacksText.value.trim()) throw new Error('请先点击“新增表情包”保存输入的链接，或清空新增输入框')
     form.chat_sticker_packs = chatPacksText.value.split(/[\s,，]+/).filter(Boolean)
     form.chat_antifraud_packs = antifraudPacksText.value.split(/[\s,，]+/).filter(Boolean)
+    form.chat_ignored_texts = ignoredChatText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean)
     const changes = Object.fromEntries(Object.entries(form).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings])))
     const baseline = Object.fromEntries(Object.keys(changes).map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
     await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline }) })
@@ -134,6 +137,10 @@ async function save() {
 <el-form-item label="性格与说话习惯">
 <el-input v-model="form.chat_persona" type="textarea" :rows="3" :maxlength="bounds('chat_persona').maxLength" show-word-limit/>
 </el-form-item>
+<el-form-item label="聊天忽略口令">
+<el-input v-model="ignoredChatText" type="textarea" :rows="3" placeholder="每行一条其他机器人的按钮文字，例如签到、积分、币圈教程"/>
+</el-form-item>
+<p class="muted">整条消息与口令相同时不进入 AI 聊天或聊天上下文，忽略空白和英文大小写；“今天积分怎么算”等正常句子仍可讨论。留空则关闭口令过滤，不影响其他机器人的功能。</p>
 <div class="settings-grid">
 <el-form-item label="最近上下文条数">
 <el-input-number v-model="form.chat_history" :min="bounds('chat_history').minimum" :max="bounds('chat_history').maximum"/>
@@ -142,7 +149,7 @@ async function save() {
 <el-input-number v-model="form.chat_interval" :min="bounds('chat_interval').minimum" :max="bounds('chat_interval').maximum"/>
 </el-form-item>
 </div>
-<p class="muted">被 @、叫昵称或被回复时接话；刚聊过的群友可以接着说。主动接话会先让模型判断是否适合发言，不会到点就强行插话。</p>
+<p class="muted">被 @、叫昵称或被回复时接话；刚聊过的群友可以接着说。同一用户连续发言结束后等待约 10 秒，再检查最新删除状态并决定是否接话。相邻消息间隔不超过 10 秒视为连续发言，整组含图片时不回复，图片本身也不回复。主动接话会先让模型判断是否适合发言，不会到点就强行插话。</p>
 <div class="settings-toggles">
 <el-form-item label="聊天使用贴纸">
 <el-switch v-model="form.chat_stickers"/>

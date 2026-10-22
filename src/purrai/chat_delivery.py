@@ -6,8 +6,10 @@ import logging
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 
+from purrai.action_queue import enqueue
+from purrai.archive import deletion_result
 from purrai.chat_safety import output_reasons
-from purrai.models import ChatTurn, Rule
+from purrai.models import ChatTurn, Rule, now
 from purrai.schemas import GroupSettings
 from purrai.serialization import row_dict
 from purrai.stickers import emoji_key
@@ -23,14 +25,33 @@ class ChatDelivery:
         async with self.stickers.lock(turn.group_id):
             return await self.send(turn, cfg, original, sender_id, generated)
 
+    async def missing_target(self, turn, error):
+        if not any(reason in str(error).lower() for reason in (
+            "message to be replied not found", "reply message not found", "replied message not found",
+        )):
+            return False
+        async with self.db.transaction() as session:
+            action = await enqueue(
+                session, "delete", f"chat-missing-target:{turn.group_id}:{turn.message_id}", turn.group_id,
+                payload={"message_id": turn.message_id, "already_absent": True},
+                reason="Telegram 确认被回复的消息已不存在；仅记录结果，不执行删除",
+            )
+            action.state, action.updated_at = "succeeded", now()
+            await deletion_result(session, action)
+            current = await session.get(ChatTurn, turn.id)
+            current.state, current.response = "skipped", ""
+            current.error = "被回复的消息已不存在，取消本次回复"
+            logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
+        return True
+
     async def send(self, turn, cfg, original, sender_id, generated):
         result, fingerprint = generated.result, generated.fingerprint
         selected_sticker, text_message_id = generated.selected_sticker, generated.text_message_id
         async with self.db.transaction() as session:
-            current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
+            current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
                 current.state = "skipped"
-                current.error = "发送前，聊天设置或目标消息已变更"
+                current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             if not result.text and not result.sticker:
@@ -63,10 +84,10 @@ class ChatDelivery:
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
             return True
         async with self.db.transaction() as session:
-            current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
+            current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
                 current.state = "skipped"
-                current.error = "发送前，聊天设置或目标消息已变更"
+                current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             latest_cfg = GroupSettings.model_validate(group.settings)
@@ -99,6 +120,7 @@ class ChatDelivery:
                     "sticker": result.sticker,
                     "selected_sticker": selected_sticker,
                     "context": fingerprint,
+                    "source_context": generated.context,
                     "text_message_id": text_message_id,
                 },
                 ensure_ascii=False,
@@ -107,14 +129,19 @@ class ChatDelivery:
         # No database writer or moderation worker waits on the model or Telegram send.
         kwargs = {
             "chat_id": turn.group_id,
-            "reply_parameters": {"message_id": turn.message_id, "allow_sending_without_reply": True},
+            "reply_parameters": {"message_id": turn.message_id, "allow_sending_without_reply": False},
         }
         if turn.topic_id:
             kwargs["message_thread_id"] = turn.topic_id
         if result.text and not text_message_id:
-            sent = await self.tg.call(
-                "send_message", **kwargs, text=result.text, link_preview_options={"is_disabled": True}
-            )
+            try:
+                sent = await self.tg.call(
+                    "send_message", **kwargs, text=result.text, link_preview_options={"is_disabled": True}
+                )
+            except TelegramBadRequest as exc:
+                if await self.missing_target(turn, exc):
+                    return True
+                raise
             text_message_id = sent["message_id"]
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)
@@ -127,10 +154,10 @@ class ChatDelivery:
                 current.state = "generating"
         if selected_sticker:
             async with self.db.transaction() as session:
-                current, group, valid = await self.context.valid_turn(session, turn, original, sender_id)
+                current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
                 if not valid:
                     current.state = "skipped"
-                    current.error = "发送贴纸前，聊天设置或目标消息已变更"
+                    current.error = "发送贴纸前，聊天设置、目标消息或引用上下文已失效"
                     logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                     return True
                 latest_cfg = GroupSettings.model_validate(group.settings)
@@ -142,7 +169,8 @@ class ChatDelivery:
                 else:
                     current.state = "sending"
         if selected_sticker:
-            await self.send_sticker(turn, cfg, group, sender_id, selected_sticker, text_message_id, kwargs)
+            if not await self.send_sticker(turn, cfg, group, sender_id, selected_sticker, text_message_id, kwargs):
+                return True
         async with self.db.transaction() as session:
             current = await session.get(ChatTurn, turn.id)
             current.state = "done" if current.sent_message_id is not None else "silent"
@@ -157,7 +185,9 @@ class ChatDelivery:
     async def send_sticker(self, turn, cfg, group, sender_id, selected_sticker, text_message_id, kwargs):
         try:
             sent = await self.tg.call("send_sticker", **kwargs, sticker=selected_sticker["file_id"])
-        except TelegramBadRequest:
+        except TelegramBadRequest as exc:
+            if await self.missing_target(turn, exc):
+                return False
             await self.stickers.rejected(
                 turn.group_id,
                 "文字已发送，贴纸被 Telegram 拒绝，本次已略过贴纸"
@@ -171,3 +201,4 @@ class ChatDelivery:
                 await self.context.remember_output(
                     session, turn, cfg, group, sent, sender_id, sticker=selected_sticker
                 )
+        return True
