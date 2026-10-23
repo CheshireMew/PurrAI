@@ -3,6 +3,8 @@
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
+from purrai.advertising_patterns import source_titles
+from purrai.advertising_guard import message_links
 from purrai.archive import capture, mark_reasons
 from purrai.media_gate import remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.message_activity import observe_activity
@@ -25,9 +27,10 @@ from purrai.verification_state import ACTIVE
 
 
 class Moderation:
-    def __init__(self, db, telegram, settings, trust, emoji_status):
+    def __init__(self, db, telegram, settings, trust, emoji_status, advertising):
         self.db, self.tg, self.settings = db, telegram, settings
         self.trust, self.emoji_status = trust, emoji_status
+        self.advertising = advertising
 
     async def profile_on_join(self, session, group, member, user):
         if user["id"] in self.settings.superadmin_ids:
@@ -129,6 +132,11 @@ class Moderation:
                         priority=0,
                     )
                 return
+            if any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) and message_links(message):
+                if not admin_checked:
+                    return True
+                await self.advertising.queue(session, group, member, message, update_id, edited)
+                member = await session.get(Member, (group_id, user_id))
             text, urls = message_content(message)
             display_name = " ".join(str(sender.get(key, "")) for key in ("first_name", "last_name")).strip()
             if sender.get("username"):
@@ -141,8 +149,9 @@ class Moderation:
                 group.settings,
                 sender_name=display_name,
                 contact=bool(message.get("contact")),
+                source_titles=source_titles(message),
             )
-            if message.get("contact") or profile["name_reasons"] or profile["mute_reasons"]:
+            if message.get("contact") or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
                 if not admin_checked:
                     return True
                 await self.record_member_message(
@@ -211,6 +220,7 @@ class Moderation:
             mentioned_users=[entity.get("user", {}) for entity in
                              (message.get("entities") or message.get("caption_entities") or [])
                              if entity.get("type") == "text_mention"],
+            source_titles=source_titles(message),
         )
         reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
         if sender_chat and result["name_reasons"]:
@@ -237,7 +247,7 @@ class Moderation:
             message_violation=bool(result["reasons"]),
         )
         if changed:
-            await apply_penalty(session, group, violation, member)
+            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
 
     async def record_member_message(
         self, session, group, member, message, edited, update_id, display_name, result
@@ -257,7 +267,7 @@ class Moderation:
             message_violation=True,
         )
         if changed:
-            await apply_penalty(session, group, violation, member)
+            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
 
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):
         reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片或表情整条消息"

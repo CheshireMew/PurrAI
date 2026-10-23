@@ -137,7 +137,7 @@ class RecordPanels:
                 ]
         elif kind == "violation":
             actions = await self.management.queries.violation_operations(actor, group_id, row.id)
-            permanent_ban = any(operation.kind in ("contact_ban", "emoji_status_ban") for operation in actions)
+            permanent_ban = any(operation.kind in ("contact_ban", "emoji_status_ban", "advertisement_ban") for operation in actions)
             scope = "踢出并禁止重新加入 " if permanent_ban else (
                 ("昵称或状态表情禁言 " if row.profile_violation else "")
                 + ("正文广告永久禁言 " if row.rule_mute else "")

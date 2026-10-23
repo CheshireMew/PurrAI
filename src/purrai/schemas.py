@@ -58,6 +58,23 @@ class GroupSettings(BaseModel):
     warning_limit: int = Field(default=3, ge=1, le=100)
     mute_seconds: int = Field(default=259200, ge=30, le=2592000)
     block_invites: bool = False
+    advertising_ban: bool = True
+    external_group_ban: bool = True
+    external_invite_ban: bool = True
+    telegram_allowed_links: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("telegram_allowed_links")
+    @classmethod
+    def normalize_allowed_links(cls, values):
+        from purrai.telegram_links import parse_link
+
+        links = {}
+        for value in values:
+            link = parse_link(value.strip())
+            if not link:
+                raise ValueError("允许链接请填写 Telegram 群组、频道或邀请链接")
+            links.setdefault(link.key, value.strip())
+        return list(links.values())
 
     @field_validator("chat_name")
     @classmethod

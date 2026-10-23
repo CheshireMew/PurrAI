@@ -16,6 +16,7 @@ const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaul
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
 const ignoredChatText = ref('')
+const allowedLinksText = ref('')
 const chatStatus = ref<Partial<ChatStatus>>({})
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
 type BooleanKey = { [K in keyof GroupSettings]: GroupSettings[K] extends boolean ? K : never }[keyof GroupSettings]
@@ -32,6 +33,7 @@ watch(() => props.group, group => {
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n'); chatStatus.value = {}; error.value = ''
   ignoredChatText.value = form.chat_ignored_texts.join('\n')
+  allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
   api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
     .catch(() => { if (current === version) chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
@@ -67,6 +69,7 @@ async function save() {
     form.chat_sticker_packs = chatPacksText.value.split(/[\s,，]+/).filter(Boolean)
     form.chat_antifraud_packs = antifraudPacksText.value.split(/[\s,，]+/).filter(Boolean)
     form.chat_ignored_texts = ignoredChatText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean)
+    form.telegram_allowed_links = allowedLinksText.value.split(/\s+/).map(text => text.trim()).filter(Boolean)
     const changes = Object.fromEntries(Object.entries(form).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings])))
     const baseline = Object.fromEntries(Object.keys(changes).map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
     await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline }) })
@@ -98,6 +101,10 @@ async function save() {
 </div>
 <p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
 <p class="muted">普通成员分享联系人会删除消息、踢出并禁止重新加入，不限入群时长；群主、管理员及防广告白名单豁免。</p>
+<p class="muted">明确广告招揽和外群链接不限入群时长，删消息并永久封禁。公开链接会先核实群组类型；外部私密邀请统一处理。本群已知链接、允许链接及允许提及账号豁免链接检查；名单不豁免广告正文。明确举报或防骗引用只删外群链接，不自动永久封禁。</p>
+<el-form-item label="允许的 Telegram 链接">
+<el-input v-model="allowedLinksText" type="textarea" :rows="3" placeholder="每行一个群组、频道或邀请链接"/>
+</el-form-item>
 <p class="muted">新成员观察期默认 3 天，并检查前 3 条消息；时限和条数都满足后结束。期间限制链接、@账号或群组、用户及频道转发、加密货币地址，命中删除消息。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
 
 

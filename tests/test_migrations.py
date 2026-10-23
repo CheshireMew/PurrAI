@@ -274,7 +274,7 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0019"
         assert json.loads(connection.execute("SELECT choices FROM verifications").fetchone()[0]) == []
         assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0
@@ -285,6 +285,8 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
         assert settings["join_requests"] is False
         assert settings["archive_enabled"] is True
         assert settings["verification_failure_action"] == "permanent_mute"
+        assert settings["advertising_ban"] and settings["external_group_ban"] and settings["external_invite_ban"]
+        assert settings["telegram_allowed_links"] == []
         assert settings["media_min_text_messages"] == 3
         assert settings["emoji_status_blocked_packs"] == ["bygbb666", "gshechaba"]
         assert connection.execute("SELECT count(*) FROM member_texts").fetchone()[0] == 0

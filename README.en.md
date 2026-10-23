@@ -109,6 +109,7 @@ Management access follows the current Telegram administrator identity. Group own
 | Failed verification | Permanent mute while remaining in the group; configurable to removal with rejoining allowed. Failed join requests are declined with a 10-minute retry interval |
 | Name or username violation | Permanent mute on joining; a violating message is also deleted when the member speaks |
 | Text, link, or flooding violation | Deletes the message by default; individual keyword rules can also permanently mute the sender; rule lists start empty |
+| Clear solicitations and external group links | Deletes and permanently bans confirmed group links, external private invites and explicit trading solicitations; excludes known own-group and allowed links, with separate report handling |
 | Sharing a contact card | Deletes the message and permanently bans ordinary members regardless of membership age; rejoining is prohibited |
 | New-member observation | Three days and the first three messages; links, @accounts or groups, user/channel forwards and common cryptocurrency addresses are deleted |
 | New-member media gate | For members with a reliable join record: lifted after 3 distinct text-only messages or 15 days in the group; this gate alone only deletes the message |

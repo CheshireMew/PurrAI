@@ -28,6 +28,8 @@ ACTION_POLICIES = {
     "contact_kick": MODERATION,
     "contact_ban": MODERATION,
     "emoji_status_ban": MODERATION,
+    "advertisement_ban": MODERATION,
+    "advertisement_check": MODERATION,
     "rule_mute": MODERATION,
     "moderation_mute": MODERATION,
     "delete": MODERATION,

@@ -63,6 +63,7 @@ class MemberRestrictions:
             Verification.group_id == group.id, Verification.user_id == member.user_id,
             Verification.generation == member.generation, Verification.state.in_(ACTIVE),
         ))).all()
+        violation_label = "广告引流违规" if action.kind == "advertisement_ban" else "状态表情违规"
         member.owned_restriction = {
             "kind": "ban", "source_action": action.id, "until_date": 0,
             "automatic_permanent": True,
@@ -72,7 +73,7 @@ class MemberRestrictions:
         for verification in active:
             verification.state = "failing"
             verification.nonce = secrets.token_hex(4)
-            verification.error = "状态表情违规；等待永久封禁完成"
+            verification.error = violation_label + "；等待永久封禁完成"
         if not reconciled:
             await self.action_call(
                 session, action, "ban_chat_member", chat_id=group.id,
@@ -83,7 +84,7 @@ class MemberRestrictions:
             verification.state, verification.failure_action, verification.updated_at = (
                 "failed", "permanent_ban", now(),
             )
-            verification.error = "状态表情违规，已踢出并禁止重新加入"
+            verification.error = violation_label + "，已踢出并禁止重新加入"
             await cleanup(session, verification)
         if action.kind == "emoji_status_ban":
             await self.record_emoji_violation(session, group, member, action, "永久封禁")

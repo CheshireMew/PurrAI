@@ -79,6 +79,9 @@ class NotificationActions:
             creates_join_request=True,
         )
         action.payload = {**action.payload, "invite_link": response["invite_link"]}
+        from purrai.group_link_identity import remember_group_link
+
+        await remember_group_link(session, group.id, response["invite_link"])
 
     async def export_archive(self, session, action, group, verification, member):
         from purrai.archive import export_document

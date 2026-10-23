@@ -3,6 +3,7 @@
 from purrai.action_queue import audit as audit
 from purrai.action_queue import enqueue as enqueue
 from purrai.actions import ActionRunner
+from purrai.advertising_guard import AdvertisingGuard
 from purrai.emoji_status import EmojiStatusGuard
 from purrai.group_access import GroupAccess
 from purrai.maintenance import Maintenance
@@ -26,7 +27,8 @@ class Service:
         self.cleanup_tasks = VerificationCleanup(db)
         self.progress = VerificationProgress(db, telegram, settings, self.trust.exempt_administrator)
         self.emoji_status = EmojiStatusGuard(db, telegram, settings, enqueue, self.trust.exempt_administrator)
-        self.moderation = Moderation(db, telegram, settings, self.trust, self.emoji_status)
+        self.advertising = AdvertisingGuard(db, telegram, settings, self.trust)
+        self.moderation = Moderation(db, telegram, settings, self.trust, self.emoji_status, self.advertising)
         self.members = MemberEvents(db, telegram, settings, self.trust, self.moderation, self.emoji_status)
         self.actions = ActionRunner(
             db,
@@ -37,6 +39,7 @@ class Service:
             self.progress,
             self.emoji_status,
             self.access,
+            self.advertising,
         )
         self.action_claims = self.actions.action_claims
 

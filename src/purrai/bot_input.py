@@ -30,12 +30,13 @@ class BotInput:
         group = await self.management.authorize(actor, group_id)
         kind = data["kind"]
         instructions = {
-            "emoji_packs": "请发送要新增的 t.me/addemoji 链接或表情包短名称，多个用空格、逗号或换行分隔。只追加新条目，原名单自动保留并去重。移除或清空请返回黑名单面板操作。仅检查名字旁的表情状态，命中永久禁言。"
+            "emoji_packs": "请发送要新增的 t.me/addemoji 链接或表情包短名称，多个用空格、逗号或换行分隔。只追加新条目，原名单自动保留并去重。移除或清空请返回黑名单面板操作。仅检查名字旁的表情状态，命中永久封禁。"
             + f"当前已有 {len(group.settings.get('emoji_status_blocked_packs', DEFAULT_BLOCKED_PACKS))} 个，可返回面板查看。",
             "archive_query": "请发送要搜索的文字（包含历史编辑版本），发送 - 清除关键词。",
             "archive_sender": "请发送用户或频道的数字 ID，发送 - 清除发送者筛选。",
             "archive_dates": "请发送北京时间范围，例如 2026-10-01 00:00 / 2026-10-20 00:00；发送 - 清除时间筛选。",
             "setting": f"请发送新的 {NUMBERS.get(data.get('key'), '数值')}。",
+            "telegram_links": "请发送完整的允许链接名单，每行一个 Telegram 群组、频道或邀请链接；发送 - 清空。名单只豁免链接本身，明确广告招揽仍会处罚。当前名单：\n" + "\n".join(group.settings.get("telegram_allowed_links", [])),
             "chat_setting": f"请发送新的{CHAT_FIELDS.get(data.get('key'), '聊天设置')}。性格直接用自然语言描述即可。",
             "rule": "请发送一条规则内容。域名只填主机名，例如 example.com；关键词默认包含匹配。",
             "preview": "请发送要测试的消息，不会执行处罚。",
@@ -173,6 +174,11 @@ class BotInput:
                 else "这些表情包已在黑名单中，无需重复添加。",
             )
             await self.panels.emoji_packs_panel(actor, group_id)
+        elif kind == "telegram_links":
+            values = [] if text.strip() == "-" else text.split()
+            await self.management.setting(actor, group_id, "telegram_allowed_links", values, request_id)
+            await self.send(actor, "允许链接名单已保存。")
+            await self.panels.settings_panel(actor, group_id, "moderation")
         elif kind == "setting":
             if not text.isdecimal():
                 raise ManagementError(422, "请发送有效的非负整数；发送 /cancel 可取消")
@@ -200,7 +206,9 @@ class BotInput:
                 "规则测试结果：\n"
                 + ("；".join(result["reasons"]) or "未命中当前规则")
                 + f"\n将禁言：{'是' if result['mute_member'] else '否'}；将删消息：{'是' if result['delete_message'] else '否'}"
-                + f"；将踢出：{'是' if result['kick_member'] else '否'}",
+                + f"；将踢出：{'是' if result['kick_member'] else '否'}"
+                + f"；将禁止重新加入：{'需核实链接' if result.get('notes') and not result['ban_member'] else '是' if result['ban_member'] else '否'}"
+                + ("\n" + "\n".join(result["notes"]) if result.get("notes") else ""),
             )
         elif kind == "rule_context":
             old = await self.management.queries.single(actor, group_id, "rule", data["id"])

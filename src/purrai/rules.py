@@ -5,6 +5,7 @@ from collections import Counter
 from urllib.parse import urlsplit
 
 from purrai.wallet_addresses import contains_wallet_address
+from purrai.advertising_patterns import advertising_reasons
 
 LEGACY_CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
 CONTACT_REASON = "分享联系人，删除消息并永久封禁"
@@ -104,7 +105,7 @@ def domain_matches(host: str, configured: str) -> bool:
 def message_content(message: dict) -> tuple[str, list[str]]:
     text = message.get("text") or message.get("caption") or ""
     entities = message.get("entities") or message.get("caption_entities") or []
-    urls = re.findall(r"(?:https?://|www\.)[^\s<>]+|(?:t\.me|telegram\.me)/[^\s<>]+", text, re.I)
+    urls = re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", text, re.I)
     for entity in entities:
         if entity["type"] == "text_link":
             urls.append(entity.get("url", ""))
@@ -129,8 +130,11 @@ def assess(
     *,
     forwarded: bool = False,
     mentioned_users: list[dict] | None = None,
+    source_titles: list[str] | None = None,
 ) -> dict:
     reasons, names, mute_reasons = [], [], []
+    ban_reasons = advertising_reasons(normalize(text), [normalize(title) for title in source_titles or []]) if settings.get("advertising_ban", True) else []
+    reasons.extend(ban_reasons)
     active = [r for r in rules if r.get("enabled", True)]
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]
     for rule in active:
@@ -218,7 +222,7 @@ def assess(
     if settings.get("burst_enabled") and burst >= settings.get("burst_count", 8):
         reasons.append("短时间连续发送")
     return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
-            "mute_reasons": list(dict.fromkeys(mute_reasons))}
+            "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons}
 
 
 def evaluate(*args, **kwargs) -> list[str]:

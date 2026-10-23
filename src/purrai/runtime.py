@@ -15,6 +15,7 @@ from purrai.telegram import telegram_data
 from purrai.private_access import approved, discover, update_group_id
 from purrai.traffic import RateLimit
 from purrai.work_claims import WorkClaims
+from purrai.group_link_identity import remember_update_links
 
 logger = logging.getLogger(__name__)
 ALLOWED_UPDATES = [
@@ -110,6 +111,7 @@ class Runtime:
                 group_id = await update_group_id(session, payload)
                 if group_id is not None and not await approved(session, group_id):
                     continue
+                await remember_update_links(session, payload)
                 message = payload.get("message") or payload.get("edited_message") or {}
                 callback = payload.get("callback_query") or {}
                 if message.get("chat", {}).get("type") == "private" or callback.get("data", "").startswith("a:"):
@@ -346,6 +348,7 @@ class Runtime:
                 asyncio.create_task(self.service.cleanup_loop(), name="verification-cleanup"),
                 asyncio.create_task(self.service.progress.loop(), name="verification-progress"),
                 asyncio.create_task(self.service.emoji_status.loop(), name="emoji-status"),
+                asyncio.create_task(self.service.advertising.loop(), name="advertising-links"),
                 asyncio.create_task(self.chat.run(), name="chat"),
             ]
             for task in self.tasks:

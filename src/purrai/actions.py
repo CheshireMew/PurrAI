@@ -31,9 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 class ActionRunner:
-    def __init__(self, db, telegram, settings, verification, trust, progress, emoji_status, access):
+    def __init__(self, db, telegram, settings, verification, trust, progress, emoji_status, access, advertising):
         self.db, self.tg, self.settings = db, telegram, settings
         self.verification, self.progress, self.emoji_status = verification, progress, emoji_status
+        self.advertising = advertising
         self.action_claims, self.cleanup_lock = WorkClaims(), asyncio.Lock()
         self.policy = ActionPolicy(settings)
         transport = ActionTransport(telegram, self.policy, trust)
@@ -55,6 +56,7 @@ class ActionRunner:
             "unban": administration.unban,
             "contact_kick": automatic.contact_kick,
             "contact_ban": automatic.contact_ban,
+            "advertisement_ban": automatic.advertisement_ban,
             "moderation_mute": automatic.legacy_mute,
             "emoji_status_mute": automatic.emoji_mute,
             "emoji_status_ban": automatic.emoji_ban,
@@ -83,7 +85,7 @@ class ActionRunner:
             Action.state == "pending", Action.available_at <= now(), cleanup if cleanup_only else ~cleanup
         )
         if not include_progress:
-            query = query.where(Action.kind.not_in(("progress", "emoji_status_check")))
+            query = query.where(Action.kind.not_in(("progress", "emoji_status_check", "advertisement_check")))
         if lane == "member":
             query = query.where(Action.kind.not_in(NOTIFICATION_ACTIONS))
         elif lane == "notification":
@@ -128,6 +130,8 @@ class ActionRunner:
         try:
             if kind == "emoji_status_check":
                 return await self.emoji_status.run_one(identifier)
+            if kind == "advertisement_check":
+                return await self.advertising.run_one(identifier)
             if kind == "progress":
                 return await self.progress.run_one(identifier)
             return await self.execute_claimed_action(identifier)

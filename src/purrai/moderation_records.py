@@ -4,6 +4,7 @@ from sqlalchemy import or_, select
 
 from purrai.models import Action, Violation, uid
 from purrai.rules import CONTACT_REASONS
+from purrai.advertising_patterns import is_ban_reason
 
 
 async def record_violation(
@@ -52,6 +53,8 @@ async def record_violation(
         any(reason in reasons for reason in CONTACT_REASONS)
         and not any(reason in row.reasons for reason in CONTACT_REASONS)
     )
+    changed = changed or (any(is_ban_reason(reason) for reason in reasons)
+                          and not any(is_ban_reason(reason) for reason in row.reasons))
     for key, value in flags.items():
         setattr(row, key, getattr(row, key) or value)
     row.reasons = list(dict.fromkeys(row.reasons + reasons))

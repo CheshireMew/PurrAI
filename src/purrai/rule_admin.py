@@ -11,6 +11,7 @@ from purrai.models import (
     uid,
 )
 from purrai.rules import assess, domain, message_content
+from purrai.telegram_links import extract_links
 from purrai.schemas import (
     AdminInput,
     PreviewInput,
@@ -79,9 +80,11 @@ class RuleAdministration:
             "reasons": list(dict.fromkeys(result["reasons"] + result["name_reasons"])),
             "name_reasons": result["name_reasons"],
             "delete_message": bool(result["reasons"] or result["name_reasons"]),
-            "mute_member": bool(result["name_reasons"] or result["mute_reasons"]) and not body.contact,
-            "kick_member": body.contact,
-            "ban_member": body.contact,
+            "mute_member": bool(result["name_reasons"] or result["mute_reasons"]) and not (body.contact or result["ban_reasons"]),
+            "kick_member": bool(body.contact or result["ban_reasons"]),
+            "ban_member": bool(body.contact or result["ban_reasons"]),
+            "notes": (["Telegram 链接发送后会核实：外群或外部私密邀请永久封禁；本群、允许链接和明确举报引用分别处理。"]
+                      if any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) and extract_links(urls) else []),
         }
 
     async def whitelist(self, actor, group_id, body: WhitelistInput, request_id="", remove=False):

@@ -153,6 +153,7 @@ class ConfigurationPanels:
         if section == "moderation":
             packs = group.settings.get("emoji_status_blocked_packs", list(DEFAULT_BLOCKED_PACKS))
             buttons.append(button(f"状态表情包黑名单：{len(packs)} 个（命中永久封禁）", "emoji_packs"))
+            buttons.append(button(f"允许的 Telegram 链接：{len(group.settings.get('telegram_allowed_links', []))} 个", "prompt", kind="telegram_links"))
         buttons.append(button("返回群管理", "group", id=group_id))
         await self.panel(
             actor,
@@ -161,7 +162,7 @@ class ConfigurationPanels:
             + (
                 "\n已入群成员验证失败按所选方式处理；申请入群者尚未入群，失败仅拒绝申请。"
                 if section == "verification"
-                else "\n普通成员分享联系人会删除消息并永久封禁，不限入群时长。\n观察期默认 3 天且检查前 3 条消息，限制链接、@账号或群组、用户及频道转发、加密货币地址；命中删除消息。\n发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除；没有入群记录的成员免除此门槛。广告检测继续生效。"
+                else "\n普通成员分享联系人会删除消息并永久封禁，不限入群时长。\n明确广告招揽、确认的外群链接和外部私密邀请不限入群时长，删消息并永久封禁；本群已知链接和允许名单豁免链接检查。明确举报或防骗引用只删除外群链接。\n观察期默认 3 天且检查前 3 条消息，限制链接、@账号或群组、用户及频道转发、加密货币地址；命中删除消息。\n发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除；没有入群记录的成员免除此门槛。广告检测继续生效。"
             ),
             buttons,
             group_id,

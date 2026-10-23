@@ -51,6 +51,8 @@ OPERATIONS = {
     "contact_kick": "分享联系人踢出群聊",
     "contact_ban": "分享联系人永久封禁",
     "emoji_status_ban": "状态表情命中永久封禁",
+    "advertisement_check": "核实 Telegram 外群链接",
+    "advertisement_ban": "广告或外群引流永久封禁",
     "rule_mute": "正文广告规则永久禁言",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
@@ -70,6 +72,9 @@ BOOLEANS = {
     "block_invites": "群邀请链接拦截",
     "similar_enabled": "近似内容刷屏检测",
     "burst_enabled": "连续发送检测",
+    "advertising_ban": "明确广告招揽永久封禁",
+    "external_group_ban": "外群链接永久封禁",
+    "external_invite_ban": "外部私密邀请统一封禁",
 }
 
 

@@ -333,6 +333,28 @@ test('联系人规则对所有普通成员生效并显示踢出结果', async ({
   await expect(page.getByRole('button', { name: '解禁言', exact: true })).toHaveCount(0)
 })
 
+test('外群封禁设置可保存允许链接并在违规详情提供解封', async ({ page }) => {
+  await mock(page)
+  await page.route('**/api/groups/*/violations*', route => route.fulfill({ json: { items: [{
+    id: 'ad-1', user_id: 42, message_id: 10, sender_name: '广告发送者', excerpt: '来内部群学习',
+    created_at: Date.now() / 1000, reasons: ['明确广告引流：招揽加入交易群或策略频道'],
+    actions: [{ id: 'ad-ban-1', kind: 'advertisement_ban', state: 'succeeded', error: '' }],
+  }], total: 1 } }))
+  await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('.el-form-item').filter({ hasText: '外群链接永久封禁' }).getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByPlaceholder('每行一个群组、频道或邀请链接').fill('https://t.me/+AllowedInvite123\nhttps://t.me/partner_group')
+  const sent = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await sent).postDataJSON().settings.telegram_allowed_links).toEqual(['https://t.me/+AllowedInvite123', 'https://t.me/partner_group'])
+  await page.getByRole('button', { name: '违规记录', exact: true }).click()
+  await expect(page.getByText('广告或外群引流永久封禁：已完成')).toBeVisible()
+  await expect(page.getByRole('button', { name: '解封禁', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '解禁言', exact: true })).toHaveCount(0)
+})
+
 test('正文关键词可保存删消息并永久禁言并在预览显示', async ({ page }) => {
   await mock(page); await page.goto('/')
   await page.getByRole('button', { name: '防广告规则', exact: true }).click()

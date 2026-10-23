@@ -1,5 +1,14 @@
 """Automatic moderation actions selected by the action dispatcher."""
 
+from sqlalchemy import select
+
+from purrai.advertising_guard import link_reasons
+from purrai.advertising_patterns import advertising_reasons, is_ban_reason, source_titles
+from purrai.group_link_identity import own_link_keys
+from purrai.models import Rule
+from purrai.rules import message_content, normalize
+from purrai.serialization import row_dict
+
 
 class AutomaticActions:
     def __init__(self, restrictions):
@@ -8,6 +17,21 @@ class AutomaticActions:
     async def contact_ban(self, session, action, group, verification, member):
         if not group.enabled or not member or not member.present:
             action.state = "cancelled"
+            return
+        await self.restrictions.permanent_ban(session, group, member, action)
+
+    async def advertisement_ban(self, session, action, group, verification, member):
+        if not member or not member.present:
+            action.state = "cancelled"
+            return
+        evidence = action.payload.get("ad_evidence") or {}
+        message = evidence.get("message", {})
+        reasons = advertising_reasons(normalize(message_content(message)[0]),
+                                      [normalize(title) for title in source_titles(message)]) if group.settings.get("advertising_ban", True) else []
+        rules = [row_dict(row) for row in await session.scalars(select(Rule).where(Rule.group_id == group.id))]
+        reasons += link_reasons(message, group, rules, await own_link_keys(session, group.id), evidence.get("links", []))
+        if not any(is_ban_reason(reason) for reason in reasons):
+            action.state, action.error = "cancelled", "广告或链接策略已变化，未执行永久封禁"
             return
         await self.restrictions.permanent_ban(session, group, member, action)
 

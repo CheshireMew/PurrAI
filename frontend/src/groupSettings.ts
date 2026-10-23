@@ -44,4 +44,8 @@ export interface GroupSettings {
   warning_limit: number
   mute_seconds: number
   block_invites: boolean
+  advertising_ban: boolean
+  external_group_ban: boolean
+  external_invite_ban: boolean
+  telegram_allowed_links: string[]
 }

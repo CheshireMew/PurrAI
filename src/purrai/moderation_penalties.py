@@ -11,11 +11,12 @@ from purrai.models import (
     now,
 )
 from purrai.rules import CONTACT_REASON, CONTACT_REASONS
+from purrai.advertising_patterns import is_ban_reason
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 
 
-async def apply_penalty(session, group, violation, member, actor_id=None, reason=""):
+async def apply_penalty(session, group, violation, member, actor_id=None, reason="", *, evidence=None):
     identifiers = []
     if violation.message_violation:
         action = await enqueue(
@@ -30,21 +31,24 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             reason,
         )
         identifiers.append(action.id)
-    if any(reason in violation.reasons for reason in CONTACT_REASONS) and not violation.sender_chat:
+    contact = any(item in violation.reasons for item in CONTACT_REASONS)
+    advertising = any(is_ban_reason(item) for item in violation.reasons)
+    if (contact or advertising) and not violation.sender_chat:
         if member is None:
             member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
             session.add(member)
             await session.flush()
         action = await enqueue(
             session,
-            "contact_ban",
-            f"contact-kick:{violation.id}",
+            "contact_ban" if contact else "advertisement_ban",
+            f"contact-kick:{violation.id}" if contact else f"advertisement-ban:{violation.id}",
             group.id,
             violation.user_id,
-            {"violation_id": violation.id, "generation": member.generation},
+            {"violation_id": violation.id, "generation": member.generation,
+             **({"ad_evidence": evidence} if advertising and evidence else {})},
             0,
             actor_id,
-            reason or CONTACT_REASON,
+            reason or (CONTACT_REASON if contact else "；".join(violation.reasons)),
         )
         identifiers.append(action.id)
         if action.state == "pending" and action.payload.get("generation") == member.generation:
@@ -58,7 +62,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             ):
                 verification.state, verification.error, verification.updated_at = (
                     "cancelled",
-                    CONTACT_REASON,
+                    CONTACT_REASON if contact else "广告引流违规，等待永久封禁",
                     now(),
                 )
                 verification.nonce = secrets.token_hex(4)
