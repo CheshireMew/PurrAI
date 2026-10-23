@@ -138,6 +138,15 @@ class ActionRunner:
             if not action or action.state != "pending" or action.available_at > now():
                 return False
             action.attempts += 1
+            if action.kind == "challenge":
+                started = now()
+                action.payload = {
+                    **action.payload,
+                    "timing": {
+                        "attempt_started_at": started,
+                        "queue_seconds": round(max(0, started - action.available_at), 3),
+                    },
+                }
             try:
                 finished = await self.execute(session, action)
                 if action.state == "pending" and finished is not False:
@@ -289,7 +298,11 @@ class ActionRunner:
             await self.verification.fail_verification(session, verification, "验证超时")
             action.state = "cancelled"
             return
-        if administrator_protected_action(action) and not (
+        # These handlers perform their own checked member lookup before any
+        # mutation. Repeating it here adds a Telegram round trip to every join.
+        if administrator_protected_action(action) and action.kind not in (
+            "verify_mute", "verification_failure", "release",
+        ) and not (
             verification and verification.flow == "join_request" and member and not member.present
         ):
             await self.action_call(

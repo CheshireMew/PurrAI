@@ -24,11 +24,11 @@ class MemberRestrictions:
         self.action_call, self.emoji_status = transport.call, emoji_status
 
     async def verification_mute(self, session, action, group, verification, member):
-        if member.restriction_conflict:
-            raise ValueError("管理员已经修改成员权限，需要人工处理")
         current = await self.action_call(
             session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
         )
+        if member.restriction_conflict:
+            raise ValueError("管理员已经修改成员权限，需要人工处理")
         if not is_present(current) or is_admin(current):
             raise ValueError("成员已经离群或成为管理员，需要人工核实")
         owned = member.owned_restriction
@@ -45,14 +45,22 @@ class MemberRestrictions:
             )
         ):
             raise ValueError("成员已有其他限制，需要人工处理")
-        chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         if not owned:
-            previous = permission_snapshot(
-                current if current["status"] == "restricted" else chat.get("permissions", {})
-            )
+            before = current
+            if current["status"] != "restricted":
+                chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
+                before = chat.get("permissions", {})
+            previous = permission_snapshot(before)
             verification.previous_permissions = {**previous, "__until_date": current.get("until_date", 0)}
             owned = {"permissions": muted_permissions(previous), "until_date": 0}
+        already_muted = bool(
+            action.kind == "verify_mute" and member.owned_restriction
+            and member.owned_restriction.get("kind") in ("verification", "verification_failed")
+            and current.get("status") == "restricted" and restriction_matches(current, owned)
+        )
         member.owned_restriction = {**owned, "kind": "verification", "verification_id": verification.id}
+        if already_muted:
+            return
         await self.action_call(
             session,
             action,

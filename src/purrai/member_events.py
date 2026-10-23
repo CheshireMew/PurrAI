@@ -5,7 +5,7 @@ import secrets
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
-from purrai.restriction_state import ban_matches
+from purrai.restriction_state import ban_matches, restriction_matches
 from purrai.models import (
     Action,
     Group,
@@ -120,7 +120,16 @@ class MemberEvents:
                 # Let its running action finish unbanning before updating presence.
                 return
             member.present = False
-            if event.get("from", {}).get("id") != self.tg.user_id:
+            retained_verification_mute = bool(
+                owned.get("kind") in ("verification", "verification_failed")
+                and not member.restriction_conflict
+                and event.get("from", {}).get("id") == user["id"]
+                and event["old_chat_member"].get("status") == "restricted"
+                and restriction_matches(event["old_chat_member"], owned)
+            )
+            # Telegram can retain a member's permission exception after they
+            # leave. Keep its provenance so the next captcha can lift our mute.
+            if event.get("from", {}).get("id") != self.tg.user_id and not retained_verification_mute:
                 member.owned_restriction = None
             for verification in (
                 await session.scalars(
@@ -194,6 +203,27 @@ class MemberEvents:
                 return
         if member and member.present and member.joined_at == event["date"]:
             return
+        inherited_mute, inherited_permissions = None, None
+        owned = member.owned_restriction if member else None
+        if (
+            owned and owned.get("kind") in ("verification", "verification_failed")
+            and owned.get("verification_id")
+            and not member.restriction_conflict
+            and new.get("status") == "restricted"
+            and restriction_matches(new, owned)
+        ):
+            source = await session.get(Verification, owned.get("verification_id"))
+            if (
+                source and source.group_id == group.id and source.user_id == user["id"]
+                and source.generation == member.generation and source.flow == "joined"
+                and (
+                    source.state in (*ACTIVE, "left")
+                    or owned["kind"] == "verification_failed"
+                    and source.state == "failed" and source.failure_action == "permanent_mute"
+                )
+            ):
+                inherited_mute = dict(owned)
+                inherited_permissions = dict(source.previous_permissions)
         if member is None:
             member = Member(group_id=group.id, user_id=user["id"])
             session.add(member)
@@ -240,10 +270,19 @@ class MemberEvents:
             attempts=0,
             input_digits="",
             deadline=now() + group.settings["verification_timeout"],
-            previous_permissions=permission_snapshot(new) if new["status"] == "restricted" else {},
+            previous_permissions=(
+                inherited_permissions if inherited_permissions is not None
+                else permission_snapshot(new) if new["status"] == "restricted" else {}
+            ),
         )
         session.add(verification)
         await session.flush()
+        if inherited_mute:
+            # Transfer only a matching verification restriction to this join;
+            # retain the snapshot from before the first mute, not the mute itself.
+            member.owned_restriction = {
+                **inherited_mute, "kind": "verification", "verification_id": verification.id,
+            }
         await enqueue(
             session,
             "verify_mute",
