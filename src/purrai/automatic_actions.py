@@ -5,6 +5,15 @@ class AutomaticActions:
     def __init__(self, restrictions):
         self.restrictions = restrictions
 
+    async def contact_ban(self, session, action, group, verification, member):
+        if not group.enabled or not member or not member.present:
+            action.state = "cancelled"
+            return
+        await self.restrictions.permanent_ban(session, group, member, action)
+
+    async def emoji_ban(self, session, action, group, verification, member):
+        await self.restrictions.ban_emoji_status(session, group, member, action)
+
     async def contact_kick(self, session, action, group, verification, member):
         if not group.enabled or not member or not member.present and not action.payload.get("kick_until"):
             action.state = "cancelled"

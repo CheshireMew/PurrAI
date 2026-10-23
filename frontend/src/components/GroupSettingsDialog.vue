@@ -40,7 +40,7 @@ watch(dialog, value => { if (!value) { version++; emit('close') } })
 onUnmounted(() => { version++ })
 async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: string) {
   if (operation === 'clear') {
-    try { await ElMessageBox.confirm('清空本群的状态表情包黑名单？已有禁言不会自动解除。', '清空名单', { confirmButtonText: '确认清空', cancelButtonText: '取消' }) }
+    try { await ElMessageBox.confirm('清空本群的状态表情包黑名单？已有封禁或禁言不会自动解除。', '清空名单', { confirmButtonText: '确认清空', cancelButtonText: '取消' }) }
     catch { return }
   }
   const id = editingId.value
@@ -97,8 +97,8 @@ async function save() {
 </el-form-item>
 </div>
 <p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
-<p class="muted">普通成员分享联系人会删除消息并踢出群聊，不限入群时长；群主、管理员及防广告白名单豁免。</p>
-<p class="muted">新成员观察持续到时限结束且前几条消息已检查。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
+<p class="muted">普通成员分享联系人会删除消息、踢出并禁止重新加入，不限入群时长；群主、管理员及防广告白名单豁免。</p>
+<p class="muted">新成员观察期默认 3 天，并检查前 3 条消息；时限和条数都满足后结束。期间限制链接、@账号或群组、用户及频道转发、加密货币地址，命中删除消息。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
 
 
 <el-form-item label="名字旁状态表情包黑名单">
@@ -118,7 +118,7 @@ async function save() {
 <el-button type="danger" plain :disabled="busy || !form.emoji_status_blocked_packs?.length" @click="changeEmojiPacks('clear')">清空状态表情包黑名单</el-button>
 </div>
 <p class="muted">新增、移除和清空会立即保存，不影响其他尚未保存的群设置；重复链接自动忽略。</p>
-<p class="muted">名字旁的表情状态来自这些表情包时永久禁言，成员仍留在群内。仅在入群和发消息时触发检查，普通贴纸消息不触发这项处罚。默认已加入 bygbb666 和 GsHeChaba；清空名单不会自动解除已有禁言。</p>
+<p class="muted">名字旁的表情状态来自这些表情包时，踢出并禁止重新加入；由发言触发检查时还会删除对应消息。仅在入群和发消息时触发检查，普通贴纸消息不触发这项处罚。默认已加入 bygbb666 和 GsHeChaba；清空名单不会自动解除已有封禁或禁言。</p>
 <el-divider content-position="left">群聊天</el-divider>
 <p class="muted">{{ chatStatus.configured ? `模型：${chatStatus.model}` : '使用前请在服务器填写聊天 API 地址、Key 和模型名。' }} 最近消息按群及话题分开。</p>
 <p v-if="chatStatus.budget" class="muted">今日模型请求 {{ chatStatus.budget.group_calls }}/{{ chatStatus.budget.group_call_limit }}；Token 预算 {{ chatStatus.budget.group_tokens }}/{{ chatStatus.budget.group_token_limit }}。额度每日按北京时间重置，由所有者配置；用完只暂停 AI 聊天。</p>

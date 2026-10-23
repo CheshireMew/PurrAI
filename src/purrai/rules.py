@@ -4,7 +4,11 @@ import unicodedata
 from collections import Counter
 from urllib.parse import urlsplit
 
-CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
+from purrai.wallet_addresses import contains_wallet_address
+
+LEGACY_CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
+CONTACT_REASON = "分享联系人，删除消息并永久封禁"
+CONTACT_REASONS = (LEGACY_CONTACT_REASON, CONTACT_REASON)
 
 
 def normalize(text: str) -> str:
@@ -122,6 +126,9 @@ def assess(
     similar: int = 0,
     burst: int = 0,
     sender_name: str = "",
+    *,
+    forwarded: bool = False,
+    mentioned_users: list[dict] | None = None,
 ) -> dict:
     reasons, names, mute_reasons = [], [], []
     active = [r for r in rules if r.get("enabled", True)]
@@ -169,6 +176,11 @@ def assess(
             reasons.append(f"禁止引流账号：@{username}")
         if newcomer and settings.get("newcomer_mentions"):
             reasons.append("新成员观察期提及未允许账号")
+    if newcomer and settings.get("newcomer_mentions"):
+        if re.search(r"(?<![a-z0-9_@])@-\d{1,20}(?![a-z0-9_])", normalize(text)) or any(
+            normalize(user.get("username", "")) not in allowed_mentions for user in mentioned_users or []
+        ):
+            reasons.append("新成员观察期提及未允许账号或群组")
     for url in urls:
         host = domain(url)
         parsed = parsed_url(url)
@@ -193,6 +205,12 @@ def assess(
             reasons.append("新成员限制期发送链接")
     if contact:
         reasons.append(CONTACT_REASON)
+    if newcomer and forwarded and settings.get("newcomer_forwards", True):
+        reasons.append("新成员观察期转发用户或频道消息")
+    if newcomer and settings.get("newcomer_wallets", True) and any(
+        contains_wallet_address(value) for value in [text, *urls]
+    ):
+        reasons.append("新成员观察期发送加密货币地址")
     if settings.get("repeat_enabled") and repeats >= settings["repeat_count"]:
         reasons.append("重复刷屏")
     if settings.get("similar_enabled") and similar >= settings.get("similar_count", 4):

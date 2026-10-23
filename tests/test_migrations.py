@@ -274,7 +274,7 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018"
         assert json.loads(connection.execute("SELECT choices FROM verifications").fetchone()[0]) == []
         assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0
@@ -318,6 +318,36 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
         assert connection.execute("SELECT state FROM actions").fetchone()[0] == "pending"
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert len(list(backup_dir.glob("*.sqlite3"))) >= 3
+
+
+def test_newcomer_migration_updates_defaults_and_preserves_custom_settings(tmp_path, monkeypatch):
+    import importlib.util
+    import sqlalchemy as sa
+
+    script = Path(__file__).resolve().parents[1] / "migrations/versions/0018_newcomer_three_days.py"
+    spec = importlib.util.spec_from_file_location("newcomer_period", script)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    original = [{}, {"newcomer_seconds": 600}, {"newcomer_seconds": 0},
+                {"newcomer_seconds": 1200, "newcomer_forwards": False}]
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'newcomer.sqlite3'}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("CREATE TABLE groups (id INTEGER PRIMARY KEY, settings TEXT NOT NULL)"))
+            for identifier, settings in enumerate(original):
+                connection.execute(sa.text("INSERT INTO groups VALUES (:id,:settings)"),
+                                   {"id": identifier, "settings": json.dumps({**settings, "repeat_count": 9})})
+            monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+            migration.upgrade()
+            migration.upgrade()
+            rows = connection.execute(sa.text("SELECT settings FROM groups ORDER BY id")).scalars().all()
+            for saved, before in zip(rows, original, strict=True):
+                expected = {**before, "repeat_count": 9, "newcomer_wallets": True}
+                expected.setdefault("newcomer_forwards", True)
+                expected["newcomer_seconds"] = 259200 if before.get("newcomer_seconds", 600) == 600 else before["newcomer_seconds"]
+                assert json.loads(saved) == expected
+    finally:
+        engine.dispose()
 
 
 def test_additional_status_pack_appends_without_replacing_existing_rules(tmp_path, monkeypatch):

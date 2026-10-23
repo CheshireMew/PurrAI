@@ -10,7 +10,7 @@ from purrai.models import (
     Verification,
     now,
 )
-from purrai.rules import CONTACT_REASON
+from purrai.rules import CONTACT_REASON, CONTACT_REASONS
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 
@@ -30,14 +30,14 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             reason,
         )
         identifiers.append(action.id)
-    if CONTACT_REASON in violation.reasons and not violation.sender_chat:
+    if any(reason in violation.reasons for reason in CONTACT_REASONS) and not violation.sender_chat:
         if member is None:
             member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
             session.add(member)
             await session.flush()
         action = await enqueue(
             session,
-            "contact_kick",
+            "contact_ban",
             f"contact-kick:{violation.id}",
             group.id,
             violation.user_id,

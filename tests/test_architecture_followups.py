@@ -109,7 +109,7 @@ async def test_pausing_during_rule_mute_lookup_prevents_the_punishment(env, monk
         assert (await session.scalar(select(Action).where(Action.kind == "rule_mute"))).state == "cancelled"
 
 
-async def test_pause_during_an_accepted_contact_kick_still_finishes_unban(env, monkeypatch):
+async def test_pause_during_an_accepted_contact_ban_still_records_the_ban(env, monkeypatch):
     settings, db, tg, service = env
     await service.message(message(20, "", contact={"phone_number": "12345", "first_name": "示例"}))
     original = tg.call
@@ -122,9 +122,10 @@ async def test_pause_during_an_accepted_contact_kick_still_finishes_unban(env, m
 
     monkeypatch.setattr(tg, "call", pause)
     await drain(service)
-    assert tg.members[(-1001, 42)]["status"] == "left"
+    assert tg.members[(-1001, 42)]["status"] == "kicked"
+    assert not any(method == "unban_chat_member" for method, _ in tg.calls)
     async with db.sessions() as session:
-        assert (await session.scalar(select(Action).where(Action.kind == "contact_kick"))).state == "succeeded"
+        assert (await session.scalar(select(Action).where(Action.kind == "contact_ban"))).state == "succeeded"
 
 
 async def test_revoke_during_telegram_activation_check_cannot_write_active_status(env, monkeypatch):

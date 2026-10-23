@@ -32,15 +32,17 @@ class GroupSettings(BaseModel):
     verification_failure_action: Literal["kick", "permanent_mute"] = "permanent_mute"
     # Legacy key retained for explicit manual bans and join-request retry intervals.
     failure_ban_seconds: int = Field(default=600, ge=30, le=86400)
-    newcomer_seconds: int = Field(default=600, ge=0, le=86400)
+    newcomer_seconds: int = Field(default=259200, ge=0, le=259200)
     newcomer_links: bool = True
-    newcomer_contacts: bool = True  # Legacy setting; contact sharing now always removes ordinary members.
+    newcomer_contacts: bool = True  # Legacy setting; contact sharing now always bans ordinary members.
     newcomer_messages: int = Field(default=3, ge=0, le=100)
     media_min_text_messages: int = Field(default=3, ge=0, le=100)
     emoji_status_blocked_packs: list[str] = Field(
         default_factory=lambda: list(DEFAULT_BLOCKED_PACKS), max_length=100
     )
     newcomer_mentions: bool = True
+    newcomer_forwards: bool = True
+    newcomer_wallets: bool = True
     repeat_enabled: bool = True
     repeat_window: int = Field(default=30, ge=5, le=3600)
     repeat_count: int = Field(default=5, ge=2, le=100)
@@ -165,6 +167,7 @@ class PreviewInput(BaseModel):
     text: str = Field(max_length=10000)
     newcomer: bool = False
     contact: bool = False
+    forwarded: bool = False
     repeats: int = Field(default=0, ge=0)
     similar: int = Field(default=0, ge=0)
     burst: int = Field(default=0, ge=0)

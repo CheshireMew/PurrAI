@@ -3,7 +3,7 @@
 from sqlalchemy import or_, select
 
 from purrai.models import Action, Violation, uid
-from purrai.rules import CONTACT_REASON
+from purrai.rules import CONTACT_REASONS
 
 
 async def record_violation(
@@ -49,7 +49,8 @@ async def record_violation(
         await session.flush()
         return row, True
     changed = any(value and not getattr(row, key) for key, value in flags.items()) or (
-        CONTACT_REASON in reasons and CONTACT_REASON not in row.reasons
+        any(reason in reasons for reason in CONTACT_REASONS)
+        and not any(reason in row.reasons for reason in CONTACT_REASONS)
     )
     for key, value in flags.items():
         setattr(row, key, getattr(row, key) or value)

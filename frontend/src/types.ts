@@ -13,7 +13,7 @@ export interface StickerStatus { ready: number; total: number; emoji_count: numb
 export interface ChatStatus { configured: boolean; model: string; pending: number; error: string; budget?: Budget; stickers?: StickerStatus }
 export interface SystemStatus { connected: boolean; bot_configured: boolean; login_configured: boolean; pending_actions: number; last_poll: number; last_backup: string | null; last_error: string; archive_status: string; failed_actions: Operation[]; failed_events: {id: number; error: string}[]; chat_budget?: Budget }
 export interface Page<T> { items: T[]; total: number; page: number; size: number }
-export interface PreviewInput { text: string; sender_name: string; newcomer: boolean; contact: boolean; repeats: number; similar: number; burst: number }
-export interface PreviewResult { reasons: string[]; kick_member?: boolean; mute_member?: boolean; delete_message?: boolean }
+export interface PreviewInput { text: string; sender_name: string; newcomer: boolean; contact: boolean; forwarded: boolean; repeats: number; similar: number; burst: number }
+export interface PreviewResult { reasons: string[]; kick_member?: boolean; ban_member?: boolean; mute_member?: boolean; delete_message?: boolean }
 export interface FieldSchema { minimum?: number; maximum?: number; minLength?: number; maxLength?: number; type: string }
 export interface AdminCatalog { settings: {defaults: GroupSettings; fields: Record<keyof GroupSettings, FieldSchema>; numbers: Record<string, string>; booleans: Record<string, string>}; states: Record<string, string>; operations: Record<string, string>; active_verifications: string[] }

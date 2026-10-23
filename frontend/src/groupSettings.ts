@@ -27,6 +27,8 @@ export interface GroupSettings {
   media_min_text_messages: number
   emoji_status_blocked_packs: string[]
   newcomer_mentions: boolean
+  newcomer_forwards: boolean
+  newcomer_wallets: boolean
   repeat_enabled: boolean
   repeat_window: number
   repeat_count: number

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import catalog from './fixtures/catalog.json' with { type: 'json' }
 
 const settings = { verification_failure_action: 'permanent_mute', archive_enabled: true, verification_enabled: true, verification_timeout: 180, max_attempts: 3, failure_ban_seconds: 600,
-  newcomer_seconds: 600, newcomer_links: true, newcomer_contacts: true, repeat_enabled: true,
+  newcomer_seconds: 259200, newcomer_forwards: true, newcomer_wallets: true, newcomer_links: true, newcomer_contacts: true, repeat_enabled: true,
   repeat_window: 30, repeat_count: 5, warning_window: 86400, warning_limit: 3, mute_seconds: 259200, block_invites: false,
   join_requests: false, newcomer_messages: 3, newcomer_mentions: true, similar_enabled: true, similar_window: 60,
   similar_count: 4, similar_threshold: 85, similar_min_length: 12, burst_enabled: true, burst_window: 10, burst_count: 8 }
@@ -36,7 +36,7 @@ async function mock(page: Page, authenticated = true, root = true) {
     else if (url.pathname === '/api/dashboard') data = { groups: 2, active_groups: 1, pending: 3, passed_today: 28, failed_today: 2, violations_today: 16, failed_actions: 1 }
     else if (url.pathname.endsWith('/rules/preview')) {
       const body = route.request().postDataJSON()
-      data = body.contact ? { reasons: ['分享联系人，删除消息并踢出群聊'], kick_member: true, mute_member: false, delete_message: true }
+      data = body.contact ? { reasons: ['分享联系人，删除消息并永久封禁'], kick_member: true, ban_member: true, mute_member: false, delete_message: true }
         : body.rules?.some((r: any) => r.penalty === 'permanent_mute')
         ? { reasons: ['去除干扰关键词：微信代收日入上万'], mute_member: true, delete_message: true }
         : body.rules?.some((r: any) => r.mode === 'pinyin' && r.scope === 'name')
@@ -312,23 +312,25 @@ test('联系人规则对所有普通成员生效并显示踢出结果', async ({
   await mock(page)
   await page.route('**/api/groups/*/violations*', route => route.fulfill({ json: { items: [{
     id: 'contact-1', user_id: 42, message_id: 10, sender_name: '发送者', excerpt: '',
-    created_at: Date.now() / 1000, reasons: ['分享联系人，删除消息并踢出群聊'],
-    actions: [{ id: 'contact-kick-1', kind: 'contact_kick', state: 'succeeded', error: '' }],
+    created_at: Date.now() / 1000, reasons: ['分享联系人，删除消息并永久封禁'],
+    actions: [{ id: 'contact-kick-1', kind: 'contact_ban', state: 'succeeded', error: '' }],
   }], total: 1 } }))
   await page.goto('/')
   await page.getByRole('button', { name: '群管理', exact: true }).click()
   await page.getByRole('button', { name: '群设置', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByText('普通成员分享联系人会删除消息并踢出群聊，不限入群时长；群主、管理员及防广告白名单豁免。')).toBeVisible()
+  await expect(dialog.getByText('普通成员分享联系人会删除消息、踢出并禁止重新加入，不限入群时长；群主、管理员及防广告白名单豁免。')).toBeVisible()
   await expect(dialog.locator('.el-form-item').filter({ hasText: '限制期禁止联系人' })).toHaveCount(0)
   await dialog.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('button', { name: '防广告规则', exact: true }).click()
   await page.getByText('包含联系人', { exact: true }).click()
   await page.getByRole('button', { name: '测试规则', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('将踢出成员')
+  await expect(page.getByRole('alert')).toContainText('将踢出并禁止重新加入')
   await expect(page.getByRole('alert')).not.toContainText('将禁言成员')
   await page.getByRole('button', { name: '违规记录', exact: true }).click()
-  await expect(page.getByText('分享联系人踢出群聊：已完成')).toBeVisible()
+  await expect(page.getByText('分享联系人永久封禁：已完成')).toBeVisible()
+  await expect(page.getByRole('button', { name: '解封禁', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '解禁言', exact: true })).toHaveCount(0)
 })
 
 test('正文关键词可保存删消息并永久禁言并在预览显示', async ({ page }) => {

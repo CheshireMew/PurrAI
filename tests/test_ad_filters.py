@@ -110,7 +110,7 @@ async def test_username_blacklist_handles_sender_mentions_and_tme_link_independe
 async def test_first_messages_remain_under_observation_after_time_window_and_edits_do_not_inflate_count(env):
     _, database, telegram, service = env
     async with database.transaction() as session:
-        session.add(Member(group_id=-1001, user_id=42, passed_at=time.time() - 10000))
+        session.add(Member(group_id=-1001, user_id=42, passed_at=time.time() - 4 * 86400))
     for identifier in (1, 2):
         await service.message(named(identifier, "正常讨论"))
     await service.message(named(1, "编辑后的正常内容"), edited=True)

@@ -205,6 +205,12 @@ class Moderation:
             activity.similar,
             activity.burst,
             display_name,
+            forwarded=bool(message.get("forward_origin") or message.get("forward_date")
+                           or message.get("forward_from") or message.get("forward_from_chat")
+                           or message.get("forward_sender_name")),
+            mentioned_users=[entity.get("user", {}) for entity in
+                             (message.get("entities") or message.get("caption_entities") or [])
+                             if entity.get("type") == "text_mention"],
         )
         reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
         if sender_chat and result["name_reasons"]:

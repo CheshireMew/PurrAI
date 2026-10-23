@@ -26,6 +26,8 @@ ACTION_POLICIES = {
     "profile_mute": MODERATION,
     "emoji_status_mute": MODERATION,
     "contact_kick": MODERATION,
+    "contact_ban": MODERATION,
+    "emoji_status_ban": MODERATION,
     "rule_mute": MODERATION,
     "moderation_mute": MODERATION,
     "delete": MODERATION,

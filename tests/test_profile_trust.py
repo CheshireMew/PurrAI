@@ -211,7 +211,7 @@ async def test_moderation_only_whitelist_preserves_pending_verification(env, mon
 
 
 @pytest.mark.parametrize("pack", ["bygbb666", "GsHeChaba"])
-async def test_emoji_pack_match_permanently_mutes_and_ends_captcha(env, monkeypatch, pack):
+async def test_emoji_pack_match_permanently_bans_and_ends_captcha(env, monkeypatch, pack):
     _, db, tg, svc = env
     await profile_api(tg, monkeypatch, pack=pack)
     incoming = join()
@@ -221,11 +221,13 @@ async def test_emoji_pack_match_permanently_mutes_and_ends_captcha(env, monkeypa
     assert tg.members[(-1001, 42)]["until_date"] == 0
     async with db.sessions() as session:
         member = await session.get(Member, (-1001, 42))
-        assert member.owned_restriction["kind"] == "emoji_status"
+        assert member.owned_restriction["kind"] == "ban"
+        assert not member.present
         assert (await session.scalar(select(Verification))).state == "failed"
-        mute = await session.scalar(select(Action).where(Action.kind == "emoji_status_mute"))
+        mute = await session.scalar(select(Action).where(Action.kind == "emoji_status_ban"))
         assert mute.state == "succeeded"
-    assert not any(m == "ban_chat_member" for m, _ in tg.calls)
+    assert tg.members[(-1001, 42)]["status"] == "kicked"
+    assert not any(m == "unban_chat_member" for m, _ in tg.calls)
 
 
 @pytest.mark.parametrize(
@@ -238,7 +240,7 @@ async def test_safe_missing_or_expired_status_does_not_mute(env, monkeypatch, em
     incoming["from"]["is_premium"] = True
     await svc.message(incoming)
     await drain(svc)
-    assert not any(m == "restrict_chat_member" for m, _ in tg.calls)
+    assert not any(m in ("restrict_chat_member", "ban_chat_member") for m, _ in tg.calls)
 
 
 async def test_changed_status_on_later_message_is_rechecked(env, monkeypatch):
@@ -262,7 +264,7 @@ async def test_status_changes_between_check_and_mute_cancel_punishment(env, monk
     await svc.emoji_status.run_one()
     profile["emoji_status_custom_emoji_id"] = ""
     await drain(svc)
-    assert not any(m == "restrict_chat_member" for m, _ in tg.calls)
+    assert not any(m in ("restrict_chat_member", "ban_chat_member") for m, _ in tg.calls)
 
 
 async def test_status_profile_unavailable_is_visible_failure_without_mute(env, monkeypatch):
@@ -273,7 +275,7 @@ async def test_status_profile_unavailable_is_visible_failure_without_mute(env, m
     await drain(svc)
     async with db.sessions() as session:
         row = await session.scalar(select(Action).where(Action.kind == "emoji_status_check"))
-        assert row.state == "failed" and "未执行禁言" in row.error
+        assert row.state == "failed" and "未执行封禁" in row.error
     assert not any(m == "restrict_chat_member" for m, _ in tg.calls)
 
 
@@ -445,7 +447,7 @@ async def test_manual_unmute_response_loss_only_trusts_after_confirmed_retry(env
         assert (await session.get(Whitelist, (-1001, 42))).moderation
 
 
-async def test_emoji_mute_response_loss_finalizes_even_after_user_removes_status(env, monkeypatch):
+async def test_emoji_ban_response_loss_finalizes_even_after_user_removes_status(env, monkeypatch):
     await fixed_challenge(env, monkeypatch)
     _, db, tg, svc = env
     status = await profile_api(tg, monkeypatch)
@@ -454,7 +456,7 @@ async def test_emoji_mute_response_loss_finalizes_even_after_user_removes_status
     async def uncertain(method, **kwargs):
         nonlocal lost
         result = await original(method, **kwargs)
-        if method == "restrict_chat_member" and not lost:
+        if method == "ban_chat_member" and not lost:
             lost = True
             raise ConnectionError("response lost")
         return result
@@ -468,13 +470,13 @@ async def test_emoji_mute_response_loss_finalizes_even_after_user_removes_status
     assert tg.members[(-1001, 42)]["until_date"] == 0
     status["emoji_status_custom_emoji_id"] = ""
     async with db.transaction() as session:
-        action = await session.scalar(select(Action).where(Action.kind == "emoji_status_mute"))
+        action = await session.scalar(select(Action).where(Action.kind == "emoji_status_ban"))
         assert action.state == "pending"
         action.available_at = 0
     tg.calls.clear()
     await drain(svc)
     assert (await latest(db)).state == "failed"
-    assert not any(method == "restrict_chat_member" for method, _ in tg.calls)
+    assert not any(method == "ban_chat_member" for method, _ in tg.calls)
     async with db.sessions() as session:
         assert (await session.get(Action, action.id)).state == "succeeded"
 
@@ -504,14 +506,15 @@ async def test_emoji_message_deletion_and_whitelist_release(env, monkeypatch, so
     deletions = [args for method, args in tg.calls if method == "delete_message" and args["chat_id"] == -1001]
     assert len(deletions) == 1 and deletions[0]["message_id"] == 1
     await Management(db, tg, svc, settings).member_action(
-        1, -1001, 42, "unmute", "release-emoji-status", "误判"
+        1, -1001, 42, "unban", "release-emoji-status", "误判"
     )
     await drain(svc)
     tg.calls.clear()
     incoming["message_id"] = 2
     await svc.message(incoming)
     await drain(svc)
-    assert not tg.calls
+    assert tg.members[(-1001, 42)]["status"] == "left"
+    assert not any(method == "ban_chat_member" for method, _ in tg.calls)
 
 
 async def test_trust_is_group_local_and_other_admin_restriction_is_preserved(env):

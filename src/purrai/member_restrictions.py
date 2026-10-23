@@ -13,7 +13,7 @@ from purrai.models import (
     now,
     uid,
 )
-from purrai.restriction_state import restriction_matches, permission_state_matches
+from purrai.restriction_state import ban_matches, restriction_matches, permission_state_matches
 from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions, permission_snapshot
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
@@ -22,6 +22,71 @@ from purrai.verification_state import ACTIVE
 class MemberRestrictions:
     def __init__(self, transport, emoji_status):
         self.action_call, self.emoji_status = transport.call, emoji_status
+
+    async def ban_emoji_status(self, session, group, member, action):
+        if not await self.emoji_status.eligible(session, action):
+            action.state = "cancelled"
+            return
+        owned = member.owned_restriction or {}
+        current = await self.action_call(
+            session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
+        )
+        if owned.get("source_action") == action.id and ban_matches(current, 0):
+            # Telegram may have accepted the ban before its response was lost.
+            # A subsequent status change must not strand the verification.
+            await self.permanent_ban(session, group, member, action, current=current)
+            return
+        result = await self.emoji_status.resolve(
+            action.user_id, call=lambda method, **kw: self.action_call(session, action, method, **kw)
+        )
+        if result["pack"] not in group.settings["emoji_status_blocked_packs"]:
+            action.state = "cancelled"
+            return
+        action.payload = {**action.payload, **result}
+        await self.permanent_ban(session, group, member, action)
+
+    async def permanent_ban(self, session, group, member, action, *, current=None):
+        if current is None:
+            current = await self.action_call(
+                session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
+            )
+        if is_admin(current) or member.restriction_conflict:
+            raise ValueError("成员身份或权限已变化，需要人工处理")
+        owned = member.owned_restriction or {}
+        reconciled = bool(
+            owned.get("kind") == "ban" and owned.get("source_action") == action.id
+            and owned.get("until_date") == 0 and ban_matches(current, 0)
+        )
+        if not reconciled and current.get("status") == "kicked":
+            raise ValueError("成员已有其他封禁，保留当前封禁")
+        active = (await session.scalars(select(Verification).where(
+            Verification.group_id == group.id, Verification.user_id == member.user_id,
+            Verification.generation == member.generation, Verification.state.in_(ACTIVE),
+        ))).all()
+        member.owned_restriction = {
+            "kind": "ban", "source_action": action.id, "until_date": 0,
+            "automatic_permanent": True,
+            "pack": action.payload.get("pack", ""),
+            **({"verification_id": active[0].id} if active else {}),
+        }
+        for verification in active:
+            verification.state = "failing"
+            verification.nonce = secrets.token_hex(4)
+            verification.error = "状态表情违规；等待永久封禁完成"
+        if not reconciled:
+            await self.action_call(
+                session, action, "ban_chat_member", chat_id=group.id,
+                user_id=member.user_id, until_date=0,
+            )
+        member.present = False
+        for verification in active:
+            verification.state, verification.failure_action, verification.updated_at = (
+                "failed", "permanent_ban", now(),
+            )
+            verification.error = "状态表情违规，已踢出并禁止重新加入"
+            await cleanup(session, verification)
+        if action.kind == "emoji_status_ban":
+            await self.record_emoji_violation(session, group, member, action, "永久封禁")
 
     async def verification_mute(self, session, action, group, verification, member):
         current = await self.action_call(
@@ -179,13 +244,16 @@ class MemberRestrictions:
             await cleanup(session, verification)
         if kind != "emoji_status":
             return
+        await self.record_emoji_violation(session, group, member, action, "永久禁言")
+
+    async def record_emoji_violation(self, session, group, member, action, penalty):
         violation = Violation(
             id=uid(),
             group_id=group.id,
             user_id=member.user_id,
             message_id=-int(action.id[:15], 16),
             excerpt="名字旁状态表情检查",
-            reasons=[f"状态表情包黑名单：{action.payload['pack']}；永久禁言"],
+            reasons=[f"状态表情包黑名单：{action.payload['pack']}；{penalty}"],
             profile_violation=True,
             message_violation=False,
             warning_active=False,

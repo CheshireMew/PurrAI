@@ -56,6 +56,7 @@ useRefresh(load, () => props.refreshKey)
 <div class="preview-options">
 <el-checkbox v-model="previewInput.newcomer">新成员限制期</el-checkbox>
 <el-checkbox v-model="previewInput.contact">包含联系人</el-checkbox>
+<el-checkbox v-model="previewInput.forwarded">用户或频道转发</el-checkbox>
 <span>窗口内重复次数</span>
 <el-input-number v-model="previewInput.repeats" :min="0" :max="100"/>
 <span>近似内容次数</span>

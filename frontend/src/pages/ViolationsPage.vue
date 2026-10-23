@@ -47,8 +47,8 @@ useRefresh(load, () => props.refreshKey)
 <template #default="{ row }">
 <template v-if="!row.sender_chat">
 <el-button v-if="row.warning_active" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'revoke_warning', '撤销警告')">撤销警告</el-button>
-<el-button v-if="row.profile_violation || row.rule_mute || row.warning_active" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>
-<el-button v-if="row.warning_active" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unban', '解除 PurrAI 封禁')">解封禁</el-button>
+<el-button v-if="(row.profile_violation || row.rule_mute || row.warning_active) && !row.actions.some((a: { kind: string }) => ['contact_ban', 'emoji_status_ban'].includes(a.kind))" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>
+<el-button v-if="row.warning_active || row.actions.some((a: { kind: string }) => ['contact_ban', 'emoji_status_ban'].includes(a.kind))" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unban', '解除 PurrAI 封禁')">解封禁</el-button>
 </template>
 </template>
 </el-table-column>

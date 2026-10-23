@@ -80,6 +80,7 @@ class RecordPanels:
                     "kick": "已踢出，可重新加入",
                     "decline": "拒绝入群申请",
                     "legacy_ban": "旧版或手动临时封禁",
+                    "permanent_ban": "已踢出并禁止重新加入",
                 }.get(row.failure_action, row.failure_action)
             choices = (
                 ("release", "reissue", "ban")
@@ -87,7 +88,7 @@ class RecordPanels:
                 else ("release", "reissue")
                 if row.state == "failed" and row.failure_action == "permanent_mute"
                 else ("unban",)
-                if row.state == "failed" and row.failure_action in ("decline", "legacy_ban")
+                if row.state == "failed" and row.failure_action in ("decline", "legacy_ban", "permanent_ban")
                 else ()
             )
             buttons = [
@@ -135,8 +136,13 @@ class RecordPanels:
                     button("设置昵称＋正文组合", "prompt", kind="rule_context", id=row.id),
                 ]
         elif kind == "violation":
-            text = f"用户 {row.user_id} · {clock(row.created_at)}\n昵称：{row.sender_name}\n{row.excerpt[:600]}\n原因：{'；'.join(row.reasons)}\n处置范围：{'昵称禁言 ' if row.profile_violation else ''}{'正文广告永久禁言 ' if row.rule_mute else ''}{'删除消息' if row.message_violation else ''}\n已删除的 Telegram 消息无法原地恢复。"
             actions = await self.management.queries.violation_operations(actor, group_id, row.id)
+            permanent_ban = any(operation.kind in ("contact_ban", "emoji_status_ban") for operation in actions)
+            scope = "踢出并禁止重新加入 " if permanent_ban else (
+                ("昵称或状态表情禁言 " if row.profile_violation else "")
+                + ("正文广告永久禁言 " if row.rule_mute else "")
+            )
+            text = f"用户 {row.user_id} · {clock(row.created_at)}\n昵称：{row.sender_name}\n{row.excerpt[:600]}\n原因：{'；'.join(row.reasons)}\n处置范围：{scope}{'删除消息' if row.message_violation else ''}\n已删除的 Telegram 消息无法原地恢复。"
             for operation in actions:
                 text += (
                     f"\n{OPERATIONS.get(operation.kind, operation.kind)}：{STATE.get(operation.state, operation.state)}"
@@ -144,6 +150,9 @@ class RecordPanels:
                 )
             if not row.sender_chat:
                 choices = (
+                    ("unban",)
+                    if permanent_ban
+                    else
                     ("revoke_warning", "unmute", "unban")
                     if row.warning_active
                     else ("unmute",)

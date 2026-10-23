@@ -51,7 +51,7 @@
       "max_attempts": 3,
       "verification_failure_action": "permanent_mute",
       "failure_ban_seconds": 600,
-      "newcomer_seconds": 600,
+      "newcomer_seconds": 259200,
       "newcomer_links": true,
       "newcomer_contacts": true,
       "newcomer_messages": 3,
@@ -61,6 +61,8 @@
         "gshechaba"
       ],
       "newcomer_mentions": true,
+      "newcomer_forwards": true,
+      "newcomer_wallets": true,
       "repeat_enabled": true,
       "repeat_window": 30,
       "repeat_count": 5,
@@ -209,8 +211,8 @@
         "type": "integer"
       },
       "newcomer_seconds": {
-        "default": 600,
-        "maximum": 86400,
+        "default": 259200,
+        "maximum": 259200,
         "minimum": 0,
         "title": "Newcomer Seconds",
         "type": "integer"
@@ -250,6 +252,16 @@
       "newcomer_mentions": {
         "default": true,
         "title": "Newcomer Mentions",
+        "type": "boolean"
+      },
+      "newcomer_forwards": {
+        "default": true,
+        "title": "Newcomer Forwards",
+        "type": "boolean"
+      },
+      "newcomer_wallets": {
+        "default": true,
+        "title": "Newcomer Wallets",
         "type": "boolean"
       },
       "repeat_enabled": {
@@ -372,7 +384,9 @@
       "join_requests": "申请入群先验证",
       "verification_enabled": "图片验证",
       "newcomer_links": "新成员限制链接",
-      "newcomer_mentions": "新成员限制 @引流",
+      "newcomer_mentions": "新成员限制 @账号及群组",
+      "newcomer_forwards": "新成员限制用户及频道转发",
+      "newcomer_wallets": "新成员限制加密货币地址",
       "repeat_enabled": "重复刷屏检测",
       "block_invites": "群邀请链接拦截",
       "similar_enabled": "近似内容刷屏检测",
@@ -426,6 +440,8 @@
     "emoji_status_check": "检查名字旁状态表情",
     "emoji_status_mute": "状态表情命中永久禁言",
     "contact_kick": "分享联系人踢出群聊",
+    "contact_ban": "分享联系人永久封禁",
+    "emoji_status_ban": "状态表情命中永久封禁",
     "rule_mute": "正文广告规则永久禁言",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",

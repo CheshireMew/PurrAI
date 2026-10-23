@@ -107,7 +107,7 @@ async def test_single_and_batch_settings_updates_share_validation_conflict_and_r
         assert (group.settings["repeat_count"], group.settings["similar_count"]) == (7, 6)
 
 
-async def test_existing_message_evidence_can_upgrade_to_contact_kick(env):
+async def test_existing_message_evidence_can_upgrade_to_contact_ban(env):
     _, db, tg, service = env
     async with db.transaction() as session:
         row, changed = await record_violation(
@@ -125,9 +125,9 @@ async def test_existing_message_evidence_can_upgrade_to_contact_kick(env):
     async with db.sessions() as session:
         row = await session.get(Violation, identifier)
         assert row.reasons == ["关键词：旧广告", CONTACT_REASON]
-        kick = await session.scalar(select(Action).where(Action.kind == "contact_kick"))
+        kick = await session.scalar(select(Action).where(Action.kind == "contact_ban"))
         assert kick.state == "succeeded" and kick.payload["violation_id"] == identifier
-    assert tg.members[(-1001, 42)]["status"] == "left"
+    assert tg.members[(-1001, 42)]["status"] == "kicked"
 
 
 async def test_repeated_evidence_does_not_repeat_penalty_but_new_flags_merge(env):

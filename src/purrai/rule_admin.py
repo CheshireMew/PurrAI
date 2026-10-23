@@ -73,6 +73,7 @@ class RuleAdministration:
             body.similar,
             body.burst,
             body.sender_name,
+            forwarded=body.forwarded,
         )
         return {
             "reasons": list(dict.fromkeys(result["reasons"] + result["name_reasons"])),
@@ -80,6 +81,7 @@ class RuleAdministration:
             "delete_message": bool(result["reasons"] or result["name_reasons"]),
             "mute_member": bool(result["name_reasons"] or result["mute_reasons"]) and not body.contact,
             "kick_member": body.contact,
+            "ban_member": body.contact,
         }
 
     async def whitelist(self, actor, group_id, body: WhitelistInput, request_id="", remove=False):

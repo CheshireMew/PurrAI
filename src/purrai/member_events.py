@@ -113,11 +113,12 @@ class MemberEvents:
             owned = member.owned_restriction or {}
             if (
                 event.get("from", {}).get("id") == self.tg.user_id
-                and owned.get("kind") in ("contact_kick", "verification_kick")
+                and (owned.get("kind") in ("contact_kick", "verification_kick")
+                     or owned.get("kind") == "ban" and owned.get("automatic_permanent"))
                 and ban_matches(new, owned["until_date"])
             ):
-                # The bot's temporary ban is the first half of removal.
-                # Let its running action finish unbanning before updating presence.
+                # Let the running action commit the accepted ban and finish
+                # verification cleanup (or the legacy kick's compensating unban).
                 return
             member.present = False
             retained_verification_mute = bool(

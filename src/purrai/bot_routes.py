@@ -121,7 +121,7 @@ class BotRoutes:
             await self.management.authorize(actor, group_id, write=True)
             await self.panel(
                 actor,
-                "确认清空本群的状态表情包黑名单？已有禁言不会自动解除。",
+                "确认清空本群的状态表情包黑名单？已有封禁或禁言不会自动解除。",
                 [button("确认清空", "emoji_packs_clear"), button("取消并返回", "emoji_packs")],
                 group_id,
                 message_id,

@@ -6,6 +6,8 @@ describe('共享预览与记录筛选', () => {
   it('规则草稿和已保存规则使用相同的实际处置说明', () => {
     expect(previewMessages({ reasons: ['分享联系人'], kick_member: true, delete_message: true }))
       .toEqual(['分享联系人', '将踢出成员', '将删除消息'])
+    expect(previewMessages({ reasons: ['分享联系人'], kick_member: true, ban_member: true, delete_message: true }))
+      .toEqual(['分享联系人', '将踢出并禁止重新加入', '将删除消息'])
     expect(previewMessages({ reasons: [], mute_member: true })).toEqual(['将禁言成员'])
     expect(previewMessages({ reasons: [] })).toEqual([])
   })
