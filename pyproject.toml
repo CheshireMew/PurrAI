@@ -11,7 +11,7 @@ dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "aiogram>=3.20,<4",
   "sqlalchemy[asyncio]>=2.0,<3", "aiosqlite>=0.20,<1", "alembic>=1.14,<2", "tzdata>=2025.1",
   "pydantic-settings>=2.7,<3", "pillow>=11,<13", "authlib>=1.4,<2",
-  "httpx>=0.28,<1", "cryptography>=44", "aiohttp-socks>=0.10,<1", "pypinyin>=0.55,<1",
+  "httpx>=0.28,<1", "certifi>=2026.10.19", "cryptography>=44", "aiohttp-socks>=0.10,<1", "pypinyin>=0.55,<1",
 ]
 
 [project.optional-dependencies]
