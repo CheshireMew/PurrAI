@@ -70,7 +70,7 @@ async def test_negative_participation_decision_sends_neither_text_nor_sticker(en
 
 @pytest.mark.parametrize("decision", [None, "yes", 1])
 async def test_model_response_without_boolean_participation_is_rejected(decision):
-    body = {"reply": "你好 🐱", **({"should_reply": decision} if decision is not None else {})}
+    body = {"is_advertisement": False, "reply": "你好 🐱", **({"should_reply": decision} if decision is not None else {})}
     model = ChatModel(Settings(_env_file=None), httpx.MockTransport(lambda request: httpx.Response(200,
         json={"choices": [{"message": {"content": json.dumps(body)}}]})))
     try:
@@ -82,7 +82,7 @@ async def test_model_response_without_boolean_participation_is_rejected(decision
 
 async def test_model_negative_decision_ignores_accidental_reply_content():
     model = ChatModel(Settings(_env_file=None), httpx.MockTransport(lambda request: httpx.Response(200,
-        json={"choices": [{"message": {"content": json.dumps({"should_reply": False, "reply": "不要发出", "sticker": "🐱"})}}],
+        json={"choices": [{"message": {"content": json.dumps({"is_advertisement": False, "should_reply": False, "reply": "不要发出", "sticker": "🐱"})}}],
               "usage": {"total_tokens": 12}})))
     try:
         assert await model.reply("先判断是否需要说话", "上下文") == ChatReply(total_tokens=12, should_reply=False)

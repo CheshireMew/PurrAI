@@ -11,8 +11,6 @@ from purrai.stickers import sticker_text
 from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
 
 FOLLOWUP_WINDOW = 90
-REPLY_INTERVAL = 8
-REPLY_DELAY = 10
 IMAGE_BURST_WINDOW = 10
 UNREADABLE_IMAGE = "[无法读取的图片]"
 
@@ -41,9 +39,35 @@ def image_message_ids(rows):
     return {
         row.message_id
         for burst in message_bursts(rows)
-        if any(not item.eligible and item.text == UNREADABLE_IMAGE for item in burst)
+        if any(item.text.startswith(UNREADABLE_IMAGE) for item in burst)
         for row in burst
     }
+
+
+def permitted_images(rows, message_id, direct):
+    if not direct:
+        return set()
+    return next((
+        {row.message_id for row in burst}
+        for burst in message_bursts(rows)
+        if any(row.message_id == message_id for row in burst)
+    ), set())
+
+
+def reply_snapshot(message):
+    """Keep only the text needed by an explicit question about a channel/image."""
+    reply = message.get("reply_to_message") or {}
+    sender = reply.get("sender_chat") or reply.get("from") or {}
+    channel = (reply.get("sender_chat") or {}).get("type") == "channel"
+    if not reply.get("message_id") or not (channel or has_image(reply)):
+        return ""
+    if not channel and (sender.get("is_bot") or reply.get("via_bot")
+                        or (reply.get("forward_from") or {}).get("is_bot")
+                        or ((reply.get("forward_origin") or {}).get("sender_user") or {}).get("is_bot")):
+        return ""
+    text = (reply.get("text") or reply.get("caption") or "")[:1600]
+    return json.dumps({"version": 1, "message_id": reply["message_id"], "sender_id": sender.get("id", 0),
+                       "text": text, "image_unavailable": has_image(reply)}, ensure_ascii=False)
 
 
 def following_up(state, sender_id, received_at, *, allow_join=False, message_id=0, burst_ids=()):

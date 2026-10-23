@@ -115,20 +115,19 @@ async def test_setting_changed_during_generation_cancels_utility_reply(env):
     assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
 
 
-async def test_ten_second_wait_happens_before_model_and_allows_moderation(env):
+async def test_no_artificial_wait_and_moderation_still_excludes_deleted_target(env):
     chat, model = await configured(env)
     before = now()
     await chat.observe(message(1, "柴郡喵，这条内容稍后会被删除"))
     async with chat.db.sessions() as session:
         turn = await session.scalar(select(ChatTurn))
-        assert before + 10 <= turn.available_at <= now() + 10
-    assert not await chat.run_one() and not model.calls
+        assert before <= turn.available_at <= now()
     await remove(chat, 1)
     await due(chat)
     assert not await chat.run_one() and not model.calls
 
 
-async def test_ready_batch_does_not_promote_a_newer_message_past_its_wait(env):
+async def test_separate_direct_questions_keep_separate_targets_without_artificial_wait(env):
     chat, model = await configured(env, chat_proactive=False)
     await chat.observe(message(1, "柴郡喵，聊聊周末吧"))
     await due(chat)
@@ -139,7 +138,7 @@ async def test_ready_batch_does_not_promote_a_newer_message_past_its_wait(env):
     assert [row["id"] for row in model.calls[0][1]["messages"]] == [1, 3]
     async with chat.db.sessions() as session:
         second = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 2))
-        assert second.state == "pending" and second.available_at > now()
+        assert second.state == "pending" and second.available_at <= now()
     await age_reply(chat)
     await due(chat)
     assert await chat.run_one()
@@ -158,7 +157,7 @@ async def test_ignore_list_can_be_saved_and_cleared_from_telegram_panel(env):
     runtime.chat = runtime.management.chat = chat
     await open_group(runtime, tg)
     await click(runtime, tg, "群聊天设置")
-    assert "约 10 秒" in markup(tg)["text"]
+    assert "不再固定等待" in markup(tg)["text"]
     await click(runtime, tg, "聊天忽略口令")
     await deliver(runtime, {"message": private(" 查余额 \n注册 OKX\n注册okx\n签到")})
     async with db.sessions() as session:

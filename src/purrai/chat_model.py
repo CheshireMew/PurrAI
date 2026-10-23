@@ -13,6 +13,7 @@ class ChatReply:
     sticker: str | None = None
     total_tokens: int | None = None
     should_reply: bool = True
+    is_advertisement: bool = False
 
 
 class ChatModelError(Exception):
@@ -75,12 +76,14 @@ class ChatModel:
             result = json.loads(content)
             if not isinstance(result, dict) or type(result.get("should_reply")) is not bool:
                 raise ValueError
+            if type(result.get("is_advertisement")) is not bool:
+                raise ValueError
             usage = data.get("usage") or {}
             total_tokens = usage.get("total_tokens")
             if type(total_tokens) is not int or total_tokens < 0:
                 total_tokens = None
-            if not result["should_reply"]:
-                return ChatReply(total_tokens=total_tokens, should_reply=False)
+            if result["is_advertisement"] or not result["should_reply"]:
+                return ChatReply(total_tokens=total_tokens, should_reply=False, is_advertisement=result["is_advertisement"])
             reply = result.get("reply")
             if reply is not None and not isinstance(reply, str):
                 raise ValueError

@@ -149,7 +149,7 @@ async function save() {
 <el-input-number v-model="form.chat_interval" :min="bounds('chat_interval').minimum" :max="bounds('chat_interval').maximum"/>
 </el-form-item>
 </div>
-<p class="muted">被 @、叫昵称或被回复时接话；刚聊过的群友可以接着说。同一用户连续发言结束后等待约 10 秒，再检查最新删除状态并决定是否接话。相邻消息间隔不超过 10 秒视为连续发言，整组含图片时不回复，图片本身也不回复。主动接话会先让模型判断是否适合发言，不会到点就强行插话。</p>
+<p class="muted">被 @、叫昵称或被回复时接话；刚聊过的群友可以接着说。不再固定等待，模型生成及接口限流仍需处理时间。普通含图消息不主动接话；明确提问时仍回答，说明看不到图片并依据正文和引用文字，不猜测图中内容。主动接话会先让模型判断是否适合发言。</p>
 <div class="settings-toggles">
 <el-form-item label="聊天使用贴纸">
 <el-switch v-model="form.chat_stickers"/>

@@ -265,7 +265,7 @@ async def test_model_http_contract_and_vendor_extra_options():
 
     def handler(request):
         calls.append(request)
-        return httpx.Response(200, json={"choices": [{"message": {"content": '```json\n{"should_reply":true,"reply":"明天见！"}\n```'}}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '```json\n{"is_advertisement":false,"should_reply":true,"reply":"明天见！"}\n```'}}]})
 
     settings = Settings(_env_file=None, chat_api_base="https://model.test/v1", chat_api_key="secret",
                         chat_model="example-chat", chat_api_extra={"enable_thinking": False})
@@ -286,7 +286,7 @@ async def test_default_deepseek_request_disables_thinking_and_uses_small_json_re
 
     def handler(request):
         calls.append(request)
-        return httpx.Response(200, json={"choices": [{"message": {"content": '{"should_reply":true,"reply":"明天见！"}'}}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"is_advertisement":false,"should_reply":true,"reply":"明天见！"}'}}]})
 
     settings = Settings(_env_file=None, chat_api_key="test-secret")
     model = ChatModel(settings, httpx.MockTransport(handler))

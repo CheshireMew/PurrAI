@@ -7,8 +7,9 @@ from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
-from purrai.archive import deletion_result
+from purrai.deletion_effects import deletion_result
 from purrai.chat_safety import output_reasons
+from purrai.chat_retraction import finish_receipt
 from purrai.models import ChatTurn, Rule, now
 from purrai.schemas import GroupSettings
 from purrai.serialization import row_dict
@@ -39,9 +40,10 @@ class ChatDelivery:
             action.state, action.updated_at = "succeeded", now()
             await deletion_result(session, action)
             current = await session.get(ChatTurn, turn.id)
-            current.state, current.response = "skipped", ""
-            current.error = "被回复的消息已不存在，取消本次回复"
-            logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
+            if current.sent_message_id is None:
+                current.state, current.response = "skipped", ""
+                current.error = "被回复的消息已不存在，取消本次回复"
+            logger.info("聊天目标不存在 turn=%s group=%s state=%s reason=%s", turn.id, turn.group_id, current.state, current.error)
         return True
 
     async def send(self, turn, cfg, original, sender_id, generated):
@@ -50,13 +52,19 @@ class ChatDelivery:
         async with self.db.transaction() as session:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
-                current.state = "skipped"
-                current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
+                if current.state not in ("retracting", "retracted", "retraction_failed"):
+                    current.state = "skipped"
+                    current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             if not result.text and not result.sticker:
+                if current.sent_message_id is not None:
+                    current.state, current.error = "done", "已有文字已发送，本次停止剩余发送"
+                    finish_receipt(current)
+                    return True
                 current.state = "silent"
-                current.error = "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容"
+                current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
+                    "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容")
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             cfg = GroupSettings.model_validate(group.settings)
@@ -86,8 +94,9 @@ class ChatDelivery:
         async with self.db.transaction() as session:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
-                current.state = "skipped"
-                current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
+                if current.state not in ("retracting", "retracted", "retraction_failed"):
+                    current.state = "skipped"
+                    current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             latest_cfg = GroupSettings.model_validate(group.settings)
@@ -118,6 +127,7 @@ class ChatDelivery:
                 {
                     "text": result.text,
                     "sticker": result.sticker,
+                    "is_advertisement": result.is_advertisement,
                     "selected_sticker": selected_sticker,
                     "context": fingerprint,
                     "source_context": generated.context,
@@ -148,6 +158,8 @@ class ChatDelivery:
                 await self.context.remember_output(
                     session, turn, cfg, group, sent, sender_id, text=result.text
                 )
+                if current.state in ("retracting", "retracted", "retraction_failed"):
+                    return True
                 cached = json.loads(current.response)
                 cached["text_message_id"] = text_message_id
                 current.response = json.dumps(cached, ensure_ascii=False)
@@ -156,8 +168,9 @@ class ChatDelivery:
             async with self.db.transaction() as session:
                 current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
                 if not valid:
-                    current.state = "skipped"
-                    current.error = "发送贴纸前，聊天设置、目标消息或引用上下文已失效"
+                    if current.state not in ("retracting", "retracted", "retraction_failed"):
+                        current.state = "skipped"
+                        current.error = "发送贴纸前，聊天设置、目标消息或引用上下文已失效"
                     logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                     return True
                 latest_cfg = GroupSettings.model_validate(group.settings)
@@ -173,9 +186,11 @@ class ChatDelivery:
                 return True
         async with self.db.transaction() as session:
             current = await session.get(ChatTurn, turn.id)
+            if current.state in ("retracting", "retracted", "retraction_failed"):
+                return True
             current.state = "done" if current.sent_message_id is not None else "silent"
             current.error = "" if current.state == "done" else "贴纸发送前设置已变更，无可发送内容"
-            current.response = ""
+            finish_receipt(current)
             logger.info(
                 "聊天发送结束 turn=%s group=%s state=%s sent_message=%s reason=%s",
                 turn.id, turn.group_id, current.state, current.sent_message_id, current.error,

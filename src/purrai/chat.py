@@ -12,13 +12,17 @@ from purrai.chat_budget import BudgetCooldown, BudgetExceeded, ChatBudget
 from purrai.chat_context import ChatContext
 from purrai.chat_delivery import ChatDelivery
 from purrai.chat_generation import ChatGeneration
+from purrai.chat_input import input_reasons
 from purrai.chat_model import ChatModel, ChatModelError
+from purrai.chat_retraction import RECEIPT_RETENTION, retract_if_deleted
 from purrai.chat_state import addressed as addressed
-from purrai.chat_state import REPLY_DELAY, REPLY_INTERVAL, following_up, has_sent_text, human_message, session_state, store_state
-from purrai.chat_state import UNREADABLE_IMAGE, has_image, ignored_text, image_message_ids, message_bursts
+from purrai.chat_state import following_up, has_sent_text, human_message, session_state, store_state
+from purrai.chat_state import UNREADABLE_IMAGE, has_image, ignored_text, image_message_ids, message_bursts, reply_snapshot
 from purrai.diagnostics import failure
-from purrai.models import ChatMessage, ChatTurn, Group, Meta, now
+from purrai.models import ChatMessage, ChatTurn, Group, Meta, Rule, now
+from purrai.rules import message_content
 from purrai.schemas import GroupSettings
+from purrai.serialization import row_dict
 from purrai.stickers import Stickers, sticker_text
 
 logger = logging.getLogger(__name__)
@@ -54,23 +58,30 @@ class GroupChat:
             cfg = GroupSettings.model_validate(group.settings)
             if not row and (not cfg.chat_enabled or not self.settings.chat_ready):
                 return
+            direct = addressed(message, self.tg, cfg.chat_name)
+            rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+            reasons = input_reasons(text, rules, group.settings, direct=direct, urls=message_content(message)[1])
             image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE})
-            eligible = (
-                human_message(message, cfg.chat_ignored_texts)
-                and not image and not has_image(message.get("reply_to_message") or {})
-            )
+            eligible = human_message(
+                {**message, "text": text or UNREADABLE_IMAGE} if image else message, cfg.chat_ignored_texts,
+            ) and (direct or not (image or has_image(message.get("reply_to_message") or {})))
+            eligible = eligible and not reasons
             if eligible or image:
                 allowed = await self.contexts.allowed(session, group_id, message_id, sender["id"])
                 eligible, image = eligible and allowed, image and allowed
-            if image:
-                text = UNREADABLE_IMAGE  # Metadata only; this row is never sent to the model.
+            if image and not reasons:
+                text = UNREADABLE_IMAGE + ("\n" + text if text else "")
+            if reasons:
+                image = False
+                logger.info("聊天输入已拦截 group=%s message=%s reasons=%s", group_id, message_id, reasons)
             if row:
                 if (message.get("edit_date", 0), update_id) < (row.edited_at, row.update_id):
                     return
                 row.text, row.eligible = text[:1600], eligible
+                row.reply_text = reply_snapshot(message) if direct else ""
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
-            if not (eligible or image) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
+            if not (eligible or image or reasons and human_message(message)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
                 return
             # Ordinary supergroup replies also carry a thread ID. Only forum
             # topic messages belong to separate conversations and send targets.
@@ -86,6 +97,7 @@ class GroupChat:
                 ],
                 text=text[:1600],
                 reply_to_id=reply.get("message_id", 0),
+                reply_text=reply_snapshot(message) if direct else "",
                 sent_at=message["date"],
                 received_at=now(),
                 update_id=update_id,
@@ -108,18 +120,10 @@ class GroupChat:
             burst = next((items for items in message_bursts(recent) if row in items), [])
             if not burst:
                 return  # Old recovered messages may already be outside the rolling window.
-            if len(burst) > 1:
-                await session.execute(update(ChatTurn).where(
-                    ChatTurn.group_id == group_id,
-                    ChatTurn.topic_id == topic_id,
-                    ChatTurn.message_id.in_([item.message_id for item in burst]),
-                    ChatTurn.state == "pending",
-                ).values(available_at=func.max(ChatTurn.available_at, now() + REPLY_DELAY)))
-            if image:
+            if reasons or image and not direct:
                 return
             await self.stickers.activity(session, group_id, topic_id, cfg.chat_antifraud_interval)
             _, state = await session_state(session, group_id, topic_id)
-            direct = addressed(message, self.tg, cfg.chat_name)
             reply_elsewhere = bool(reply and reply.get("from", {}).get("id") != self.tg.user_id)
             inflight = False
             if not direct and not reply_elsewhere:
@@ -159,17 +163,13 @@ class GroupChat:
                     topic_id=topic_id,
                     message_id=message_id,
                     direct=direct,
-                    available_at=max(
-                        now() + REPLY_DELAY,
-                        state.get("last_reply", 0) + REPLY_INTERVAL,
-                        state.get("last_attempt", 0) + REPLY_INTERVAL if followup else 0,
-                    ),
+                    available_at=now(),
                 )
             )
             await session.execute(
                 delete(ChatTurn).where(
                     ChatTurn.group_id == group_id,
-                    ChatTurn.created_at < now() - 86400,
+                    ChatTurn.created_at < now() - RECEIPT_RETENTION,
                     ChatTurn.state.not_in(("pending", "generating", "sending")),
                 )
             )
@@ -177,6 +177,10 @@ class GroupChat:
 
     async def recover(self):
         async with self.db.transaction() as session:
+            for turn in await session.scalars(select(ChatTurn).where(
+                ChatTurn.sent_message_id.is_not(None), ChatTurn.created_at >= now() - RECEIPT_RETENTION,
+            )):
+                await retract_if_deleted(session, turn)
             await session.execute(
                 update(ChatTurn).where(ChatTurn.state == "generating").values(state="pending")
             )
@@ -242,7 +246,7 @@ class GroupChat:
                     ChatMessage.message_id.in_([item.message_id for item in batch]),
                 )) if not ignored_text(row.text, cfg.chat_ignored_texts) and now() - row.sent_at <= 120}
                 for item in batch:
-                    if item.message_id in image_ids:
+                    if item.message_id in image_ids and not item.direct:
                         item.state, item.error = "skipped", "连续消息中含有无法读取的图片"
                     elif item.message_id not in valid_ids:
                         item.state, item.error = "skipped", "目标消息已过期、失效或被群规则排除"
@@ -291,15 +295,9 @@ class GroupChat:
                         item.error = "目标消息已过期、失效或被群规则排除"
                     logger.info("聊天跳过 turn=%s group=%s reason=%s", leader.id, leader.group_id, leader.error)
                     continue
-                if (
-                    now() < state.get("blocked_until", 0)
-                    or not partial
-                    and now() < state.get("last_reply", 0) + REPLY_INTERVAL
-                ):
+                if now() < state.get("blocked_until", 0):
                     for item in batch:
-                        item.available_at = max(
-                            state.get("blocked_until", 0), state.get("last_reply", 0) + REPLY_INTERVAL
-                        )
+                        item.available_at = state["blocked_until"]
                     continue
                 target_burst = next((
                     {row.message_id for row in burst}
@@ -334,10 +332,6 @@ class GroupChat:
                     for item in batch:
                         item.state, item.error = "skipped", "普通广告议论不主动插话"
                         logger.info("聊天跳过 turn=%s group=%s reason=%s", item.id, item.group_id, item.error)
-                    continue
-                if mode == "followup" and not leader.attempts and now() < state.get("last_attempt", 0) + REPLY_INTERVAL:
-                    for item in batch:
-                        item.available_at = state["last_attempt"] + REPLY_INTERVAL
                     continue
                 if mode == "ambient" and not partial:
                     attention = await session.get(Meta, f"chat_attention:{leader.group_id}")
@@ -433,6 +427,8 @@ class GroupChat:
         except Exception as exc:
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)
+                if current.state in ("retracting", "retracted", "retraction_failed"):
+                    return True
                 retry = (
                     isinstance(exc, ChatModelError)
                     and exc.retryable

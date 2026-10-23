@@ -7,9 +7,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
 from purrai.archive import capture
-from purrai.chat_state import blocked_message, following_up, ignored_text, image_message_ids, message_bursts, session_state, store_state
-from purrai.models import ChatMessage, ChatTurn, Group, Meta, now
+from purrai.chat_input import input_reasons
+from purrai.chat_retraction import remember_receipt
+from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, following_up, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
+from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, Meta, Rule, now
 from purrai.schemas import GroupSettings
+from purrai.serialization import row_dict
 from purrai.stickers import sticker_text
 
 
@@ -25,7 +28,7 @@ class ChatContext:
             ChatMessage.group_id == group_id, ChatMessage.topic_id == topic_id,
         ).order_by(ChatMessage.sent_at.desc(), ChatMessage.message_id.desc()).limit(100))).all()
 
-    async def filter(self, session, group_id, topic_id, context, cfg):
+    async def filter(self, session, group_id, topic_id, context, cfg, *, message_id=0, direct=False):
         """Cached text is reusable only while its sources are still eligible."""
         if not context:
             return []
@@ -34,8 +37,18 @@ class ChatContext:
             if row.get("reply_to"):
                 speakers.setdefault(row["reply_to"], 0)
         recent = await self.recent(session, group_id, topic_id)
+        rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+        allowed_images = permitted_images(recent, message_id, direct)
+        if direct:
+            target = next((row for row in recent if row.message_id == message_id), None)
+            if target and target.reply_to_id:
+                allowed_images.add(target.reply_to_id)
         sources = [row for row in recent if row.message_id in speakers]
         speakers.update({row.message_id: row.sender_id for row in sources})
+        speakers.update({row.message_id: row.sender_id or 0 for row in await session.scalars(
+            select(ArchivedMessage).where(ArchivedMessage.group_id == group_id,
+                                          ArchivedMessage.message_id.in_(speakers)),
+        )})
         for row in sources:
             if row.is_bot and row.reply_to_id:
                 speakers.setdefault(row.reply_to_id, 0)
@@ -47,8 +60,14 @@ class ChatContext:
         excluded = set(await session.scalars(select(candidates.c.message_id).where(
             blocked_message(group_id, candidates.c.message_id, candidates.c.sender_id),
         )))
-        excluded.update(row.message_id for row in sources if not row.eligible)
-        excluded.update(image_message_ids(recent))
+        excluded.update(row.message_id for row in sources if not row.eligible and not (
+            row.message_id in allowed_images and row.text.startswith(UNREADABLE_IMAGE)
+        ))
+        excluded.update(image_message_ids(recent) - allowed_images)
+        for burst in message_bursts(recent):
+            if not any(row.is_bot for row in burst) and input_reasons("\n".join(row.text for row in burst), rules, cfg.model_dump(),
+                             direct=direct and any(row.message_id == message_id for row in burst)):
+                excluded.update(row.message_id for row in burst)
         records = context + [
             {"id": row.message_id, "text": row.text, "bot": row.is_bot, "reply_to": row.reply_to_id}
             for row in sources
@@ -56,6 +75,7 @@ class ChatContext:
         excluded.update(row["id"] for row in records if (
             not row["text"].strip() or row["text"].lstrip().startswith("/")
             or ignored_text(row["text"], cfg.chat_ignored_texts)
+            or not row.get("bot") and input_reasons(row["text"], rules, cfg.model_dump(), direct=direct and row["id"] == message_id)
         ))
         # Do not keep our old commentary on removed content as a fresh topic.
         while True:
@@ -67,12 +87,12 @@ class ChatContext:
         for row in context:
             if row["id"] in excluded:
                 continue
-            if row.get("reply_to") in excluded:
+            if row.get("reply_to") in excluded or input_reasons(row.get("quote", ""), rules, cfg.model_dump()):
                 row = {key: value for key, value in row.items() if key not in ("reply_to", "quote")}
             result.append(row)
         return result
 
-    def clean_conditions(self, group_id, topic_id):
+    def clean_conditions(self, group_id, topic_id, allowed_images=()):
         own_reply = (
             select(ChatTurn.id)
             .where(
@@ -86,7 +106,9 @@ class ChatContext:
         return (
             ChatMessage.group_id == group_id,
             ChatMessage.topic_id == topic_id,
-            ChatMessage.eligible.is_(True),
+            or_(ChatMessage.eligible.is_(True), and_(
+                ChatMessage.message_id.in_(allowed_images), ChatMessage.text.startswith(UNREADABLE_IMAGE),
+            )),
             ChatMessage.text != "",
             ~ChatMessage.text.startswith("/"),
             ~blocked_message(group_id, ChatMessage.message_id, ChatMessage.sender_id),
@@ -109,9 +131,11 @@ class ChatContext:
         history = state.get("sent_context", []) if continuing else []
         history_ids = {row["id"] for row in history}
         cursor = state.get("context_cursor", 0) if continuing else 0
-        image_ids = image_message_ids(await self.recent(session, turn.group_id, turn.topic_id))
+        recent = await self.recent(session, turn.group_id, turn.topic_id)
+        allowed_images = permitted_images(recent, turn.message_id, turn.direct)
+        image_ids = image_message_ids(recent) - allowed_images
         conditions = (
-            *self.clean_conditions(turn.group_id, turn.topic_id),
+            *self.clean_conditions(turn.group_id, turn.topic_id, allowed_images),
             ChatMessage.sent_at >= now() - 6 * 3600,
             ChatMessage.received_at >= reset_at,
             ChatMessage.message_id.not_in(image_ids),
@@ -177,7 +201,19 @@ class ChatContext:
                 }
             )
         result.reverse()
-        combined = await self.filter(session, turn.group_id, turn.topic_id, history + result, cfg)
+        target = next((row for row in selected if row.message_id == turn.message_id), None)
+        if target and turn.direct:
+            entry = next(row for row in result if row["id"] == turn.message_id)
+            if turn.message_id in image_message_ids(recent):
+                entry["image_unavailable"] = True
+            reference = await self.reference(session, target)
+            if reference:
+                other_size = sum(len(row["text"]) + len(row.get("quote", ""))
+                                 for row in result if row["id"] != turn.message_id)
+                reference["quote"] = reference["quote"][:max(0, 18000 - other_size - len(entry["text"]))]
+                entry.update(reference)
+        combined = await self.filter(session, turn.group_id, turn.topic_id, history + result, cfg,
+                                     message_id=turn.message_id, direct=turn.direct)
         history = [row for row in combined if row["id"] in history_ids]
         result = [row for row in combined if row["id"] not in history_ids]
         # Preserve eligible sent content; moderation takes priority over prefix reuse.
@@ -188,6 +224,32 @@ class ChatContext:
         ):
             history = history[(len(history) + 1) // 2 :]
         return history + result
+
+    async def reference(self, session, target):
+        """Explicitly referenced text is context, never an autonomous chat trigger."""
+        try:
+            snapshot = json.loads(target.reply_text)
+            if snapshot.get("version") != 1 or snapshot.get("message_id") != target.reply_to_id:
+                return {}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+        archived = await session.scalar(select(ArchivedMessage).where(
+            ArchivedMessage.group_id == target.group_id, ArchivedMessage.message_id == target.reply_to_id,
+            ArchivedMessage.source == "telegram",
+        ))
+        sender_id = archived.sender_id if archived else snapshot.get("sender_id", 0)
+        if (archived and archived.sender_type == "bot") or not await self.allowed(
+            session, target.group_id, target.reply_to_id, sender_id,
+        ):
+            return {}
+        text = (archived.text or archived.caption) if archived else snapshot.get("text", "")
+        group = await session.get(Group, target.group_id)
+        rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == target.group_id))]
+        if input_reasons(text, rules, group.settings):
+            text = ""
+        image = bool(archived and archived.message_type == "photo" or snapshot.get("image_unavailable"))
+        return {"reply_to": target.reply_to_id, "quote": text[:1600],
+                **({"image_unavailable": True} if image else {})}
 
     async def remember_sent_context(self, session, turn, context):
         row, state = await session_state(session, turn.group_id, turn.topic_id)
@@ -271,6 +333,12 @@ class ChatContext:
             },
             settings=self.settings,
         )
+        source_ids = {turn.message_id}
+        saved = json.loads(current.response) if current.response else {}
+        for entry in saved.get("source_context", []):
+            if entry.get("id") == turn.message_id and entry.get("reply_to"):
+                source_ids.add(entry["reply_to"])
+        await remember_receipt(session, current, sent["message_id"], source_ids)
 
     async def valid_turn(self, session, turn, original, sender_id, context):
         current = await session.get(ChatTurn, turn.id)
@@ -296,5 +364,6 @@ class ChatContext:
         )
         if valid:
             cfg = GroupSettings.model_validate(group.settings)
-            valid = context == await self.filter(session, turn.group_id, turn.topic_id, context, cfg)
+            valid = context == await self.filter(session, turn.group_id, turn.topic_id, context, cfg,
+                                                message_id=turn.message_id, direct=turn.direct)
         return current, group, valid

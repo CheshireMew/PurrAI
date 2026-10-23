@@ -433,7 +433,7 @@ async def test_disabling_stickers_during_rate_limit_uses_saved_fallback(env):
 ])
 async def test_model_sticker_contract(sticker, valid):
     model = ChatModel(Settings(_env_file=None, chat_api_key="offline"), httpx.MockTransport(lambda _: httpx.Response(
-        200, json={"choices": [{"message": {"content": json.dumps({"should_reply": True, "reply": None, "sticker": sticker})}}]},
+        200, json={"choices": [{"message": {"content": json.dumps({"is_advertisement": False, "should_reply": True, "reply": None, "sticker": sticker})}}]},
     )))
     try:
         if valid:

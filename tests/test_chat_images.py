@@ -17,8 +17,8 @@ def photo(identifier, *, caption="", **kwargs):
 
 @pytest.mark.parametrize("media", [
     {"photo": [{"file_id": "image"}]},
-    {"photo": [{"file_id": "image"}], "caption": "柴郡喵，看看这个"},
-    {"document": {"file_id": "image", "mime_type": "image/png"}, "caption": "柴郡喵，这样改行吗"},
+    {"photo": [{"file_id": "image"}], "caption": "看看这个"},
+    {"document": {"file_id": "image", "mime_type": "image/png"}, "caption": "这样改行吗"},
 ])
 async def test_image_alone_or_with_caption_never_calls_model(env, media):
     chat, model = await configured(env)
@@ -28,12 +28,12 @@ async def test_image_alone_or_with_caption_never_calls_model(env, media):
 
 
 @pytest.mark.parametrize("image_first", [True, False])
-async def test_nearby_photo_and_text_are_silent_in_either_order_even_when_addressed(env, image_first):
+async def test_nearby_photo_and_text_are_silent_without_an_explicit_request(env, image_first):
     chat, model = await configured(env)
     start = int(now()) - 10
-    messages = [photo(1, date=start), message(2, "柴郡喵，这样改可行吗？", date=start + 2)]
+    messages = [photo(1, date=start), message(2, "这样改可行吗？", date=start + 2)]
     if not image_first:
-        messages = [message(1, "柴郡喵，这样改可行吗？", date=start), photo(2, date=start + 2)]
+        messages = [message(1, "这样改可行吗？", date=start), photo(2, date=start + 2)]
     for item in messages:
         await chat.observe(item)
     await due(chat)
@@ -48,7 +48,7 @@ async def test_nearby_photo_and_text_are_silent_in_either_order_even_when_addres
 async def test_image_window_uses_actual_send_times_and_expires(env, separation, expected):
     chat, model = await configured(env)
     await chat.observe(photo(1, date=int(now()) - separation))
-    await chat.observe(message(2, "柴郡喵，晚饭吃点什么？"))
+    await chat.observe(message(2, "晚饭吃点什么比较好？"))
     await due(chat)
     assert await chat.run_one() is expected
     assert bool(model.calls) is expected
@@ -74,12 +74,12 @@ async def test_other_people_or_other_forum_topics_do_not_silence_a_normal_questi
 
 async def test_reply_to_an_unseen_image_is_also_silent(env):
     chat, model = await configured(env)
-    await chat.observe(message(2, "柴郡喵，这样改可行吗？", reply_to_message=photo(1)))
+    await chat.observe(message(2, "这样改可行吗？", reply_to_message=photo(1)))
     await due(chat)
     assert not await chat.run_one() and not model.calls
 
 
-async def test_photo_arriving_during_generation_cancels_text_and_sticker(env):
+async def test_photo_arriving_during_generation_does_not_silence_an_explicit_question(env):
     chat, model = await configured(env)
     await chat.observe(message(1, "柴郡喵，这样改可行吗？"))
     await due(chat)
@@ -92,7 +92,7 @@ async def test_photo_arriving_during_generation_cancels_text_and_sticker(env):
         model.release.set()
         await running
     assert len(model.calls) == 1
-    assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
+    assert any(method == "send_message" for method, _ in chat.tg.calls)
 
 
 async def test_restart_preserves_image_boundary_and_other_members_can_still_chat(env):
@@ -101,7 +101,7 @@ async def test_restart_preserves_image_boundary_and_other_members_can_still_chat
     restored_model = FakeModel()
     restored = GroupChat(chat.db, chat.tg, chat.settings, model=restored_model)
     await restored.recover()
-    await restored.observe(message(2, "柴郡喵，这样改可行吗？"))
+    await restored.observe(message(2, "这样改可行吗？"))
     await restored.observe(message(3, "柴郡喵，晚饭吃点什么？", user_id=43))
     await due(restored)
     assert await restored.run_one()

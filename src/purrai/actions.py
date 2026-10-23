@@ -9,7 +9,7 @@ from sqlalchemy import and_, select
 from purrai.action_execution import ActionExecution, ActionSuperseded
 from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy, administrator_protected_action
 from purrai.action_transport import ActionTransport
-from purrai.archive import deletion_result
+from purrai.deletion_effects import deletion_result
 from purrai.automatic_actions import AutomaticActions
 from purrai.diagnostics import failure
 from purrai.member_restrictions import MemberRestrictions

@@ -20,18 +20,13 @@ async def offer_joke(env):
 
 
 @pytest.mark.parametrize("text", ["什么冷笑话", "讲吧", "然后呢", "讲"])
-async def test_immediate_unmentioned_followup_waits_instead_of_disappearing(env, text):
+async def test_immediate_unmentioned_followup_replies_without_artificial_wait(env, text):
     chat, model = await offer_joke(env)
     await chat.observe(message(2, text))
     async with chat.db.sessions() as session:
         queued = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 2))
         assert queued is not None and queued.state == "pending"
-    assert not await chat.run_one()
     assert len(model.calls) == 1
-
-    # Advance the conversation cooldown, without making the member send again.
-    await age_reply(chat)
-    await due(chat)
     model.result = "小明剪了个中分，结果变成了小日月。"
     assert await chat.run_one()
     request = model.calls[-1][1]
@@ -106,7 +101,7 @@ async def test_old_conversation_does_not_trigger_without_proactive_chat(env):
     assert not await chat.run_one() and len(model.calls) == 1
 
 
-async def test_followup_after_model_silence_waits_for_request_cooldown(env):
+async def test_followup_after_model_silence_has_no_artificial_request_cooldown(env):
     chat, model = await offer_joke(env)
     await age_reply(chat)
     model.result = ChatReply(should_reply=False)
@@ -115,8 +110,6 @@ async def test_followup_after_model_silence_waits_for_request_cooldown(env):
     assert await chat.run_one()
     await chat.observe(message(3, "好了，你接着讲"))
     await due(chat)
-    assert not await chat.run_one() and len(model.calls) == 2
-    await age_reply(chat)
-    await due(chat)
+    assert len(model.calls) == 2
     model.result = "那接着讲。"
     assert await chat.run_one() and len(model.calls) == 3

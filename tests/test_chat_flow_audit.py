@@ -18,7 +18,7 @@ from test_chat_images import photo
 from test_stickers import cache
 
 
-async def test_wait_extends_until_sender_finishes_their_burst_even_without_proactive_chat(env, monkeypatch):
+async def test_queued_supplements_merge_without_proactive_chat_or_artificial_wait(env, monkeypatch):
     chat, model = await configured(env, chat_proactive=False)
     clock = [now()]
     monkeypatch.setattr("purrai.chat.now", lambda: clock[0])
@@ -26,9 +26,6 @@ async def test_wait_extends_until_sender_finishes_their_burst_even_without_proac
     await chat.observe(message(1, "柴郡喵，帮我想想周末去哪玩", date=int(clock[0])))
     clock[0] += 6
     await chat.observe(message(2, "最好近一点，周日晚上要回来", date=int(clock[0])))
-    clock[0] += 5  # First message is old enough; the supplement is still settling.
-    assert not await chat.run_one() and not model.calls
-    clock[0] += 6
     assert await chat.run_one()
     assert [row["id"] for row in model.calls[0][1]["messages"]] == [1, 2]
     assert not await chat.run_one()
@@ -197,7 +194,7 @@ async def test_image_silences_the_entire_time_connected_burst_not_just_nearest_m
     clock = [now()]
     monkeypatch.setattr("purrai.chat.now", lambda: clock[0])
     monkeypatch.setattr("purrai.chat_context.now", lambda: clock[0])
-    await chat.observe(message(1, "柴郡喵，这样改可行吗", date=int(clock[0])))
+    await chat.observe(message(1, "这样改可行吗", date=int(clock[0])))
     clock[0] += 8
     await chat.observe(message(2, "还有这部分，你也帮我看看", date=int(clock[0])))
     clock[0] += 8
