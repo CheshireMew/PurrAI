@@ -469,7 +469,7 @@ test('外群封禁设置可保存允许链接并在违规详情提供解封', as
   await page.getByRole('button', { name: '群管理', exact: true }).click()
   await page.getByRole('button', { name: '群设置', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.locator('.el-form-item').filter({ hasText: '外群链接永久封禁' }).getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await expect(dialog.locator('.el-form-item').filter({ hasText: catalog.settings.booleans.external_group_ban }).getByRole('switch')).toHaveAttribute('aria-checked', 'true')
   await dialog.getByPlaceholder('每行一个群组、频道或邀请链接').fill('https://t.me/+AllowedInvite123\nhttps://t.me/partner_group')
   const sent = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
