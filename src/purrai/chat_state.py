@@ -103,8 +103,26 @@ def ignored_text(text, phrases, bot_username=""):
     return utility_command(text, bot_username) or canonical(text) in labels or candidate(text) in labels
 
 
+def anonymous_admin(message):
+    chat, sender = message.get("chat") or {}, message.get("sender_chat") or {}
+    return bool(
+        chat.get("type") in ("group", "supergroup")
+        and sender.get("type") in ("group", "supergroup")
+        and type(sender.get("id")) is int and sender["id"] < 0
+        and sender["id"] == chat.get("id")
+    )
+
+
+def chat_sender(message):
+    if anonymous_admin(message):
+        sender = message["sender_chat"]
+        title = sender.get("title") or message["chat"].get("title") or "本群"
+        return {"id": sender["id"], "first_name": f"匿名管理员 · {title}"}
+    return message.get("from") or {}
+
+
 def human_message(message, ignored_texts=(), *, bot_username=""):
-    sender = message.get("from") or {}
+    sender = chat_sender(message)
     origin = message.get("forward_origin") or {}
     text = sticker_text(message)
     return bool(
@@ -113,7 +131,7 @@ def human_message(message, ignored_texts=(), *, bot_username=""):
         and not ignored_text(text, ignored_texts, bot_username)
         and sender.get("id")
         and not sender.get("is_bot")
-        and not message.get("sender_chat")
+        and (not message.get("sender_chat") or anonymous_admin(message))
         and not message.get("via_bot")
         and not message.get("forward_from", {}).get("is_bot")
         and not origin.get("sender_user", {}).get("is_bot")

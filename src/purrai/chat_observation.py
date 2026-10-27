@@ -9,7 +9,7 @@ from purrai import chat_commands
 from purrai.chat_retraction import RECEIPT_RETENTION
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import (
-    UNREADABLE_IMAGE, addressed, following_up, has_image, human_message, ignored_text,
+    UNREADABLE_IMAGE, addressed, chat_sender, following_up, has_image, human_message, ignored_text,
     message_bursts, reply_snapshot, session_state,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, Rule, now
@@ -31,7 +31,7 @@ class ChatObservation:
         if message.get("chat", {}).get("type") not in ("group", "supergroup"):
             return
         group_id, message_id = message["chat"]["id"], message["message_id"]
-        sender = message.get("from") or {}
+        sender = chat_sender(message)
         text = sticker_text(message)
         async with self.db.transaction() as session:
             row = await session.scalar(
@@ -56,7 +56,7 @@ class ChatObservation:
                                                 linked_channel_id=await own_channel_id(session, group_id))
             allowed = bool(sender.get("id")) and await self.contexts.allowed(session, group_id, message_id, sender["id"])
             command_state = await chat_commands.observe(
-                session, group_id, message, cfg,
+                session, group_id, {**message, "from": sender}, cfg,
                 eligible=bool(not direct and not reasons and not urls and not has_image(message)
                               and not (message.get("forward_origin") or message.get("forward_date"))
                               and human_message(message, bot_username=getattr(self.tg, "username", "")) and allowed),
@@ -128,7 +128,7 @@ class ChatObservation:
 
     async def schedule(self, session, row, cfg, message, direct, image, reasons):
         group_id, topic_id = row.group_id, row.topic_id
-        message_id, sender = row.message_id, message.get("from") or {}
+        message_id = row.message_id
         text, reply = row.text, message.get("reply_to_message") or {}
         recent = await self.contexts.recent(session, group_id, topic_id)
         burst = next((items for items in message_bursts(recent) if row in items), [])
@@ -149,7 +149,7 @@ class ChatObservation:
                 ChatTurn.state == "generating",
             )))
         followup = not reply_elsewhere and (inflight or following_up(
-            state, sender["id"], row.received_at, allow_join=cfg.chat_proactive,
+            state, row.sender_id, row.received_at, allow_join=cfg.chat_proactive,
         ))
         if not direct and not followup:
             reason = (
