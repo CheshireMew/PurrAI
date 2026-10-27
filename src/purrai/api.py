@@ -12,6 +12,7 @@ from purrai.schemas import (
     ArchiveQuery,
     EmojiPackChange,
     GroupAccessInput,
+    GroupAdmissionInput,
     PreviewInput,
     RuleInput,
     SettingsPatch,
@@ -42,6 +43,12 @@ def install_api(app):
         identifier: int, body: GroupAccessInput, request: Request, user: Identity = Depends(root_identity)
     ):
         return await request.app.state.management.group_access(user.id, identifier, body.approved)
+
+    @app.post("/api/groups")
+    async def admit_group(
+        body: GroupAdmissionInput, request: Request, user: Identity = Depends(root_identity)
+    ):
+        return await request.app.state.management.admit_group(user.id, body.group_id)
 
     @app.post("/api/groups/{identifier}/activate")
     async def activate(identifier: int, request: Request, user: Identity = Depends(identity)):

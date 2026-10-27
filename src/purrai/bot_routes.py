@@ -25,7 +25,9 @@ class BotRoutes:
             await self.management.authorize(actor, group_id)
         if action not in ("prompt", "admin_add"):
             await self.remember(f"bot_prompt:{actor}", None)
-        if action == "access_panel":
+        if action == "group_admission":
+            await self.inputs.admission_prompt(actor)
+        elif action == "access_panel":
             await self.panels.access_panel(actor, data["id"], message_id)
         elif action == "group_access":
             await self.management.group_access(actor, data["id"], data["approved"])

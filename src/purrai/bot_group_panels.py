@@ -28,6 +28,7 @@ class GroupPanels:
         if len(groups) > page * 5 + 5:
             buttons.append(button("下一页", "groups", page=page + 1))
         if await self.management.principal(actor):
+            buttons.append(button("接入群组", "group_admission"))
             buttons.append(button("系统状态与备份", "system"))
         buttons.append(button("权限与账号说明", "admins"))
         await self.panel(

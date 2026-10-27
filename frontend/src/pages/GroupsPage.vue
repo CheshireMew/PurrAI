@@ -12,6 +12,19 @@ import { useRefresh } from '../composables/useRefresh'
 const props = defineProps<{ refreshKey: number }>()
 const { me, groups, reloadGroups, submitAction } = useWorkspace()
 const { busy, error, safe } = useTask(), settingsGroup = ref<Group | null>(null)
+const admissionOpen = ref(false), admissionId = ref('')
+const { busy: admissionBusy, error: admissionError, safe: admissionSafe } = useTask()
+function openAdmission() { admissionId.value = ''; admissionError.value = ''; admissionOpen.value = true }
+async function admitGroup() {
+  const value = admissionId.value.trim(), groupId = Number(value)
+  if (!/^-[1-9]\d*$/.test(value) || !Number.isSafeInteger(groupId)) {
+    admissionError.value = '请填写群的负数数字 ID，例如 -1001234567890'; return
+  }
+  if (await admissionSafe(async () => {
+    await post('/api/groups', { group_id: groupId })
+    await reloadGroups()
+  })) { admissionOpen.value = false; ElMessage.success('群已接入，可在群设置中开启保护和聊天') }
+}
 async function load() { await safe(reloadGroups) }
 async function groupAction(row: Group, action: string) {
   if (action === 'revoke') {
@@ -37,6 +50,7 @@ useRefresh(load, () => props.refreshKey)
 <h2>已发现的群 <small>{{ groups.length }} 个</small>
 </h2>
 <span class="muted">仅限所有者批准的群；批准后由群管理员启用保护</span>
+<el-button v-if="me?.root" type="primary" @click="openAdmission">接入群组</el-button>
 </div>
 <el-table :data="groups" empty-text="请先将机器人加入超级群">
 <el-table-column label="群" min-width="200">
@@ -65,5 +79,16 @@ useRefresh(load, () => props.refreshKey)
 </el-table-column>
 </el-table>
 </section>
+<el-dialog v-model="admissionOpen" title="接入群组" width="min(480px, 94vw)" :close-on-click-modal="!admissionBusy" :show-close="!admissionBusy">
+<p>公开群和私密群均可，机器人须已加入群。邀请链接不能代替群 ID。</p>
+<el-form @submit.prevent="admitGroup">
+<el-form-item label="群 ID"><el-input v-model="admissionId" aria-label="群 ID" placeholder="-1001234567890" :disabled="admissionBusy"/></el-form-item>
+<el-alert v-if="admissionError" :title="admissionError" type="error" :closable="false"/>
+</el-form>
+<template #footer>
+<el-button :disabled="admissionBusy" @click="admissionOpen = false">取消</el-button>
+<el-button type="primary" :loading="admissionBusy" @click="admitGroup">确认接入</el-button>
+</template>
+</el-dialog>
 <GroupSettingsDialog :group="settingsGroup" @close="settingsGroup = null"/>
 </template>

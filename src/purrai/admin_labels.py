@@ -157,6 +157,7 @@ CHAT_BUTTON_LABELS = {
 
 
 NAVIGATION_ACTIONS = {
+    "group_admission",
     "groups",
     "group",
     "access_panel",

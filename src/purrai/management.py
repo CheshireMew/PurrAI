@@ -59,6 +59,9 @@ class Management:
     async def group_access(self, actor, group_id, allow):
         return await self.groups_admin.group_access(actor, group_id, allow)
 
+    async def admit_group(self, actor, group_id):
+        return await self.groups_admin.admit_group(actor, group_id)
+
     async def set_group_access(self, group_id, allow, actor=None):
         return await self.groups_admin.set_group_access(group_id, allow, actor)
 

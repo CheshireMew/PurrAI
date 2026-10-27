@@ -1,6 +1,7 @@
 """Administration operations for group admin."""
 
 from sqlalchemy import select
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from purrai.action_queue import enqueue
 from purrai.errors import ManagementError
@@ -14,6 +15,7 @@ from purrai.schemas import (
     GroupSettings,
 )
 from purrai.serialization import row_dict
+from purrai.telegram import is_present
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 
@@ -26,7 +28,28 @@ class GroupAdministration:
         await self.context.access.principal(actor, root=True)
         return await self.set_group_access(group_id, allow, actor)
 
-    async def set_group_access(self, group_id, allow, actor=None):
+    async def admit_group(self, actor, group_id):
+        await self.context.access.principal(actor, root=True)
+        if group_id >= 0 or group_id < -(2**63):
+            raise ManagementError(422, "请填写 Telegram 群的负数数字 ID")
+        try:
+            chat = await self.context.tg.call("get_chat", chat_id=group_id)
+            if chat.get("id") != group_id or chat.get("type") not in ("group", "supergroup"):
+                raise ManagementError(422, "只能接入群组，请填写群的数字 ID")
+            member = await self.context.tg.call(
+                "get_chat_member", chat_id=group_id, user_id=self.context.tg.user_id
+            )
+        except (TelegramBadRequest, TelegramForbiddenError) as exc:
+            raise ManagementError(422, "无法访问此群，请核对群 ID 并先将机器人加入群") from exc
+        except ManagementError:
+            raise
+        except Exception as exc:
+            raise ManagementError(503, "暂时无法向 Telegram 核实群信息，请稍后重试") from exc
+        if not is_present(member):
+            raise ManagementError(422, "机器人尚未加入此群，请先将机器人加入群")
+        return await self.set_group_access(group_id, True, actor, chat=chat)
+
+    async def set_group_access(self, group_id, allow, actor=None, *, chat=None):
         """The authenticated owner and local CLI share this one mutation."""
         from purrai.models import ChatTurn
 
@@ -46,6 +69,8 @@ class GroupAdministration:
                 await session.flush()
             if not group:
                 raise ManagementError(404, "群不存在，请先将机器人加入该群")
+            if chat:
+                group.title, group.type = chat.get("title", str(group_id))[:128], chat["type"]
             group.approved = allow
             if not allow:
                 group.enabled, group.status = False, "unapproved"

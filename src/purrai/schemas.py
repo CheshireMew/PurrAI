@@ -153,6 +153,10 @@ class EmojiPackChange(BaseModel):
         return self
 
 
+class GroupAdmissionInput(BaseModel):
+    group_id: int = Field(ge=-(2**63), le=-1)
+
+
 class GroupAccessInput(BaseModel):
     approved: bool
 

@@ -87,6 +87,55 @@ test('系统重试失败的原因在自动刷新后继续显示', async ({ page 
   await expect(banner).toBeVisible()
 })
 
+test('超级管理员可按数字 ID 接入私密群，列表立即更新', async ({ page }, testInfo) => {
+  await mock(page)
+  const admitted = [...groups], submissions: any[] = []
+  await page.route('**/api/groups', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON(); submissions.push(body)
+      const group = { ...groups[1], id: body.group_id, title: '新接入的私密群' }
+      admitted.push(group); return route.fulfill({ json: group })
+    }
+    return route.fulfill({ json: admitted })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '接入群组', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('群 ID').fill('https://t.me/+test')
+  await dialog.getByRole('button', { name: '确认接入' }).click()
+  await expect(dialog).toContainText('请填写群的负数数字 ID')
+  expect(submissions).toHaveLength(0)
+  await dialog.getByLabel('群 ID').fill('-1003792975859')
+  await dialog.getByRole('button', { name: '确认接入' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page.getByRole('table').getByText('新接入的私密群', { exact: true })).toBeVisible()
+  expect(submissions).toEqual([{ group_id: -1003792975859 }])
+  await page.screenshot({ path: testInfo.outputPath('group-admitted.png'), fullPage: true })
+})
+
+test('接入群失败时保留输入并在弹窗内说明原因', async ({ page }) => {
+  await mock(page)
+  await page.route('**/api/groups', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 422, json: { detail: '无法访问此群，请核对群 ID 并先将机器人加入群' } })
+    : route.fallback())
+  await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '接入群组', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('群 ID').fill('-1003792975859')
+  await dialog.getByRole('button', { name: '确认接入' }).click()
+  await expect(dialog).toContainText('无法访问此群')
+  await expect(dialog.getByLabel('群 ID')).toHaveValue('-1003792975859')
+})
+
+test('普通群管理员没有接入任意群的入口', async ({ page }) => {
+  await mock(page, true, false)
+  await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await expect(page.getByRole('button', { name: '接入群组', exact: true })).toHaveCount(0)
+})
+
 test('重出题提交回执丢失后刷新页面仍确认原请求，不重复出题', async ({ page }) => {
   await mock(page)
   const requests: any[] = [], effects = new Map<string, string>()

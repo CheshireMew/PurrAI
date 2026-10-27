@@ -13,6 +13,7 @@ from purrai.schemas import (
     ArchiveFilter,
     EmojiPackChange,
     GroupSettings,
+    GroupAdmissionInput,
     PreviewInput,
     RuleInput,
     WhitelistInput,
@@ -24,6 +25,15 @@ class BotInput:
     def __init__(self, management, ui, state, panels):
         self.management, self.panels = management, panels
         self.send, self.panel, self.remember = ui.send, ui.panel, state.remember
+
+    async def admission_prompt(self, actor):
+        await self.management.principal(actor, root=True)
+        await self.remember(f"bot_prompt:{actor}", {
+            "group_id": None, "data": {"kind": "group_admission"}, "expires": now() + 900,
+        })
+        await self.send(actor,
+            "请发送要接入的群数字 ID，例如 -1001234567890。公开群和私密群均可，机器人须已加入群。"
+            "接入后可在群设置中开启保护和聊天。邀请链接不能代替群 ID。\n发送 /cancel 取消；15 分钟内有效。")
 
     async def prompt(self, actor, group_id, data):
         await self.management.authorize(actor, group_id, write=True)
@@ -109,7 +119,15 @@ class BotInput:
     async def input(self, actor, text, prompt, request_id):
         group_id, data = prompt["group_id"], prompt["data"]
         kind = data["kind"]
-        if kind == "chat_setting":
+        if kind == "group_admission":
+            await self.management.principal(actor, root=True)
+            if not text.startswith("-") or not text[1:].isascii() or not text[1:].isdecimal():
+                raise ManagementError(422, "请发送群的负数数字 ID，例如 -1001234567890")
+            body = GroupAdmissionInput(group_id=int(text))
+            result = await self.management.admit_group(actor, body.group_id)
+            await self.send(actor, f"已接入：{result['title']}\n群 ID：{body.group_id}")
+            await self.panels.group_panel(actor, body.group_id)
+        elif kind == "chat_setting":
             key = data["key"]
             if key not in CHAT_FIELDS:
                 raise ManagementError(422, "聊天配置项不存在")
