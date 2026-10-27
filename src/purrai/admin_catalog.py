@@ -1,6 +1,6 @@
 """The administration contract consumed by both Telegram and the web console."""
 
-from purrai.admin_labels import BOOLEANS, NUMBERS, OPERATIONS, STATE
+from purrai.admin_labels import BOOLEANS, FAILURE_ACTIONS, NUMBERS, OPERATIONS, STATE
 from purrai.schemas import GroupSettings
 from purrai.verification_state import ACTIVE
 
@@ -15,5 +15,6 @@ def admin_catalog():
         },
         "states": STATE,
         "operations": OPERATIONS,
+        "failure_actions": FAILURE_ACTIONS,
         "active_verifications": list(ACTIVE),
     }

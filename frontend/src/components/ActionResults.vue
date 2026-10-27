@@ -2,13 +2,19 @@
 import { computed } from 'vue'
 import { label } from '../api'
 import { useWorkspace } from '../workspace'
-const { actionTracker } = useWorkspace()
+const { actionTracker, actionRequests, retryAction } = useWorkspace()
 const actions = computed(() => actionTracker.items)
 </script>
 
 <template>
-<section v-if="actions.length" class="panel action-results">
+<section v-if="actions.length || actionRequests.items.length" class="panel action-results">
 <h2>本次提交的操作</h2>
+<div v-for="request in actionRequests.items" :key="request.body.request_id" class="action-line">
+<span>{{ request.body.reason }}</span>
+<el-tag>提交结果待确认</el-tag>
+<small>{{ request.error || '正在提交' }}</small>
+<el-button v-if="request.error" size="small" @click="retryAction(request)">确认提交结果</el-button>
+</div>
 <div v-for="a in actions" :key="a.id" class="action-line">
 <span>{{ a.reason }}</span>
 <el-tag>{{ label(a.state) }}</el-tag>

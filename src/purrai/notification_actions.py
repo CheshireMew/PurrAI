@@ -2,7 +2,8 @@
 
 from aiogram.exceptions import TelegramBadRequest
 
-from purrai.errors import ManagementError
+from purrai.action_delivery import deliver_once
+from purrai.admin_labels import OPERATIONS, STATE
 from purrai.media_gate import media_gate_exemption
 from purrai.models import (
     Action,
@@ -11,8 +12,8 @@ from purrai.models import (
 
 
 class NotificationActions:
-    def __init__(self, db, transport, access):
-        self.db, self.action_call, self.access = db, transport.call, access
+    def __init__(self, db, transport):
+        self.db, self.action_call = db, transport.call
 
     async def delete_action_message(self, session, action):
         try:
@@ -39,39 +40,26 @@ class NotificationActions:
         if any(item and item.state == "pending" for item in sources):
             action.available_at = now() + 2
             return False
-        names = {
-            "verification_failure": "验证失败处理",
-            "archive_export": "导出归档",
-            "release": "放行",
-            "challenge": "重新出题",
-            "verify_mute": "重新禁言验证",
-            "ban": "封禁",
-            "manual_ban": "封禁",
-            "manual_mute": "禁言",
-            "unmute": "解除禁言",
-            "unban": "解除封禁",
-            "revoke_warning": "撤销警告",
-        }
-        states = {"succeeded": "已完成", "failed": "失败", "cancelled": "已取消"}
         lines = [f"PurrAI · {group.title if group else '管理'} · 执行结果"]
         for source in sources[:20]:
             if source:
+                target = f" · 用户 {source.user_id}" if source.user_id is not None else ""
                 lines.append(
-                    f"{names.get(source.kind, source.kind)} · 用户 {source.user_id}："
-                    f"{states.get(source.state, source.state)}"
+                    f"{OPERATIONS.get(source.kind, source.kind)}{target}："
+                    f"{STATE.get(source.state, source.state)}"
                     + (f"\n原因：{source.error}" if source.error else "")
                 )
                 if source.kind == "join_link" and source.state == "succeeded":
                     lines.append(source.payload.get("invite_link", ""))
         if len(sources) > 20:
             lines.append(f"共 {len(sources)} 项；其余结果可在机器人操作记录查看。")
-        await self.action_call(
-            session, action, "send_message", chat_id=action.payload["chat_id"], text="\n".join(lines)[:4000]
+        await deliver_once(
+            self.action_call, session, action, "send_message", chat_id=action.payload["chat_id"], text="\n".join(lines)[:4000]
         )
 
     async def join_link(self, session, action, group, verification, member):
-        response = await self.action_call(
-            session,
+        response = await deliver_once(
+            self.action_call, session,
             action,
             "create_chat_invite_link",
             chat_id=group.id,
@@ -87,18 +75,12 @@ class NotificationActions:
         from purrai.archive import export_document
         from purrai.schemas import ArchiveFilter
 
-        try:
-            await session.info["action_execution"].external(
-                lambda: self.access.authorize(action.actor_id, group.id)
-            )
-        except ManagementError as exc:
-            raise ValueError(str(exc)) from exc
         filters = ArchiveFilter.model_validate(action.payload["filters"])
         content, count = await session.info["action_execution"].external(
             lambda: export_document(self.db, group.id, filters, action.payload["cutoff"])
         )
-        await self.action_call(
-            session,
+        await deliver_once(
+            self.action_call, session,
             action,
             "send_document",
             chat_id=action.actor_id,
@@ -109,4 +91,4 @@ class NotificationActions:
         action.payload = {**action.payload, "exported_count": count}
 
     async def warn(self, session, action, group, verification, member):
-        await self.action_call(session, action, "send_message", chat_id=group.id, text=action.payload["text"])
+        await deliver_once(self.action_call, session, action, "send_message", chat_id=group.id, text=action.payload["text"])

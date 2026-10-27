@@ -1,12 +1,13 @@
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, shallowRef } from 'vue'
 import { ApiError } from '../api'
 import { workspaceKey } from '../workspace'
 
 export function useTask(onUnauthorized?: () => void) {
   const workspace = inject(workspaceKey, null)
-  const pending = ref(0), error = ref('')
+  const pending = shallowRef<{ current: () => boolean }[]>([]), error = ref('')
   async function safe(task: () => Promise<void>, current: () => boolean = () => true) {
-    pending.value++; error.value = ''
+    const operation = { current }
+    pending.value = [...pending.value, operation]; error.value = ''
     try { await task(); return true }
     catch (reason) {
       if (current()) error.value = reason instanceof Error ? reason.message : '操作失败，请重试'
@@ -15,7 +16,7 @@ export function useTask(onUnauthorized?: () => void) {
         else workspace?.expireSession()
       }
       return false
-    } finally { pending.value-- }
+    } finally { pending.value = pending.value.filter(item => item !== operation) }
   }
-  return { busy: computed(() => pending.value > 0), error, safe }
+  return { busy: computed(() => pending.value.some(item => item.current())), error, safe }
 }

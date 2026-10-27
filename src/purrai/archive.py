@@ -2,13 +2,13 @@
 
 import hashlib
 import json
+from pathlib import Path
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select
 
 from purrai.models import (
     Action,
     ArchivedMessage,
-    ChatMessage,
     Group,
     MessageRevision,
     Meta,
@@ -62,6 +62,18 @@ def version_key(message, edited, update_id):
     return "hash:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def recording_status(session, group, settings=None):
+    if not group or not group.approved or not group.settings.get("archive_enabled", True):
+        return {"state": "disabled", "reason": ""}
+    database = session.bind.url.database
+    if database and database != ":memory:":
+        paths = (Path(database), Path(database + "-wal"))
+        limit = getattr(settings, "archive_max_db_mb", 512) * 1024 * 1024
+        if sum(path.stat().st_size for path in paths if path.is_file()) >= limit:
+            return {"state": "capacity_paused", "reason": "数据库达到归档容量上限，已暂停新增归档；已有记录保留"}
+    return {"state": "active", "reason": ""}
+
+
 async def capture(session, message, edited=False, update_id=0, *, settings=None):
     chat = message.get("chat", {})
     if chat.get("type") not in ("group", "supergroup") or message.get("message_id", 0) <= 0:
@@ -69,22 +81,16 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
     group = await session.get(Group, chat["id"])
     if group is None or not group.approved:
         return
-    if not group.settings.get("archive_enabled", True):
+    status = recording_status(session, group, settings)
+    if status["state"] == "disabled":
         return
-    from pathlib import Path
-
-    database = session.bind.url.database
-    size_limit = getattr(settings, "archive_max_db_mb", 512) * 1024 * 1024
-    if database and database != ":memory:":
-        paths = (Path(database), Path(database + "-wal"))
-        if sum(path.stat().st_size for path in paths if path.is_file()) >= size_limit:
-            marker = await session.get(Meta, "archive:paused")
-            if not marker:
-                session.add(Meta(key="archive:paused", value="数据库达到归档容量上限，已暂停新增归档；已有记录保留"))
-            return
-        marker = await session.get(Meta, "archive:paused")
-        if marker:
-            await session.delete(marker)
+    marker = await session.get(Meta, "archive:paused")
+    if status["state"] == "capacity_paused":
+        if not marker:
+            session.add(Meta(key="archive:paused", value=status["reason"]))
+        return
+    if marker:
+        await session.delete(marker)
     row = await session.scalar(
         select(ArchivedMessage).where(
             ArchivedMessage.group_id == group.id, ArchivedMessage.message_id == message["message_id"]
@@ -163,14 +169,9 @@ async def mark_reasons(session, message, edited, update_id, reasons):
             revision.reasons = list(dict.fromkeys(revision.reasons + reasons))
 
 
-async def deletion_result(session, action):
+async def record_deletion(session, action):
     if action.kind != "delete" or action.payload.get("chat_id", action.group_id) != action.group_id:
         return
-    if action.state != "cancelled":
-        await session.execute(update(ChatMessage).where(
-            ChatMessage.group_id == action.group_id,
-            ChatMessage.message_id == action.payload.get("message_id"),
-        ).values(eligible=False))
     row = await session.scalar(
         select(ArchivedMessage).where(
             ArchivedMessage.group_id == action.group_id,
@@ -298,7 +299,7 @@ async def decorate(session, rows, detail=False):
     return result
 
 
-async def page(db, group_id, filters, page_number=1, size=20):
+async def page(db, group_id, filters, page_number=1, size=20, *, settings=None):
     where = conditions(group_id, filters)
     async with db.sessions() as session:
         total = await session.scalar(select(func.count()).select_from(ArchivedMessage).where(*where))
@@ -311,7 +312,8 @@ async def page(db, group_id, filters, page_number=1, size=20):
                 .limit(size)
             )
         ).all()
-        return {"items": await decorate(session, rows), "total": total, "page": page_number, "size": size}
+        return {"items": await decorate(session, rows), "total": total, "page": page_number, "size": size,
+                "recording": recording_status(session, await session.get(Group, group_id), settings)}
 
 
 async def detail(db, group_id, identifier):

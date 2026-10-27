@@ -3,6 +3,7 @@
 import re
 
 from purrai.chat_safety import LINKS
+from purrai.advertising_patterns import authored_text, discussion
 from purrai.rules import assess, compact, normalize
 
 TRADE = r"(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队)"
@@ -12,10 +13,46 @@ OFFER = re.compile(r"(?:带单|返佣|代刷|代充|代办|兼职|搬砖|策略�
 CONTACT = re.compile(r"(?:私聊|私信|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码|免费进群|免费进频道)")
 FOMO = re.compile(r"(?:花钱|付费|收费).{0,16}(?:频道|群).{0,16}(?:现在|如今|今天).{0,12}(?:免费|白送|直接进|随便进)")
 PROMISE = re.compile(r"(?:稳赚|包赚|保本收益|躺赚|零风险|日[入赚]\d+)")
+AD_VARIANTS = str.maketrans("來強勝滿莊點頭免費進發轉機賺個學葉頻內無們這準撿錢", "来强胜满庄点头免费进发转机赚个学叶频内无们这准捡钱")
+
+
+def solicitation(text):
+    """Additional chat-only exclusions; never evidence for a member penalty."""
+    canonical = normalize(text).translate(AD_VARIANTS)
+    if discussion(canonical):
+        return ""
+    value = compact(authored_text(canonical))
+    # Questions, reports and quoted examples are different from authored offers.
+    if re.search(r"怎么|如何|是不是|是真的吗|怎么办|可信吗|骗局|诈骗|小心|警惕|不要|别信", value):
+        return ""
+    if re.fullmatch(r"来回血", value):
+        return "广告招揽：回血口令"
+    if (re.search(r"(?:高返|高反|返佣|反佣)\s*\d{1,3}\s*[%％]", canonical)
+            and re.search(r"群|福利|策略|带单", value)):
+        return "广告招揽：高比例返佣引流"
+    if (re.search(r"策略|带单|胜率|赚.{0,6}倍|\d+天.{0,6}倍", value)
+            and re.search(r"点头像|戳[主竹][页叶]|进来捡钱|赶快进|速进|免费来|天天发单", value)):
+        return "广告招揽：交易收益或策略引流"
+    if re.search(r"社[群裙].{0,12}(?:好准|赚|盈利)", value) and re.search(r"进来|捡钱", value):
+        return "广告招揽：社群收益引流"
+    if re.search(r"新澳|[六6][合和][彩采]", value) and re.search(r"内[幕慕]|频道|开奖|下注", value):
+        return "广告招揽：博彩频道推广"
+    if re.search(r"\d{2,5}[全佺]套.{0,8}(?:无限火力|面付|上门)", value):
+        return "广告招揽：色情服务报价"
+    if re.fullmatch(r"\d+(?:\.\d+)?\s*trx\s*闪租", canonical):
+        return "广告招揽：能量租赁报价"
+    if re.fullmatch(r"(?:苹果|水果机)\d{1,2}(?:只要|仅售|特价)\d+(?:k|千|元|块)", value):
+        return "广告招揽：整条商品促销报价"
+    if re.search(r"副业|增收|兼职", value) and re.search(r"(?:一天|日入|日赚)[0-9o]{3,}", value):
+        return "广告招揽：高收入副业招揽"
+    return ""
 
 
 def advertising(text, *, direct=False):
     canonical = normalize(text)
+    extra = solicitation(canonical)
+    if extra:
+        return extra
     # Split clauses first, then remove spacing, invisible characters and emoji.
     # A quoted warning or a real question about scams is not a recruitment call.
     clauses = [compact(re.sub(r"@[a-z0-9_]+", "", clause))

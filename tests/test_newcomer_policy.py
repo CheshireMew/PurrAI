@@ -54,7 +54,8 @@ async def test_three_day_observation_covers_all_requested_content(env, age, obse
         session.add(Member(group_id=-1001, user_id=42, joined_at=now() - age,
                            passed_at=now() - age, observed_messages=observed))
         group = await session.get(Group, -1001)
-        group.settings = {**group.settings, "repeat_enabled": False, "burst_enabled": False}
+        group.settings = {**group.settings, "repeat_enabled": False, "burst_enabled": False,
+                          "external_group_ban": False}  # Exercise observation limits independently of channel ads.
     messages = [
         message(1, "频道内容", forward_origin={"type": "channel", "date": 1,
                 "chat": {"id": -2001, "type": "channel"}, "message_id": 1}),

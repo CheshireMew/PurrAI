@@ -32,15 +32,13 @@ async def source_deleted(session, group_id, message_id):
         ).exists(),
         select(Action.id).where(
             Action.group_id == group_id, Action.kind == "delete", Action.state == "succeeded",
-            Action.payload["message_id"].as_integer() == message_id,
+            Action.target_message_id == message_id,
             or_(Action.payload["chat_id"].as_integer().is_(None), Action.payload["chat_id"].as_integer() == group_id),
         ).exists(),
     ))))
 
 
 async def retract_replies(session, group_id, message_id):
-    from purrai.action_queue import enqueue
-
     sources = func.json_each(case((func.json_valid(ChatTurn.response), ChatTurn.response), else_="{}"),
                              "$.source_ids").table_valued("value")
     turns = (await session.scalars(select(ChatTurn).where(
@@ -53,30 +51,55 @@ async def retract_replies(session, group_id, message_id):
         saved = receipt(turn)
         if turn.message_id != message_id and message_id not in saved.get("source_ids", []):
             continue
-        # Legacy releases kept only the last receipt. The small rolling window
-        # can recover a preceding text receipt without requiring the archive.
-        identifiers = set(saved.get("sent_message_ids", [])) | {turn.sent_message_id}
-        identifiers.update(await session.scalars(select(ChatMessage.message_id).where(
-            ChatMessage.group_id == group_id, ChatMessage.is_bot.is_(True),
-            ChatMessage.reply_to_id == turn.message_id,
-        )))
-        for identifier in sorted(identifiers):
-            await enqueue(session, "delete", f"cleanup:chat-reply:{group_id}:{identifier}", group_id,
-                          payload={"message_id": identifier, "chat_turn_id": turn.id}, priority=0,
-                          reason="原消息已确认删除，同步撤回机器人回复")
-        turn.state, turn.error = "retracting", "原消息已删除，正在撤回已发送回复"
-        saved["sent_message_ids"] = sorted(identifiers)
-        turn.response = json.dumps(saved)
-        finish_receipt(turn)
-        await retraction_result(session, turn.id)
+        await retract_turn(session, turn)
+
+
+async def retract_turn(session, turn):
+    from purrai.action_queue import enqueue
+
+    saved = receipt(turn)
+    # Legacy releases kept only the last receipt. Recover the preceding text
+    # without expanding every other reply to the same deleted source again.
+    identifiers = set(saved.get("sent_message_ids", [])) | {turn.sent_message_id}
+    identifiers.update(await session.scalars(select(ChatMessage.message_id).where(
+        ChatMessage.group_id == turn.group_id, ChatMessage.is_bot.is_(True),
+        ChatMessage.reply_to_id == turn.message_id,
+    )))
+    for identifier in sorted(identifiers):
+        await enqueue(session, "delete", f"cleanup:chat-reply:{turn.group_id}:{identifier}", turn.group_id,
+                      payload={"message_id": identifier, "chat_turn_id": turn.id}, priority=0,
+                      reason="原消息已确认删除，同步撤回机器人回复")
+    turn.state, turn.error = "retracting", "原消息已删除，正在撤回已发送回复"
+    saved["sent_message_ids"] = sorted(identifiers)
+    turn.response = json.dumps(saved)
+    finish_receipt(turn)
+    await retraction_result(session, turn.id)
 
 
 async def retract_if_deleted(session, turn):
     for identifier in set(receipt(turn).get("source_ids", [])) | {turn.message_id}:
         if await source_deleted(session, turn.group_id, identifier):
-            await retract_replies(session, turn.group_id, identifier)
+            await retract_turn(session, turn)
             return True
     return False
+
+
+async def recover_retractions(db, batch_size=100):
+    # Bound each writer transaction, while draining the entire startup snapshot.
+    cutoff, cursor = now() - RECEIPT_RETENTION, 0
+    async with db.sessions() as session:
+        highwater = await session.scalar(select(func.max(ChatTurn.id))) or 0
+    while cursor < highwater:
+        async with db.transaction() as session:
+            turns = (await session.scalars(select(ChatTurn).where(
+                ChatTurn.id > cursor, ChatTurn.id <= highwater,
+                ChatTurn.sent_message_id.is_not(None), ChatTurn.created_at >= cutoff,
+            ).order_by(ChatTurn.id).limit(batch_size))).all()
+            if not turns:
+                return
+            for turn in turns:
+                await retract_if_deleted(session, turn)
+            cursor = turns[-1].id
 
 
 async def retraction_result(session, turn_id):

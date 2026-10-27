@@ -2,7 +2,8 @@
 
 from sqlalchemy import select
 
-from purrai.archive import deletion_result
+from purrai.deletion_tracking import track_deletion
+from purrai.member_decisions import remember_decision
 from purrai.models import Action, Verification, now, uid
 
 
@@ -44,8 +45,9 @@ async def enqueue(
     )
     session.add(item)
     await session.flush()
+    await remember_decision(session, item)
     if kind == "delete":
-        await deletion_result(session, item)
+        await track_deletion(session, item)
     return item
 
 

@@ -6,32 +6,42 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
-from purrai.archive import capture
 from purrai.chat_input import input_reasons
-from purrai.chat_retraction import remember_receipt
-from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, following_up, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
-from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, Meta, Rule, now
+from purrai import chat_commands
+from purrai.chat_messages import recent_messages
+from purrai.group_link_identity import own_channel_id
+from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
+from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, MessageRevision, Meta, Rule, now
 from purrai.schemas import GroupSettings
 from purrai.serialization import row_dict
-from purrai.stickers import sticker_text
+from purrai.telegram_sources import channel_sources, external_channel_reasons, stored_channel_sources
+
+
+def latest_payload():
+    # Match archive ordering, including out-of-order originals and edits. The
+    # archive_id index bounds each lookup to one message's retained revisions.
+    return select(MessageRevision.payload).where(MessageRevision.archive_id == ArchivedMessage.id).order_by(
+        MessageRevision.event_at.desc(), MessageRevision.is_edit.desc(),
+        MessageRevision.update_id.desc(), MessageRevision.id.desc(),
+    ).limit(1).correlate(ArchivedMessage).scalar_subquery()
 
 
 class ChatContext:
-    def __init__(self, telegram, settings, stickers):
-        self.tg, self.settings, self.stickers = telegram, settings, stickers
+    def __init__(self, telegram):
+        self.tg = telegram
 
     async def allowed(self, session, group_id, message_id, sender_id):
         return not await session.scalar(select(blocked_message(group_id, message_id, sender_id)))
 
     async def recent(self, session, group_id, topic_id):
-        return (await session.scalars(select(ChatMessage).where(
-            ChatMessage.group_id == group_id, ChatMessage.topic_id == topic_id,
-        ).order_by(ChatMessage.sent_at.desc(), ChatMessage.message_id.desc()).limit(100))).all()
+        return await recent_messages(session, group_id, topic_id)
 
     async def filter(self, session, group_id, topic_id, context, cfg, *, message_id=0, direct=False):
         """Cached text is reusable only while its sources are still eligible."""
         if not context:
             return []
+        _, command_state = await chat_commands.load(session, group_id)
+        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
         speakers = {row["id"]: row["speaker_id"] for row in context}
         for row in context:
             if row.get("reply_to"):
@@ -45,13 +55,20 @@ class ChatContext:
                 allowed_images.add(target.reply_to_id)
         sources = [row for row in recent if row.message_id in speakers]
         speakers.update({row.message_id: row.sender_id for row in sources})
-        speakers.update({row.message_id: row.sender_id or 0 for row in await session.scalars(
-            select(ArchivedMessage).where(ArchivedMessage.group_id == group_id,
-                                          ArchivedMessage.message_id.in_(speakers)),
-        )})
         for row in sources:
             if row.is_bot and row.reply_to_id:
                 speakers.setdefault(row.reply_to_id, 0)
+        source_metadata = {row["id"]: row.get("channel_sources", []) for row in context}
+        source_metadata.update({row.message_id: stored_channel_sources(row.reply_text) for row in sources})
+        # Older chat rows did not retain channel origins. Recover them from the
+        # independent archive, including sources already absent from chat's window.
+        for identifier, sender, payload in await session.execute(select(
+            ArchivedMessage.message_id, ArchivedMessage.sender_id, latest_payload(),
+        ).where(ArchivedMessage.group_id == group_id, ArchivedMessage.message_id.in_(speakers))):
+            speakers[identifier] = sender or 0
+            if payload:
+                source_metadata[identifier] = channel_sources(payload)
+        linked_channel_id = await own_channel_id(session, group_id)
         # Include frozen entries whose small rolling ChatMessage row has aged out.
         # A single batch checks the existing moderation facts, without an LLM call.
         candidates = union_all(*(select(
@@ -64,6 +81,9 @@ class ChatContext:
             row.message_id in allowed_images and row.text.startswith(UNREADABLE_IMAGE)
         ))
         excluded.update(image_message_ids(recent) - allowed_images)
+        excluded.update(identifier for identifier, origins in source_metadata.items() if external_channel_reasons(
+            origins, group_id, cfg.model_dump(), rules, linked_channel_id=linked_channel_id,
+        ))
         for burst in message_bursts(recent):
             if not any(row.is_bot for row in burst) and input_reasons("\n".join(row.text for row in burst), rules, cfg.model_dump(),
                              direct=direct and any(row.message_id == message_id for row in burst)):
@@ -74,7 +94,8 @@ class ChatContext:
         ]
         excluded.update(row["id"] for row in records if (
             not row["text"].strip() or row["text"].lstrip().startswith("/")
-            or ignored_text(row["text"], cfg.chat_ignored_texts)
+            or ignored_text(row["text"], ignored, getattr(self.tg, "username", ""))
+            or not row.get("bot") and chat_commands.known_ad(command_state, row["text"])
             or not row.get("bot") and input_reasons(row["text"], rules, cfg.model_dump(), direct=direct and row["id"] == message_id)
         ))
         # Do not keep our old commentary on removed content as a fresh topic.
@@ -87,7 +108,10 @@ class ChatContext:
         for row in context:
             if row["id"] in excluded:
                 continue
-            if row.get("reply_to") in excluded or input_reasons(row.get("quote", ""), rules, cfg.model_dump()):
+            quote = row.get("quote", "")
+            if (row.get("reply_to") in excluded or input_reasons(quote, rules, cfg.model_dump())
+                    or quote and (ignored_text(quote, ignored, getattr(self.tg, "username", ""))
+                                  or chat_commands.known_ad(command_state, quote))):
                 row = {key: value for key, value in row.items() if key not in ("reply_to", "quote")}
             result.append(row)
         return result
@@ -158,7 +182,9 @@ class ChatContext:
                 .limit(80)
             )
         ).all()
-        rows = [row for row in rows if not ignored_text(row.text, cfg.chat_ignored_texts)][:cfg.chat_history]
+        _, command_state = await chat_commands.load(session, turn.group_id)
+        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
+        rows = [row for row in rows if not ignored_text(row.text, ignored, getattr(self.tg, "username", ""))][:cfg.chat_history]
         source_ids = {row.reply_to_id for row in rows if row.reply_to_id}
         sources = (
             {
@@ -182,6 +208,7 @@ class ChatContext:
         result = []
         for row in selected:
             source = sources.get(row.reply_to_id)
+            origins = stored_channel_sources(row.reply_text)
             quote = source.text[:500] if source and source.message_id not in visible_ids else ""
             if size + len(quote) > 18000:
                 quote = ""
@@ -193,6 +220,7 @@ class ChatContext:
                     "name": row.sender_name,
                     "bot": row.is_bot,
                     "text": row.text,
+                    **({"channel_sources": origins} if origins else {}),
                     **({"reply_to": row.reply_to_id} if source or row.reply_to_id in visible_ids or row.is_bot else {}),
                     **({"quote": quote} if quote else {}),
                     "time": datetime.fromtimestamp(row.sent_at, ZoneInfo("Asia/Shanghai")).strftime(
@@ -245,6 +273,16 @@ class ChatContext:
         text = (archived.text or archived.caption) if archived else snapshot.get("text", "")
         group = await session.get(Group, target.group_id)
         rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == target.group_id))]
+        origins = snapshot.get("reference_sources", [])
+        if archived:
+            payload = await session.scalar(select(latest_payload()).select_from(ArchivedMessage).where(
+                ArchivedMessage.id == archived.id,
+            ))
+            if payload:
+                origins = channel_sources(payload)
+        if external_channel_reasons(origins, target.group_id, group.settings, rules,
+                                    linked_channel_id=await own_channel_id(session, target.group_id)):
+            return {}
         if input_reasons(text, rules, group.settings):
             text = ""
         image = bool(archived and archived.message_type == "photo" or snapshot.get("image_unavailable"))
@@ -275,70 +313,6 @@ class ChatContext:
         )
         store_state(session, row, turn.group_id, turn.topic_id, state)
 
-    async def remember_output(self, session, turn, cfg, group, sent, sender_id, *, text=None, sticker=None):
-        current = await session.get(ChatTurn, turn.id)
-        current.sent_message_id = sent["message_id"]
-        session.add(
-            ChatMessage(
-                group_id=turn.group_id,
-                topic_id=turn.topic_id,
-                message_id=sent["message_id"],
-                sender_id=self.tg.user_id,
-                sender_name=cfg.chat_name,
-                text=sticker_text({"sticker": sticker}) if sticker else text,
-                is_bot=True,
-                reply_to_id=turn.message_id,
-                sent_at=sent.get("date", int(now())),
-            )
-        )
-        state_row, state = await session_state(session, turn.group_id, turn.topic_id)
-        target = await session.scalar(select(ChatMessage).where(
-            ChatMessage.group_id == turn.group_id, ChatMessage.message_id == turn.message_id,
-        ))
-        target_burst = next((
-            {row.message_id for row in burst}
-            for burst in message_bursts(await self.recent(session, turn.group_id, turn.topic_id))
-            if any(row.message_id == turn.message_id for row in burst)
-        ), {turn.message_id})
-        if state.get("last_request") == turn.message_id:
-            discussing_ads = state.get("ad_conversation", False)
-        else:
-            discussing_ads = bool(target and (
-                turn.direct and "广告" in target.text
-                or not turn.direct and state.get("ad_conversation")
-                and following_up(state, sender_id, target.received_at, message_id=turn.message_id, burst_ids=target_burst)
-            ))
-        state.update(last_reply=now(), last_user=sender_id, last_request=turn.message_id,
-                     blocked_until=0, ad_conversation=discussing_ads)
-        store_state(session, state_row, turn.group_id, turn.topic_id, state)
-        attention = await session.get(Meta, f"chat_attention:{turn.group_id}")
-        activity = json.loads(attention.value) if attention else {}
-        activity["last_reply"] = now()
-        if attention:
-            attention.value = json.dumps(activity)
-        else:
-            session.add(Meta(key=f"chat_attention:{turn.group_id}", value=json.dumps(activity)))
-        if sticker:
-            await self.stickers.sent(session, turn.group_id, sticker)
-        await capture(
-            session,
-            {
-                "chat": {"id": turn.group_id, "type": group.type, "title": group.title},
-                "from": {"id": self.tg.user_id, "is_bot": True, "first_name": cfg.chat_name},
-                "message_id": sent["message_id"],
-                "date": int(now()),
-                **({"sticker": sticker} if sticker else {"text": text}),
-                "reply_to_message": {"message_id": turn.message_id},
-                **({"message_thread_id": turn.topic_id, "is_topic_message": True} if turn.topic_id else {}),
-            },
-            settings=self.settings,
-        )
-        source_ids = {turn.message_id}
-        saved = json.loads(current.response) if current.response else {}
-        for entry in saved.get("source_context", []):
-            if entry.get("id") == turn.message_id and entry.get("reply_to"):
-                source_ids.add(entry["reply_to"])
-        await remember_receipt(session, current, sent["message_id"], source_ids)
 
     async def valid_turn(self, session, turn, original, sender_id, context):
         current = await session.get(ChatTurn, turn.id)

@@ -1,7 +1,9 @@
 """Administration operations for system admin."""
 
 from purrai.action_queue import enqueue
+from purrai.action_delivery import UNCERTAIN_DELIVERY, uncertain_delivery
 from purrai.errors import ManagementError
+from purrai.member_decisions import current_decision
 from purrai.models import (
     Action,
     Inbox,
@@ -60,6 +62,12 @@ class SystemAdministration:
             row = await session.get(Inbox if event else Action, identifier)
             if not row or row.state != "failed":
                 raise ManagementError(409, "此事件当前不能重试" if event else "此任务当前不能重试")
+            if not event and uncertain_delivery(row.payload):
+                raise ManagementError(409, UNCERTAIN_DELIVERY)
+            if not event and not await current_decision(session, row):
+                raise ManagementError(409, "管理员已作出新的成员处理决定，不能重试旧任务")
+            if not event and row.kind == "profile_mute" and not row.payload.get("generation"):
+                raise ManagementError(409, "旧昵称处罚缺少入群批次，请重新核实当前成员")
             row.state, row.attempts, row.available_at, row.error = "pending", 0, now(), ""
             return await self.context.record(
                 session,

@@ -47,7 +47,7 @@ async function mock(page: Page, authenticated = true, root = true) {
       if (method === 'POST') { data = { ...route.request().postDataJSON(), id: 'r1' }; rules.push(data) } else data = rules
     }
     else if (url.pathname.endsWith('/actions') && method === 'GET') data = { items: [], total: 0 }
-    else if (url.pathname.endsWith('/verifications')) data = { items: [{ id: 'v1', user_id: 42, user_name: '新成员', state: 'pending', attempts: 0, deadline: Date.now() / 1000 + 180 }], total: 1 }
+    else if (url.pathname.endsWith('/verifications')) data = { items: [{ id: 'v1', user_id: 42, user_name: '新成员', state: 'pending', allowed_operations: ['release', 'reissue', 'ban'], attempts: 0, deadline: Date.now() / 1000 + 180 }], total: 1 }
     else if (url.pathname.endsWith('/actions')) data = { id: 'a1', state: 'pending', reason: '人工核实' }
     else if (url.pathname.startsWith('/api/actions/')) data = { id: 'a1', state: 'succeeded', reason: '人工核实' }
     else if (url.pathname.endsWith('/messages/export')) {
@@ -55,7 +55,7 @@ async function mock(page: Page, authenticated = true, root = true) {
         headers: { 'Content-Disposition': 'attachment; filename="purrai-messages.jsonl"' } }); return
     }
     else if (url.pathname.endsWith('/messages/m1')) data = archivedMessage
-    else if (url.pathname.endsWith('/messages')) data = { items: [archivedMessage], total: 1 }
+    else if (url.pathname.endsWith('/messages')) data = { items: [archivedMessage], total: 1, recording: { state: 'active', reason: '' } }
     else if (url.pathname.endsWith('/violations')) data = { items: [], total: 0 }
     else if (url.pathname.endsWith('/whitelist')) data = []
     else if (url.pathname === '/api/admins') data = { items: [], superadmin_ids: [123456] }
@@ -63,6 +63,106 @@ async function mock(page: Page, authenticated = true, root = true) {
     await route.fulfill({ status, json: data })
   })
 }
+
+test('系统重试失败的原因在自动刷新后继续显示', async ({ page }) => {
+  await mock(page)
+  await page.clock.install()
+  let reads = 0
+  await page.route('**/api/system', route => {
+    reads++
+    return route.fulfill({ json: { connected: true, failed_events: [], failed_actions: [
+      { id: 'uncertain', kind: 'archive_export', state: 'failed', error: '发送结果未确认' },
+    ] } })
+  })
+  await page.route('**/api/actions/uncertain/retry', route => route.fulfill({
+    status: 409, json: { detail: '发送结果未确认，请先核实 Telegram 中的结果' },
+  }))
+  await page.goto('/')
+  await page.getByRole('button', { name: '系统状态', exact: true }).click()
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  const banner = page.locator('.error-banner').filter({ hasText: '发送结果未确认，请先核实 Telegram 中的结果' })
+  await expect(banner).toBeVisible()
+  await page.clock.fastForward(6000)
+  await expect.poll(() => reads).toBeGreaterThan(1)
+  await expect(banner).toBeVisible()
+})
+
+test('重出题提交回执丢失后刷新页面仍确认原请求，不重复出题', async ({ page }) => {
+  await mock(page)
+  const requests: any[] = [], effects = new Map<string, string>()
+  await page.route('**/api/verifications/v1/actions', async route => {
+    const body = route.request().postDataJSON(); requests.push(body)
+    if (!effects.has(body.request_id)) {
+      effects.set(body.request_id, 'only-one-challenge')
+      return route.abort('failed')
+    }
+    return route.fulfill({ json: { id: effects.get(body.request_id), state: 'pending', reason: body.reason } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '入群验证', exact: true }).click()
+  await page.getByRole('button', { name: '重出题', exact: true }).click()
+  await page.getByRole('dialog').getByRole('textbox').fill('核实后重新出题')
+  await page.getByRole('button', { name: '提交操作', exact: true }).click()
+  await expect(page.locator('.action-results')).toContainText('提交结果暂未确认')
+  await page.reload()
+  await expect(page.locator('.action-results')).toContainText('核实后重新出题')
+  await page.getByRole('button', { name: '确认提交结果', exact: true }).click()
+  await expect(page.locator('.action-results')).toContainText('等待 Telegram 执行确认')
+  expect(requests).toHaveLength(2)
+  expect(requests[0]).toEqual(requests[1]); expect(effects.size).toBe(1)
+  await expect(page.getByRole('button', { name: '确认提交结果', exact: true })).toHaveCount(0)
+})
+
+for (const [state, label] of [['active', '正在记录新消息'], ['disabled', '已停止记录新消息'], ['capacity_paused', '容量不足，已暂停记录']]) {
+  test(`群管理员看到真实归档状态 ${state}`, async ({ page }, testInfo) => {
+    await mock(page, true, false)
+    await page.route('**/api/groups/*/messages?*', route => route.fulfill({ json: {
+      items: [], total: 0, recording: { state, reason: state === 'capacity_paused' ? '数据库达到归档容量上限，已暂停新增归档；已有记录保留' : '' },
+    } }))
+    await page.goto('/')
+    await page.getByRole('button', { name: '消息归档', exact: true }).click()
+    await expect(page.getByText(label, { exact: true })).toBeVisible()
+    if (state === 'capacity_paused') {
+      await expect(page.getByText('数据库达到归档容量上限，已暂停新增归档；已有记录保留')).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('archive-capacity-paused.png'), fullPage: true })
+    }
+  })
+}
+
+test('顶部刷新归档保留已应用查询和分页并拒绝过期响应', async ({ page }) => {
+  await mock(page)
+  let refreshes = 0, hold = false
+  let release!: () => void
+  const oldResponse = new Promise<void>(resolve => { release = resolve })
+  const requests: URL[] = []
+  await page.route('**/api/groups/*/messages?*', async route => {
+    const url = new URL(route.request().url()); requests.push(url)
+    const current = hold ? ++refreshes : 0
+    if (current === 1) await oldResponse
+    await route.fulfill({ json: { items: [{ ...archivedMessage, text: current === 1 ? '过期归档结果' : current > 1 ? '新到达归档消息' : '初次归档结果' }], total: 45, recording: { state: 'active', reason: '' } } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '消息归档', exact: true }).click()
+  await page.getByLabel('归档关键词').fill('已应用关键词')
+  await page.getByRole('button', { name: '查询归档', exact: true }).click()
+  await page.locator('.el-pagination .number').filter({ hasText: /^2$/ }).click()
+  await expect.poll(() => requests.at(-1)?.searchParams.get('page_number')).toBe('2')
+  await page.getByLabel('归档关键词').fill('尚未应用的草稿')
+  hold = true
+  try {
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await expect.poll(() => refreshes).toBe(1)
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await expect(page.getByText('新到达归档消息', { exact: true })).toBeVisible()
+    const response = page.waitForResponse(r => new URL(r.url()).pathname.endsWith('/messages'))
+    release(); await response
+    await expect(page.getByText('过期归档结果', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('新到达归档消息', { exact: true })).toBeVisible()
+    expect(requests.at(-1)!.searchParams.get('query')).toBe('已应用关键词')
+    expect(requests.at(-1)!.searchParams.get('page_number')).toBe('2')
+    await expect(page.getByLabel('归档关键词')).toHaveValue('尚未应用的草稿')
+  } finally { release() }
+})
 
 test.describe('浏览器在其他时区时仍按北京时间筛选', () => {
   test.use({ timezoneId: 'America/Los_Angeles' })
@@ -194,6 +294,31 @@ test('人工放行先显示处理中，再显示执行完成', async ({ page }) 
   await expect(page.locator('.action-results').getByText('已完成')).toBeVisible({ timeout: 10000 })
 })
 
+test('群聊天口令计数可查看并能修改门槛、例外和开关', async ({ page }) => {
+  await mock(page)
+  await page.route('**/api/groups/-1001/chat', route => route.fulfill({ json: {
+    configured: true, model: 'example-chat', pending: 0, error: '',
+    commands: { enabled: true, threshold: 5, minimum_users: 3, window_days: 7,
+      items: [{ text: '每日任务', count: 6, users: 4, ignored: true }, { text: '领取奖励', count: 2, users: 2, ignored: false }] },
+  } }))
+  await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('cell', { name: '每日任务', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('cell', { name: '已忽略', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('cell', { name: '观察中', exact: true })).toBeVisible()
+  await dialog.locator('.el-form-item').filter({ hasText: '7 天内识别次数' }).getByRole('spinbutton').fill('8')
+  await dialog.getByLabel('口令识别例外', { exact: true }).fill('每日任务')
+  await dialog.locator('.el-form-item').filter({ hasText: '自动识别重复口令' }).locator('.el-switch').click()
+  const saved = page.waitForRequest(r => r.url().endsWith('/settings') && r.method() === 'PATCH')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  const body = (await saved).postDataJSON().settings
+  expect(body.chat_command_threshold).toBe(8)
+  expect(body.chat_command_learning).toBe(false)
+  expect(body.chat_command_exceptions).toEqual(['每日任务'])
+})
+
 test('群聊天可配置自然参与、昵称和性格并重新开始上下文', async ({ page }) => {
   await mock(page); await page.goto('/')
   await page.getByRole('button', { name: '群管理', exact: true }).click()
@@ -311,7 +436,7 @@ test('群设置提供永久禁言与踢出两个验证失败选项并保存所�
 test('联系人规则对所有普通成员生效并显示踢出结果', async ({ page }) => {
   await mock(page)
   await page.route('**/api/groups/*/violations*', route => route.fulfill({ json: { items: [{
-    id: 'contact-1', user_id: 42, message_id: 10, sender_name: '发送者', excerpt: '',
+    id: 'contact-1', allowed_operations: ['unban'], permanent_ban: true, user_id: 42, message_id: 10, sender_name: '发送者', excerpt: '',
     created_at: Date.now() / 1000, reasons: ['分享联系人，删除消息并永久封禁'],
     actions: [{ id: 'contact-kick-1', kind: 'contact_ban', state: 'succeeded', error: '' }],
   }], total: 1 } }))
@@ -336,7 +461,7 @@ test('联系人规则对所有普通成员生效并显示踢出结果', async ({
 test('外群封禁设置可保存允许链接并在违规详情提供解封', async ({ page }) => {
   await mock(page)
   await page.route('**/api/groups/*/violations*', route => route.fulfill({ json: { items: [{
-    id: 'ad-1', user_id: 42, message_id: 10, sender_name: '广告发送者', excerpt: '来内部群学习',
+    id: 'ad-1', allowed_operations: ['unban'], permanent_ban: true, user_id: 42, message_id: 10, sender_name: '广告发送者', excerpt: '来内部群学习',
     created_at: Date.now() / 1000, reasons: ['明确广告引流：招揽加入交易群或策略频道'],
     actions: [{ id: 'ad-ban-1', kind: 'advertisement_ban', state: 'succeeded', error: '' }],
   }], total: 1 } }))
@@ -449,3 +574,36 @@ test('状态表情包可以只新增一个链接并去重、单独移除，保�
   expect(body.settings.repeat_count).toBe(7)
   expect(body.settings).not.toHaveProperty('emoji_status_blocked_packs')
 })
+
+
+test('验证和违规页面只展示后端提供的操作', async ({ page }) => {
+  await mock(page)
+  await page.route('**/api/groups/*/verifications*', route => route.fulfill({ json: { items: [{
+    id: 'choices', user_id: 42, user_name: '成员', state: 'passed', failure_action: '',
+    allowed_operations: ['reissue'], attempts: 0, deadline: 0,
+  }], total: 1 } }))
+  await page.route('**/api/groups/*/violations*', route => route.fulfill({ json: { items: [{
+    id: 'choices', user_id: 42, reasons: [], actions: [], created_at: 0,
+    allowed_operations: ['unmute'], profile_violation: false, warning_active: false,
+  }], total: 1 } }))
+  await page.goto('/')
+  await page.getByRole('button', { name: '入群验证', exact: true }).click()
+  await expect(page.getByRole('button', { name: '重出题', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '放行', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '封禁', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '违规记录', exact: true }).click()
+  await expect(page.getByRole('button', { name: '解禁言', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '解封禁', exact: true })).toHaveCount(0)
+})
+
+for (const target of ['list', 'detail']) {
+  test(`归档${target === 'list' ? '列表' : '详情'}会话失效后回到登录页`, async ({ page }) => {
+    await mock(page)
+    await page.route(target === 'list' ? '**/api/groups/*/messages?*' : '**/api/groups/*/messages/m1',
+      route => route.fulfill({ status: 401, json: { detail: '请先登录' } }))
+    await page.goto('/')
+    await page.getByRole('button', { name: '消息归档', exact: true }).click()
+    if (target === 'detail') await page.getByRole('button', { name: '查看详情', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '欢迎回来', exact: true })).toBeVisible()
+  })
+}

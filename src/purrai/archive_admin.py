@@ -16,7 +16,7 @@ class ArchiveAdministration:
         from purrai.archive import page
 
         await self.context.access.authorize(actor, group_id)
-        return await page(self.context.db, group_id, filters, page_number, size)
+        return await page(self.context.db, group_id, filters, page_number, size, settings=self.context.settings)
 
     async def archived_message(self, actor, group_id, identifier):
         from purrai.archive import detail

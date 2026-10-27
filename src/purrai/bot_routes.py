@@ -51,7 +51,7 @@ class BotRoutes:
         elif action == "settings":
             await self.panels.settings_panel(actor, group_id, data["section"], message_id)
         elif action == "chat_toggle":
-            if data["key"] not in ("chat_enabled", "chat_proactive", "chat_stickers", "chat_antifraud"):
+            if data["key"] not in ("chat_enabled", "chat_proactive", "chat_stickers", "chat_antifraud", "chat_command_learning"):
                 raise ManagementError(422, "聊天配置项不存在")
             await self.management.setting(actor, group_id, data["key"], data["value"], request_id)
             await self.panels.chat_panel(actor, group_id, message_id)

@@ -10,7 +10,7 @@ from purrai.action_policy import (
     administrator_protected_action,
 )
 from purrai.action_queue import audit
-from purrai.archive import deletion_result
+from purrai.deletion_tracking import track_deletion
 from purrai.models import (
     Action,
     Member,
@@ -39,7 +39,7 @@ class MemberTrust:
         ):
             if administrator_protected_action(action):
                 action.state, action.error, action.updated_at = "cancelled", "群主或管理员免自动限制", now()
-                await deletion_result(session, action)
+                await track_deletion(session, action)
         for verification in await session.scalars(
             select(Verification).where(
                 Verification.group_id == group_id,
@@ -77,7 +77,7 @@ class MemberTrust:
                     "管理员解禁，已加入本群白名单",
                     now(),
                 )
-                await deletion_result(session, pending)
+                await track_deletion(session, pending)
         for verification in await session.scalars(
             select(Verification).where(
                 Verification.group_id == member.group_id,

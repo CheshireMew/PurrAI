@@ -8,6 +8,7 @@ from purrai.errors import ManagementError
 from purrai.models import Action, Group, Inbox, Meta, Rule, Verification, Violation, Whitelist, now
 from purrai.moderation_records import violation_actions
 from purrai.serialization import row_dict
+from purrai.record_operations import permanently_banned, verification_operations, violation_operations
 from purrai.verification_state import ACTIVE
 
 RECORD_MODELS = {
@@ -35,10 +36,13 @@ class ManagementQueries:
             if model is Verification:
                 for key in ("answer_hash", "input_digits", "nonce"):
                     item.pop(key, None)
+                item["allowed_operations"] = verification_operations(item)
             if model is Violation:
                 item["actions"] = [
                     row_dict(a) for a in await violation_actions(session, row.group_id, row.id)
                 ]
+                item["permanent_ban"] = permanently_banned(item["actions"])
+                item["allowed_operations"] = violation_operations(item, item["permanent_ban"])
             result.append(item)
         return result
 
@@ -94,20 +98,25 @@ class ManagementQueries:
         result = await self.page(actor, group_id, model, page_number=page + 1, size=5, pending=pending)
         return result["items"], result["total"]
 
-    async def single(self, actor, group_id, model, identifier):
-        await self.context.access.authorize(actor, group_id)
-        model = self.model(model)
+    async def load_record(self, session, group_id, model, identifier):
         key = (group_id, int(identifier)) if model is Whitelist else identifier
-        async with self.context.db.sessions() as session:
-            row = await session.get(model, key)
+        row = await session.get(model, key)
         if row is None or row.group_id != group_id:
             raise ManagementError(404, "记录不存在，请刷新列表")
         return row
 
-    async def violation_operations(self, actor, group_id, identifier):
+    async def single(self, actor, group_id, model, identifier):
         await self.context.access.authorize(actor, group_id)
+        model = self.model(model)
         async with self.context.db.sessions() as session:
-            return await violation_actions(session, group_id, identifier)
+            return await self.load_record(session, group_id, model, identifier)
+
+    async def detail(self, actor, group_id, model, identifier):
+        await self.context.access.authorize(actor, group_id)
+        model = self.model(model)
+        async with self.context.db.sessions() as session:
+            row = await self.load_record(session, group_id, model, identifier)
+            return (await self.project(session, model, [row]))[0]
 
     async def action(self, actor, identifier):
         async with self.context.db.sessions() as session:

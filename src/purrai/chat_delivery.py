@@ -9,6 +9,7 @@ from sqlalchemy import select
 from purrai.action_queue import enqueue
 from purrai.deletion_effects import deletion_result
 from purrai.chat_safety import output_reasons
+from purrai.chat_commands import remember_ad
 from purrai.chat_retraction import finish_receipt
 from purrai.models import ChatTurn, Rule, now
 from purrai.schemas import GroupSettings
@@ -19,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class ChatDelivery:
-    def __init__(self, db, telegram, context, stickers):
+    def __init__(self, db, telegram, context, stickers, receipts):
         self.db, self.tg, self.context, self.stickers = db, telegram, context, stickers
+        self.receipts = receipts
 
     async def deliver(self, turn, cfg, original, sender_id, generated):
         async with self.stickers.lock(turn.group_id):
@@ -63,6 +65,8 @@ class ChatDelivery:
                     finish_receipt(current)
                     return True
                 current.state = "silent"
+                if result.is_advertisement:
+                    await remember_ad(session, turn.group_id, turn.message_id, original)
                 current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
                     "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容")
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
@@ -155,7 +159,7 @@ class ChatDelivery:
             text_message_id = sent["message_id"]
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)
-                await self.context.remember_output(
+                await self.receipts.record(
                     session, turn, cfg, group, sent, sender_id, text=result.text
                 )
                 if current.state in ("retracting", "retracted", "retraction_failed"):
@@ -213,7 +217,7 @@ class ChatDelivery:
                 raise
         else:
             async with self.db.transaction() as session:
-                await self.context.remember_output(
+                await self.receipts.record(
                     session, turn, cfg, group, sent, sender_id, sticker=selected_sticker
                 )
         return True

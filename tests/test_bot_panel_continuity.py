@@ -30,7 +30,9 @@ async def test_legacy_expired_chat_refresh_resumes_after_restart_and_shows_two_c
     assert "群聊天设置" in panel["text"]
     assert panel["message_id"] == query["message"]["message_id"]
     rows = panel["reply_markup"]["inline_keyboard"]
-    assert [len(row) for row in rows] == [2, 2, 2, 2, 2, 2, 2, 1, 1]
+    assert [len(row) for row in rows] == [2] * 9 + [1]
+    assert any("自动识别口令" in item["text"] for row in rows for item in row)
+    assert any("口令识别次数" in item["text"] for row in rows for item in row)
     assert rows[-1][0]["text"] == "返回群管理"
     assert all("addstickers" not in item["text"] for row in rows for item in row)
     refreshed = callback(tg, "刷新聊天状态")

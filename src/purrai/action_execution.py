@@ -5,12 +5,18 @@ import copy
 
 from sqlalchemy import inspect
 
-from purrai.models import Action, Group, Member, Verification
+from purrai.models import Action, Group, Member, Meta, Verification
 
 
 class ActionSuperseded(Exception):
-    def __init__(self, result=None):
+    def __init__(self, result=None, *, reason="成员批次或管理决定已变化，已停止旧任务", before_request=False):
+        super().__init__(reason)
         self.result = result
+        self.before_request = before_request
+
+
+class ActionPreflightError(ConnectionError):
+    """A retryable check failed before the Telegram effect was attempted."""
 
 
 class ActionExecution:
@@ -47,6 +53,8 @@ class ActionExecution:
             return row.state, row.nonce, row.generation
         if isinstance(row, Member):
             return row.generation, row.present, row.restriction_conflict, copy.deepcopy(row.owned_restriction)
+        if isinstance(row, Meta) and row.key.startswith("member-decision:"):
+            return row.value
 
     async def external(self, operation):
         # Commit the intent (including restriction ownership) before the request.

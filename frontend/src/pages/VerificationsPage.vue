@@ -54,23 +54,16 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </el-table-column>
 <el-table-column prop="attempts" label="错误次数" width="90"/>
 <el-table-column label="处理说明" min-width="180">
-<template #default="{ row }">{{ { permanent_mute: '永久禁言，留在群里', permanent_ban: '已踢出并禁止重新加入', kick: '已踢出，可重新加入', decline: '已拒绝申请', legacy_ban: '旧版或手动临时封禁' }[row.failure_action as string] }}<div>{{ row.error }}</div>
+<template #default="{ row }">{{ catalog!.failure_actions[row.failure_action] || row.failure_action }}<div>{{ row.error }}</div>
 </template>
 </el-table-column>
 <el-table-column label="操作" min-width="260">
 <template #default="{ row }">
-<template v-if="catalog!.active_verifications.includes(row.state)">
-<el-button size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'reissue', '重新出题')">重出题</el-button>
-<el-button size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'release', '人工放行')">放行</el-button>
-<el-button size="small" type="danger" plain @click="confirmAction(`/api/verifications/${row.id}/actions`, 'ban', '临时封禁')">封禁</el-button>
-</template>
-<template v-else-if="row.state === 'failed' && row.failure_action === 'permanent_mute'">
-<el-button size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'release', '人工放行永久禁言')">放行</el-button>
-<el-button size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'reissue', '重新出题')">重出题</el-button>
-</template>
-<el-button v-else-if="row.state === 'failed' && ['decline', 'legacy_ban', 'permanent_ban'].includes(row.failure_action)" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'unban', '解除 PurrAI 入群限制')">解除入群限制</el-button>
-<span v-else-if="row.failure_action === 'kick'" class="muted">已踢出，可重新加入</span>
-<span v-else class="muted">已结束</span>
+<el-button v-if="row.allowed_operations.includes('reissue')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'reissue', '重新出题')">重出题</el-button>
+<el-button v-if="row.allowed_operations.includes('release')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'release', '人工放行')">放行</el-button>
+<el-button v-if="row.allowed_operations.includes('ban')" size="small" type="danger" plain @click="confirmAction(`/api/verifications/${row.id}/actions`, 'ban', '临时封禁')">封禁</el-button>
+<el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'unban', '解除 PurrAI 入群限制')">解除入群限制</el-button>
+<span v-if="!row.allowed_operations.length" class="muted">{{ row.failure_action === 'kick' ? '已踢出，可重新加入' : '已结束' }}</span>
 </template>
 </el-table-column>
 </el-table>

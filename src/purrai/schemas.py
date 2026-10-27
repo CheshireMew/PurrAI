@@ -14,6 +14,9 @@ class GroupSettings(BaseModel):
         default_factory=lambda: ["签到", "积分", "抽奖", "注册币安", "注册 OKX", "币圈教程"],
         max_length=100,
     )
+    chat_command_learning: bool = True
+    chat_command_threshold: int = Field(default=5, ge=3, le=50)
+    chat_command_exceptions: list[str] = Field(default_factory=list, max_length=100)
     chat_history: int = Field(default=40, ge=10, le=80)
     chat_interval: int = Field(default=90, ge=15, le=3600)
     chat_stickers: bool = True
@@ -84,7 +87,7 @@ class GroupSettings(BaseModel):
             raise ValueError("聊天昵称请填写 2 至 24 个字符，不能换行")
         return value
 
-    @field_validator("chat_ignored_texts")
+    @field_validator("chat_ignored_texts", "chat_command_exceptions")
     @classmethod
     def normalize_chat_ignored_texts(cls, value):
         phrases = {}

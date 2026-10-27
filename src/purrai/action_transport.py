@@ -1,20 +1,44 @@
 """Checked network handoffs for durable actions."""
 
-from purrai.action_execution import ActionSuperseded
+from purrai.action_execution import ActionPreflightError, ActionSuperseded
 from purrai.action_policy import administrator_protected_action
 from purrai.action_queue import enqueue
+from purrai.errors import ManagementError
+from purrai.member_decisions import current_decision
 from purrai.telegram import is_admin
 
 
 class ActionTransport:
-    def __init__(self, telegram, policy, trust):
-        self.tg, self.policy, self.trust = telegram, policy, trust
+    def __init__(self, telegram, policy, trust, access):
+        self.tg, self.policy, self.trust, self.access = telegram, policy, trust, access
 
-    async def call(self, session, action, method, **kwargs):
-        execution = session.info["action_execution"]
-        if await self.policy.moderation_paused(session, action):
-            raise ActionSuperseded()
+    async def authorize_actor(self, session, action):
+        if not await current_decision(session, action):
+            raise ActionSuperseded(reason="管理员已作出新的成员处理决定", before_request=True)
+        if action.actor_id is None or action.group_id is None:
+            return
         try:
+            await session.info["action_execution"].external(
+                lambda: self.access.authorize(action.actor_id, action.group_id, write=True)
+            )
+        except ActionSuperseded as exc:
+            raise ActionSuperseded(reason=str(exc), before_request=True) from exc
+        except ManagementError as exc:
+            if exc.status in (403, 404):
+                raise ActionSuperseded(reason=f"操作者当前已无此群管理权限：{exc}", before_request=True) from exc
+            # Temporary inability to check a role is retryable, without making
+            # any Telegram mutation or losing the accepted administrative task.
+            raise ActionPreflightError(str(exc)) from exc
+
+    async def call(self, session, action, method, *, before_send=None, **kwargs):
+        execution = session.info["action_execution"]
+        if not method.startswith("get_"):
+            await self.authorize_actor(session, action)
+        if await self.policy.moderation_paused(session, action):
+            raise ActionSuperseded(before_request=True)
+        try:
+            if before_send is not None:
+                before_send()
             result = await execution.external(lambda: self.tg.call(method, **kwargs))
             # Read-only lookups are decision boundaries. A pause that happened
             # during a lookup must prevent the following punishment request.

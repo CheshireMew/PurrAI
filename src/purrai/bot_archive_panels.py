@@ -43,10 +43,15 @@ class ArchivePanels:
         summary = f"关键词：{filters.query or '全部'}；发送者：{filters.sender_id or '全部'}\n命中规则：{'是' if filters.flagged else '不限'}；删除状态：{filters.deletion or '不限'}"
         if filters.after or filters.before:
             summary += f"\n时间：{clock(filters.after) if filters.after else '不限'} 至 {clock(filters.before) if filters.before else '不限'}"
+        status = result["recording"]
+        recording = {"active": "正在记录新消息", "disabled": "已停止记录新消息",
+                     "capacity_paused": "容量不足，已暂停记录"}[status["state"]]
+        if status["reason"]:
+            recording += f"\n{status['reason']}"
         await self.panel(
             actor,
             f"{group.title} · 消息归档\n第 {page + 1} 页 · 共 {result['total']} 条\n"
-            f"记录：{'开启' if group.settings.get('archive_enabled', True) else '关闭'}\n{summary}\n"
+            f"记录：{recording}\n{summary}\n"
             "保存收到的消息与编辑版本；关闭不会清除已有记录。Bot 每次最多导出 1000 条，网页可导出全部匹配消息。",
             buttons,
             group_id,

@@ -234,7 +234,8 @@ async def test_export_rechecks_admin_identity_before_sending(env):
     tg.members[(-1001, 7)] = {"status": "member"}
     await drain(service)
     async with db.sessions() as session:
-        assert (await session.get(Action, task["id"])).state == "failed"
+        current = await session.get(Action, task["id"])
+        assert current.state == "cancelled" and "操作者当前已无此群管理权限" in current.error
     assert not any(method == "send_document" for method, _ in tg.calls)
 
 

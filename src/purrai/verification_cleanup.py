@@ -1,6 +1,6 @@
 """Durable cleanup of exact CAPTCHA prompts."""
 
-from sqlalchemy import String, or_, select
+from sqlalchemy import String, literal_column, or_, select
 
 from purrai.action_queue import enqueue
 from purrai.models import (
@@ -49,10 +49,17 @@ async def observe_callback_prompt(session, verification, query, nonce, bot_id):
             {"chat_id": chat_id, "message_id": message_id}, priority=5,
         )
     elif verification.state == "pending" and not verification.message_id and query["from"]["id"] == verification.user_id:
+        # Request deduplication keys differ across automatic and manual entry
+        # points. The verification and the actual send nonce own the receipt.
         action = await session.scalar(select(Action).where(
-            Action.dedupe_key == f"challenge:{verification.id}:{nonce}"
-        ))
-        if action and action.payload.get("challenge_delivery") == "uncertain":
+            Action.kind == "challenge", Action.group_id == verification.group_id,
+            Action.user_id == verification.user_id,
+            Action.payload["verification_id"].as_string() == verification.id,
+        ).order_by(Action.created_at.desc(), literal_column("actions.rowid").desc()).limit(1))
+        if (action and action.payload.get("challenge_delivery") == "uncertain"
+                and action.payload.get("challenge_nonce", nonce) == nonce):
+            # Old persisted actions have no challenge_nonce. A current, bot-owned
+            # callback carrying the current nonce remains valid upgrade evidence.
             verification.message_id, verification.error, verification.updated_at = message_id, "", now()
             action.payload = {**action.payload, "challenge_delivery": "recovered"}
             action.state, action.error, action.updated_at = "succeeded", "", now()

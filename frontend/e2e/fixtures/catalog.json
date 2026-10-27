@@ -13,6 +13,9 @@
         "注册 OKX",
         "币圈教程"
       ],
+      "chat_command_learning": true,
+      "chat_command_threshold": 5,
+      "chat_command_exceptions": [],
       "chat_history": 40,
       "chat_interval": 90,
       "chat_stickers": true,
@@ -113,6 +116,26 @@
         },
         "maxItems": 100,
         "title": "Chat Ignored Texts",
+        "type": "array"
+      },
+      "chat_command_learning": {
+        "default": true,
+        "title": "Chat Command Learning",
+        "type": "boolean"
+      },
+      "chat_command_threshold": {
+        "default": 5,
+        "maximum": 50,
+        "minimum": 3,
+        "title": "Chat Command Threshold",
+        "type": "integer"
+      },
+      "chat_command_exceptions": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "title": "Chat Command Exceptions",
         "type": "array"
       },
       "chat_history": {
@@ -419,7 +442,7 @@
       "similar_enabled": "近似内容刷屏检测",
       "burst_enabled": "连续发送检测",
       "advertising_ban": "明确广告招揽永久封禁",
-      "external_group_ban": "外群链接永久封禁",
+      "external_group_ban": "外群链接、外部频道引用及转发永久封禁",
       "external_invite_ban": "外部私密邀请统一封禁"
     }
   },
@@ -478,6 +501,13 @@
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
     "archive_export": "导出消息归档"
+  },
+  "failure_actions": {
+    "permanent_mute": "永久禁言，留在群里",
+    "permanent_ban": "已踢出并禁止重新加入",
+    "kick": "已踢出，可重新加入",
+    "decline": "拒绝入群申请",
+    "legacy_ban": "旧版或手动临时封禁"
   },
   "active_verifications": [
     "muting",

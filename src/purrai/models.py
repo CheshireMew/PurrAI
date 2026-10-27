@@ -12,7 +12,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
+    literal_column,
 )
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -288,6 +291,20 @@ class Action(Base):
     reason: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[float] = mapped_column(Float, default=now)
     updated_at: Mapped[float] = mapped_column(Float, default=now)
+
+    @hybrid_property
+    def target_message_id(self):
+        return self.payload.get("message_id")
+
+    @target_message_id.expression
+    def target_message_id(cls):
+        # Keep this JSON path literal: a bound path cannot use SQLite's
+        # expression index, even when its runtime value is identical.
+        return func.json_extract(cls.payload, literal_column("'$.message_id'"))
+
+
+Index("ix_actions_message", Action.group_id, Action.kind, Action.target_message_id)
+Index("ix_actions_member_pending", Action.group_id, Action.user_id, Action.state)
 
 
 class Session(Base):

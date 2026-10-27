@@ -6,6 +6,7 @@ from purrai.action_queue import enqueue
 from purrai.advertising_patterns import source_titles
 from purrai.advertising_guard import message_links
 from purrai.archive import capture, mark_reasons
+from purrai.group_link_identity import own_channel_id, remember_linked_channel
 from purrai.media_gate import remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.message_activity import observe_activity
 from purrai.models import (
@@ -23,6 +24,7 @@ from purrai.moderation_records import record_violation
 from purrai.rules import assess, message_content
 from purrai.serialization import row_dict
 from purrai.telegram import is_admin
+from purrai.telegram_sources import channel_sources, external_channel_reasons
 from purrai.verification_state import ACTIVE
 
 
@@ -92,7 +94,9 @@ class Moderation:
             async with self.db.transaction() as session:
                 await self.trust.exempt_administrator(session, group_id, sender["id"])
             return
+        own = await self.tg.call("get_chat", chat_id=group_id, request_timeout=3) if channel_sources(message) else {}
         async with self.db.transaction() as session:
+            await remember_linked_channel(session, group_id, own)
             await self.moderate_message(session, message, edited, update_id, admin_checked=True)
 
     async def moderate_message(self, session, message, edited, update_id, *, admin_checked=False):
@@ -132,6 +136,8 @@ class Moderation:
                         priority=0,
                     )
                 return
+            if group.settings.get("external_group_ban", True) and channel_sources(message) and not admin_checked:
+                return True
             if any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) and message_links(message):
                 if not admin_checked:
                     return True
@@ -151,6 +157,13 @@ class Moderation:
                 contact=bool(message.get("contact")),
                 source_titles=source_titles(message),
             )
+            if group.settings.get("external_group_ban", True):
+                channel_reasons = external_channel_reasons(
+                    channel_sources(message), group_id, group.settings, [row_dict(rule) for rule in rules],
+                    linked_channel_id=await own_channel_id(session, group_id),
+                )
+                profile["reasons"] += channel_reasons
+                profile["ban_reasons"] += channel_reasons
             if message.get("contact") or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
                 if not admin_checked:
                     return True

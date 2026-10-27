@@ -8,7 +8,8 @@ let csrf = ''
 export function setCsrf(token: string) { csrf = token }
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
-    ...init, credentials: 'same-origin', headers: {
+    ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
+    credentials: 'same-origin', headers: {
       'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...init.headers,
     },
   })

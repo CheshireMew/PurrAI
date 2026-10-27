@@ -27,6 +27,8 @@ class ConfigurationPanels:
             f"昵称：{cfg.chat_name}\n性格：{cfg.chat_persona or '自然随和'}\n"
             f"最近上下文：{cfg.chat_history} 条，同群不同话题分开\n"
             f"聊天忽略口令：{'、'.join(cfg.chat_ignored_texts)[:300] or '未设置'}（完整匹配）\n"
+            f"自动识别口令：{'开启' if cfg.chat_command_learning else '关闭'}；7 天内 {cfg.chat_command_threshold} 次、至少 3 位群友\n"
+            "带数字的积分红包及发给其他机器人的结构化指令直接排除。\n"
             "不再固定等待，直接处理明确提问；模型生成及接口限流仍需处理时间。\n"
             "普通含图消息不主动接话；被 @、叫昵称或回复时仍回答，说明看不到图片并依据文字。\n"
             f"主动接话最多每 {cfg.chat_interval} 秒检查一次；模型觉得不适合时会保持安静。\n"
@@ -37,6 +39,12 @@ class ConfigurationPanels:
             "@机器人、叫昵称或回复它都可以开始聊；最近正在聊的群友可以自然接着说。\n"
             f"待处理：{status['pending']}\n" + (f"最近问题：{status['error']}\n" if status["error"] else "")
         )
+        commands = status.get("commands", {}).get("items", [])
+        if commands:
+            text += "口令计数：" + "；".join(
+                f"{item['text']} {item['count']}次/{item['users']}人{'（已忽略）' if item['ignored'] else ''}"
+                for item in commands[:8]
+            ) + "\n"
         budget = status.get("budget", {})
         refreshed = datetime.fromtimestamp(now(), ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
         text += (
@@ -48,6 +56,10 @@ class ConfigurationPanels:
             "每日额度由所有者设置，北京时间零点重置；验证和防广告不占此额度。"
         )
         buttons = [
+            button(
+                f"{'已开启' if cfg.chat_command_learning else '已关闭'} · 自动识别口令",
+                "chat_toggle", key="chat_command_learning", value=not cfg.chat_command_learning,
+            ),
             button(
                 f"{'已开启' if cfg.chat_enabled else '已关闭'} · 群聊天",
                 "chat_toggle",

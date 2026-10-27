@@ -60,6 +60,15 @@ OPERATIONS = {
 }
 
 
+FAILURE_ACTIONS = {
+    "permanent_mute": "永久禁言，留在群里",
+    "permanent_ban": "已踢出并禁止重新加入",
+    "kick": "已踢出，可重新加入",
+    "decline": "拒绝入群申请",
+    "legacy_ban": "旧版或手动临时封禁",
+}
+
+
 BOOLEANS = {
     "archive_enabled": "记录群消息归档",
     "join_requests": "申请入群先验证",
@@ -73,7 +82,7 @@ BOOLEANS = {
     "similar_enabled": "近似内容刷屏检测",
     "burst_enabled": "连续发送检测",
     "advertising_ban": "明确广告招揽永久封禁",
-    "external_group_ban": "外群链接永久封禁",
+    "external_group_ban": "外群链接、外部频道引用及转发永久封禁",
     "external_invite_ban": "外部私密邀请统一封禁",
 }
 
@@ -121,6 +130,8 @@ CHAT_FIELDS = {
     "chat_name": "聊天昵称",
     "chat_persona": "性格与说话习惯",
     "chat_ignored_texts": "聊天忽略口令（每行一条，完整匹配，- 清空）",
+    "chat_command_threshold": "口令识别次数（7 天内，至少 3 位群友）",
+    "chat_command_exceptions": "口令识别例外（每行一条，- 清空）",
     "chat_history": "最近消息条数",
     "chat_interval": "主动接话检查间隔（秒）",
     "chat_sticker_packs": "聊天贴纸包（addstickers 链接或短名称，多个用空格或换行分隔，- 清空）",
@@ -134,6 +145,8 @@ CHAT_BUTTON_LABELS = {
     "chat_name": "聊天昵称",
     "chat_persona": "性格与说话习惯",
     "chat_ignored_texts": "聊天忽略口令",
+    "chat_command_threshold": "口令识别次数",
+    "chat_command_exceptions": "口令识别例外",
     "chat_history": "最近消息条数",
     "chat_interval": "主动接话检查间隔",
     "chat_sticker_packs": "聊天贴纸包",

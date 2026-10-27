@@ -2,6 +2,8 @@
 
 import re
 
+from purrai.telegram_sources import CHANNEL_PREFIX
+
 AD_PREFIX = "明确广告引流："
 GROUP_PREFIX = "外群链接引流："
 
@@ -75,7 +77,7 @@ def advertising_reasons(text, source_titles=()):
 
 
 def is_ban_reason(reason):
-    return reason.startswith((AD_PREFIX, GROUP_PREFIX))
+    return reason.startswith((AD_PREFIX, GROUP_PREFIX, CHANNEL_PREFIX))
 
 
 def source_titles(message):

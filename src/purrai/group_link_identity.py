@@ -8,6 +8,24 @@ from purrai.models import Inbox, Meta
 from purrai.telegram_links import parse_link
 
 
+async def remember_linked_channel(session, group_id, chat):
+    if chat.get("id") != group_id:
+        return
+    identifier = chat.get("linked_chat_id", 0)
+    value = str(identifier if type(identifier) is int and identifier < 0 else 0)
+    key = f"group-linked-channel:{group_id}"
+    row = await session.get(Meta, key)
+    if row:
+        row.value = value
+    else:
+        session.add(Meta(key=key, value=value))
+
+
+async def own_channel_id(session, group_id):
+    row = await session.get(Meta, f"group-linked-channel:{group_id}")
+    return int(row.value) if row else 0
+
+
 async def remember_group_link(session, group_id, value):
     link = parse_link(value)
     if not link or link.kind != "invite":

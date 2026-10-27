@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Grid, ChatDotRound, Key, Filter, Warning, User as UserIcon, Setting, Refresh, SwitchButton, CircleCheck } from '@element-plus/icons-vue'
 import { api, ApiError, post, setCsrf } from './api'
-import { ActionTracker, type ActionRow, type BatchReceipt } from './actionTracker'
+import { ActionTracker } from './actionTracker'
+import { ActionRequests, type AcceptedAction, type ActionBody, type ActionRequest } from './actionRequests'
 import { catalog, configureCatalog } from './catalog'
 import { workspaceKey } from './workspace'
 import { useTask } from './composables/useTask'
@@ -24,6 +25,7 @@ const me = ref<User | null>(null), starting = ref(true)
 const page = ref('overview'), selected = ref<number | null>(null), groups = ref<Group[]>([]), refreshKey = ref(0)
 const { busy, error, safe } = useTask(expireSession)
 const actionTracker = reactive(new ActionTracker())
+const actionRequests = reactive(new ActionRequests())
 const nav = [
   { id: 'overview', name: '总览', icon: Grid, detail: '看看群里发生了什么' },
   { id: 'groups', name: '群管理', icon: ChatDotRound, detail: '让每个群都有合适的保护' },
@@ -39,27 +41,42 @@ const navigation = computed(() => nav.filter(item => me.value?.root || !['admins
 const current = computed(() => nav.find(item => item.id === page.value)!)
 const group = computed(() => groups.value.find(value => value.id === selected.value))
 const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages'].includes(page.value))
-async function reloadGroups() { groups.value = await api<Group[]>('/api/groups') }
+async function reloadGroups() {
+  groups.value = await api<Group[]>('/api/groups')
+  if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value[0]?.id ?? null
+}
 function expireSession() { me.value = null }
+function acceptAction({ receipt, reason }: AcceptedAction) {
+  actionTracker.accept(receipt, reason)
+  if ('action_ids' in receipt) ElMessage.success(`已提交 ${receipt.action_ids.length} 个放行任务`)
+  else if (receipt.state === 'cancelled') ElMessage.info('操作已取消，请查看下方结果')
+  else if (receipt.state === 'failed') ElMessage.warning('操作未完成，请查看下方原因')
+  else ElMessage.success(receipt.state === 'succeeded' ? '操作已完成' : '操作已提交，执行结果将在下方更新')
+}
+async function submitAction(path: string, body: ActionBody) {
+  await safe(async () => acceptAction(await actionRequests.submit(path, body)))
+}
+async function retryAction(request: ActionRequest) {
+  await safe(async () => acceptAction(await actionRequests.retry(request)))
+}
 async function confirmAction(path: string, action: string, title: string) {
   let reason: string
   try { reason = (await ElMessageBox.prompt('请填写处理原因，操作会保留记录。', title,
     { inputValidator: (value: string) => Boolean(value?.trim()) || '请填写原因', confirmButtonText: '提交操作', cancelButtonText: '取消' })).value }
   catch { return }
-  await safe(async () => {
-    const result = await post(path, { action, reason, request_id: crypto.randomUUID() }) as ActionRow | BatchReceipt
-    actionTracker.accept(result, reason)
-    if ('action_ids' in result) ElMessage.success(`已提交 ${result.action_ids.length} 个放行任务`)
-    else ElMessage.success(result.state === 'succeeded' ? '操作已完成' : '操作已提交，执行结果将在下方更新')
-  })
+  await submitAction(path, { action, reason })
 }
-provide(workspaceKey, { me, groups, catalog, actionTracker, reloadGroups, expireSession, confirmAction })
-async function refreshView() { refreshKey.value++; await safe(() => actionTracker.refresh(true)) }
+provide(workspaceKey, { me, groups, catalog, actionTracker, actionRequests, submitAction, retryAction, reloadGroups, expireSession, confirmAction })
+async function refreshView() {
+  await safe(async () => { await Promise.all([reloadGroups(), actionTracker.refresh(true)]) })
+  refreshKey.value++
+}
 async function logout() { await safe(async () => { await post('/auth/logout'); me.value = null }) }
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
   try {
     me.value = await api<User>('/api/me'); setCsrf(me.value.csrf)
+    actionRequests.useUser(me.value.id)
     const [metadata] = await Promise.all([api<AdminCatalog>('/api/catalog'), reloadGroups()])
     configureCatalog(metadata); selected.value = groups.value[0]?.id ?? null
   } catch (reason) {
@@ -146,7 +163,7 @@ onUnmounted(() => clearInterval(timer))
 <GroupsPage v-else-if="page === 'groups'" :refresh-key="refreshKey"/>
 <VerificationsPage v-else-if="page === 'verifications' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <RulesPage v-else-if="page === 'rules' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
-<MessageArchive v-else-if="page === 'messages' && selected" :key="selected" :group-id="selected" :enabled="group?.settings.archive_enabled !== false"/>
+<MessageArchive v-else-if="page === 'messages' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <ViolationsPage v-else-if="page === 'violations' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <WhitelistPage v-else-if="page === 'whitelist' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <PermissionsPage v-else-if="page === 'admins'" :refresh-key="refreshKey"/>

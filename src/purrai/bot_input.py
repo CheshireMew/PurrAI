@@ -114,7 +114,7 @@ class BotInput:
             if key not in CHAT_FIELDS:
                 raise ManagementError(422, "聊天配置项不存在")
             value = text
-            if key in ("chat_history", "chat_interval", "chat_sticker_interval", "chat_antifraud_interval"):
+            if key in ("chat_history", "chat_interval", "chat_sticker_interval", "chat_antifraud_interval", "chat_command_threshold"):
                 if not text.isdecimal():
                     raise ManagementError(422, "请发送有效的整数")
                 value = int(text)
@@ -122,7 +122,7 @@ class BotInput:
                 import re
 
                 value = [] if text.strip() == "-" else re.split(r"[\s,，]+", text.strip())
-            elif key == "chat_ignored_texts":
+            elif key in ("chat_ignored_texts", "chat_command_exceptions"):
                 value = [] if text.strip() == "-" else text.splitlines()
             await self.management.setting(actor, group_id, key, value, request_id)
             await self.panels.chat_panel(actor, group_id)

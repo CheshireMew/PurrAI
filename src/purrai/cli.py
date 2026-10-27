@@ -62,6 +62,7 @@ def main():
     elif args.command == "run":
         import uvicorn
         from purrai.app import create_app
+        from purrai.diagnostics import logging_config
 
         uvicorn.run(
             create_app(settings),
@@ -69,6 +70,7 @@ def main():
             port=args.port or settings.port,
             workers=1,
             access_log=False,
+            log_config=logging_config(settings),
         )
     elif args.command == "backup":
 
@@ -120,7 +122,8 @@ def main():
         print(
             f"网页 HTTPS：{'是' if settings.public_url.startswith('https://') else '否（网页仅供本地检查，不影响 Bot）'}"
         )
-        print(f"前端构建：{'存在' if (settings.frontend_dist / 'index.html').exists() else '尚未构建'}")
+        from purrai.frontend_build import FrontendBuild
+        print(f"前端构建：{FrontendBuild(settings.frontend_dist).status()['reason']}")
         print(f"群聊天 API（可选）：{'已配置，模型 ' + settings.chat_model if settings.chat_ready else '未配置；不影响验证和群管理'}")
         print("私用接入：仅限明确批准的群；使用 purrai groups 查看和批准")
         print(f"每日模型请求：全局 {settings.chat_daily_calls}、每群 {settings.chat_group_daily_calls}、每人 {settings.chat_user_daily_calls}；全局 Token 预算 {settings.chat_daily_tokens}")

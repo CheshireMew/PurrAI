@@ -68,13 +68,17 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
                 verification.nonce = secrets.token_hex(4)
                 await cleanup(session, verification)
     elif violation.profile_violation and not violation.sender_chat:
+        if member is None:
+            member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
+            session.add(member)
+            await session.flush()
         action = await enqueue(
             session,
             "profile_mute",
             f"profile-mute:{violation.id}",
             group.id,
             violation.user_id,
-            {"violation_id": violation.id, "generation": member.generation if member else ""},
+            {"violation_id": violation.id, "generation": member.generation},
             1,
             actor_id,
             reason,

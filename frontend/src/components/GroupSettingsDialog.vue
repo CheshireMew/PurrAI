@@ -16,6 +16,7 @@ const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaul
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
 const ignoredChatText = ref('')
+const commandExceptionsText = ref('')
 const allowedLinksText = ref('')
 const chatStatus = ref<Partial<ChatStatus>>({})
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
@@ -33,6 +34,7 @@ watch(() => props.group, group => {
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n'); chatStatus.value = {}; error.value = ''
   ignoredChatText.value = form.chat_ignored_texts.join('\n')
+  commandExceptionsText.value = form.chat_command_exceptions.join('\n')
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
   api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
@@ -69,6 +71,7 @@ async function save() {
     form.chat_sticker_packs = chatPacksText.value.split(/[\s,，]+/).filter(Boolean)
     form.chat_antifraud_packs = antifraudPacksText.value.split(/[\s,，]+/).filter(Boolean)
     form.chat_ignored_texts = ignoredChatText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean)
+    form.chat_command_exceptions = commandExceptionsText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean)
     form.telegram_allowed_links = allowedLinksText.value.split(/\s+/).map(text => text.trim()).filter(Boolean)
     const changes = Object.fromEntries(Object.entries(form).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings])))
     const baseline = Object.fromEntries(Object.keys(changes).map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
@@ -147,7 +150,23 @@ async function save() {
 <el-form-item label="聊天忽略口令">
 <el-input v-model="ignoredChatText" type="textarea" :rows="3" placeholder="每行一条其他机器人的按钮文字，例如签到、积分、币圈教程"/>
 </el-form-item>
-<p class="muted">整条消息与口令相同时不进入 AI 聊天或聊天上下文，忽略空白和英文大小写；“今天积分怎么算”等正常句子仍可讨论。留空则关闭口令过滤，不影响其他机器人的功能。</p>
+<p class="muted">整条消息与口令相同时不进入 AI 聊天或上下文；“今天积分怎么算”等正常句子仍可讨论。积分红包后带数字、明确发给其他机器人的结构化指令直接排除，留空只关闭自定义名单。</p>
+<el-form-item label="自动识别重复口令">
+<el-switch v-model="form.chat_command_learning"/>
+</el-form-item>
+<el-form-item label="7 天内识别次数（至少 3 位群友）">
+<el-input-number v-model="form.chat_command_threshold" :min="bounds('chat_command_threshold').minimum" :max="bounds('chat_command_threshold').maximum"/>
+</el-form-item>
+<p class="muted">只统计短功能口令；广告、链接、普通问句、重复投递和编辑不计数。达到门槛后从 AI 输入和历史上下文中排除，不删除群消息。</p>
+<el-table v-if="chatStatus.commands?.items.length" :data="chatStatus.commands.items" size="small">
+<el-table-column prop="text" label="口令"/>
+<el-table-column prop="count" label="次数" width="65"/>
+<el-table-column prop="users" label="人数" width="65"/>
+<el-table-column label="状态" width="80"><template #default="{ row }">{{ row.ignored ? '已忽略' : '观察中' }}</template></el-table-column>
+</el-table>
+<el-form-item label="口令识别例外">
+<el-input v-model="commandExceptionsText" type="textarea" :rows="2" placeholder="每行一条，恢复被自动识别的正常用语"/>
+</el-form-item>
 <div class="settings-grid">
 <el-form-item label="最近上下文条数">
 <el-input-number v-model="form.chat_history" :min="bounds('chat_history').minimum" :max="bounds('chat_history').maximum"/>

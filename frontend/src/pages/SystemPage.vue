@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { post } from '../api'
 import type { SystemStatus } from '../types'
@@ -10,9 +10,14 @@ import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ refreshKey: number }>()
 const { actionTracker } = useWorkspace()
-const { busy, error, safe } = useTask(), system = ref<Partial<SystemStatus>>({})
-async function load() { await safe(async () => { system.value = await api<SystemStatus>('/api/system') }) }
-async function systemAction(path: string) { await safe(async () => { await post(path); ElMessage.success('操作已提交'); await actionTracker.refresh(true) }); await load() }
+const reads = useTask(), actions = useTask(), system = ref<Partial<SystemStatus>>({})
+const busy = computed(() => reads.busy.value || actions.busy.value)
+const error = computed({ get: () => actions.error.value || reads.error.value,
+  set: value => { actions.error.value = value; reads.error.value = value } })
+async function load() { await reads.safe(async () => { system.value = await api<SystemStatus>('/api/system') }) }
+async function systemAction(path: string) {
+  if (await actions.safe(async () => { await post(path); ElMessage.success('操作已提交'); await actionTracker.refresh(true) })) await load()
+}
 useRefresh(load, () => props.refreshKey, () => !busy.value)
 </script>
 

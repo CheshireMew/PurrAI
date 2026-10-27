@@ -9,6 +9,63 @@ import time
 from sqlalchemy import create_engine, insert
 
 from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, MemberText, Verification, default_settings
+from purrai.db import schema_head
+
+
+def test_member_decision_migration_preserves_receipts_and_fences_obsolete_work(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "decisions.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}",
+                   "PURRAI_BACKUP_DIR": str(tmp_path / "backups")}
+
+    def run(*arguments):
+        result = subprocess.run([sys.executable, *arguments], cwd=root, env=environment,
+                                capture_output=True, text=True, encoding="utf-8", timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result.stdout
+
+    run("-m", "alembic", "upgrade", "0019")
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(insert(Group).values(id=-1001, approved=True, enabled=True))
+        connection.execute(insert(Member), [
+            {"group_id": -1001, "user_id": 44, "generation": "new-join", "owned_restriction": None},
+            {"group_id": -1001, "user_id": 45, "generation": "same-join",
+             "owned_restriction": {"kind": "profile", "source_action": "owned-profile"}},
+        ])
+        for identifier, user, kind, actor, state, created in [
+            ("old-mute", 42, "manual_mute", 1, "pending", 1),
+            ("latest-unmute", 42, "unmute", 2, "succeeded", 2),
+            ("failed-older", 42, "manual_ban", 1, "failed", 0),
+            ("other-member", 43, "manual_ban", 1, "pending", 1),
+            ("unbound-profile", 44, "profile_mute", None, "pending", 1),
+            ("owned-profile", 45, "profile_mute", None, "pending", 1),
+        ]:
+            connection.execute(insert(Action).values(
+                id=identifier, dedupe_key=identifier, group_id=-1001, user_id=user,
+                kind=kind, actor_id=actor, state=state, created_at=created, error="原始回执",
+                payload={"message_id": 123} if kind == "profile_mute" else {},
+            ))
+        connection.execute(insert(ArchivedMessage).values(
+            id="preserved", group_id=-1001, message_id=321, sent_at=1, text="保留的原始消息",
+        ))
+    engine.dispose()
+    assert "备份" in run("-m", "purrai.cli", "init-db")
+    with sqlite3.connect(database) as connection:
+        receipts = dict(connection.execute("SELECT id,state FROM actions"))
+        assert receipts == {"old-mute": "cancelled", "latest-unmute": "succeeded", "failed-older": "failed",
+                            "other-member": "pending", "unbound-profile": "cancelled", "owned-profile": "pending"}
+        assert connection.execute("SELECT value FROM meta WHERE key='member-decision:-1001:42'").fetchone()[0] == "latest-unmute"
+        assert connection.execute("SELECT error FROM actions WHERE id='failed-older'").fetchone()[0] == "原始回执"
+        bound = json.loads(connection.execute("SELECT payload FROM actions WHERE id='owned-profile'").fetchone()[0])
+        assert bound["generation"] == "same-join" and bound["message_id"] == 123
+        assert connection.execute("SELECT text FROM archived_messages WHERE id='preserved'").fetchone()[0] == "保留的原始消息"
+        plan = [row[-1] for row in connection.execute(
+            "EXPLAIN QUERY PLAN SELECT id FROM actions WHERE group_id=-1001 AND kind='delete' "
+            "AND json_extract(payload,'$.message_id')=123"
+        )]
+        assert any("ix_actions_message" in row and "<expr>=" in row for row in plan)
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
 def test_moderation_retention_migration_preserves_credit_history_and_recovers_stranded_cycles(tmp_path):
@@ -274,7 +331,7 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     output = run("-m", "purrai.cli", "init-db")
     assert "备份" in output
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0019"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == schema_head()
         assert json.loads(connection.execute("SELECT choices FROM verifications").fetchone()[0]) == []
         assert connection.execute("SELECT join_observed FROM members").fetchone()[0] == 1
         assert connection.execute("SELECT approved FROM groups").fetchone()[0] == 0

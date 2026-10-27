@@ -14,6 +14,7 @@ from purrai.models import (
     Violation,
     now,
 )
+from purrai.record_operations import retryable_verification
 from purrai.restriction_state import owns_verification_ban, restriction_identity
 from purrai.schemas import (
     ActionInput,
@@ -45,8 +46,7 @@ class MemberAdministration:
                 return row_dict(existing)
             row = await session.get(Verification, identifier)
             retry_muted = (
-                row.state == "failed"
-                and row.failure_action == "permanent_mute"
+                retryable_verification(row.state, row.failure_action)
                 and body.action in ("release", "reissue")
             )
             if row.state not in ACTIVE and body.action != "unban" and not retry_muted:

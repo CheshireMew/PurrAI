@@ -10,7 +10,7 @@ import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ refreshKey: number }>()
-const { me, groups, reloadGroups, actionTracker } = useWorkspace()
+const { me, groups, reloadGroups, submitAction } = useWorkspace()
 const { busy, error, safe } = useTask(), settingsGroup = ref<Group | null>(null)
 async function load() { await safe(reloadGroups) }
 async function groupAction(row: Group, action: string) {
@@ -20,7 +20,7 @@ async function groupAction(row: Group, action: string) {
   }
   await safe(async () => {
     if (action === 'approve' || action === 'revoke') await post(`/api/groups/${row.id}/access`, { approved: action === 'approve' })
-    else if (action === 'join-link') { const task = await post(`/api/groups/${row.id}/join-link`, { action: 'release', reason: '生成申请入群链接', request_id: crypto.randomUUID() }); actionTracker.accept(task, '生成申请入群链接') }
+    else if (action === 'join-link') await submitAction(`/api/groups/${row.id}/join-link`, { action: 'release', reason: '生成申请入群链接' })
     else if (action === 'activate') await post(`/api/groups/${row.id}/activate`)
     else if (action === 'permissions') { const data = await post(`/api/groups/${row.id}/permissions`); ElMessage.info(data.ok ? '机器人权限完整' : `缺少权限：${data.missing.join('、')}`) }
     else await api(`/api/groups/${row.id}/settings`, { method: 'PATCH', body: JSON.stringify({ enabled: false }) })

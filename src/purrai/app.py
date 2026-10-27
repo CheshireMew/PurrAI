@@ -8,6 +8,7 @@ from purrai.auth import install_auth
 from purrai.config import Settings
 from purrai.db import Database
 from purrai.errors import ManagementError
+from purrai.frontend_build import FrontendBuild
 from purrai.process_lock import ProcessLock
 from purrai.runtime import Runtime
 from purrai.service import Service
@@ -20,6 +21,7 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
     gateway = telegram or TelegramGateway(settings.bot_token, settings.proxy_url)
     service = Service(database, gateway, settings)
     runtime = Runtime(database, gateway, service)
+    frontend_build = FrontendBuild(settings.frontend_dist)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -93,15 +95,18 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
     async def frontend(path: str):
         if path.startswith(("api/", "auth/", "health/")):
             raise HTTPException(404, "接口不存在")
+        build = frontend_build.status()
+        if not build["ready"]:
+            return HTMLResponse(f"<html lang='zh-CN'><meta charset='utf-8'><title>PurrAI</title><h1>PurrAI</h1><p>{build['reason']}</p></html>", status_code=503)
         root = settings.frontend_dist.resolve()
         target = (root / path).resolve()
         if not target.is_relative_to(root):
             raise HTTPException(404)
-        if target.is_file():
-            return FileResponse(target)
+        if path in frontend_build.files and target.is_file():
+            return FileResponse(target, headers={"Cache-Control": "no-cache"} if path == "index.html" else None)
         index = root / "index.html"
-        if index.is_file() and not path.startswith("assets/"):
-            return FileResponse(index)
+        if index.is_file() and not path.startswith("assets/") and "." not in path.rsplit("/", 1)[-1]:
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})
         if path:
             raise HTTPException(404)
         return HTMLResponse(

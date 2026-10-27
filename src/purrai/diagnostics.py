@@ -2,8 +2,34 @@
 
 import re
 import traceback
+import logging
+from copy import deepcopy
+from datetime import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
+
+
+class SafeFormatter(logging.Formatter):
+    def __init__(self, settings):
+        super().__init__("%(asctime)s %(levelname)s %(name)s · %(message)s")
+        self.settings = settings
+
+    def formatTime(self, record, datefmt=None):
+        return datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="milliseconds")
+
+    def format(self, record):
+        return safe_text(self.settings, super().format(record))
+
+
+def logging_config(settings):
+    from uvicorn.config import LOGGING_CONFIG
+
+    config = deepcopy(LOGGING_CONFIG)
+    config["disable_existing_loggers"] = False
+    config["formatters"]["purrai"] = {"()": lambda: SafeFormatter(settings)}
+    config["handlers"]["purrai"] = {"class": "logging.StreamHandler", "formatter": "purrai", "stream": "ext://sys.stderr"}
+    config["loggers"]["purrai"] = {"handlers": ["purrai"], "level": "INFO", "propagate": False}
+    return config
 
 
 def safe_text(settings, value):

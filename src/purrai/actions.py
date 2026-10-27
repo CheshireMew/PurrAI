@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from sqlalchemy import and_, select
+from sqlalchemy import and_, literal_column, select
 
 from purrai.action_execution import ActionExecution, ActionSuperseded
 from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy, administrator_protected_action
@@ -13,6 +13,7 @@ from purrai.deletion_effects import deletion_result
 from purrai.automatic_actions import AutomaticActions
 from purrai.diagnostics import failure
 from purrai.member_restrictions import MemberRestrictions
+from purrai.member_decisions import current_decision
 from purrai.models import (
     Action,
     Group,
@@ -37,13 +38,14 @@ class ActionRunner:
         self.advertising = advertising
         self.action_claims, self.cleanup_lock = WorkClaims(), asyncio.Lock()
         self.policy = ActionPolicy(settings)
-        transport = ActionTransport(telegram, self.policy, trust)
+        transport = ActionTransport(telegram, self.policy, trust, access)
+        self.transport = transport
         self.action_call = transport.call
         restrictions = MemberRestrictions(transport, emoji_status)
         administration = RestrictionActions(transport, trust)
         verification_actions = VerificationActions(transport, verification, restrictions, administration)
         automatic = AutomaticActions(restrictions)
-        self.notifications = NotificationActions(db, transport, access)
+        self.notifications = NotificationActions(db, transport)
         self.handlers = {
             "verify_mute": verification_actions.mute,
             "challenge": verification_actions.challenge,
@@ -82,7 +84,7 @@ class ActionRunner:
     async def claim_action(self, *, include_progress, cleanup_only, lane):
         cleanup = and_(Action.kind == "delete", Action.dedupe_key.startswith("cleanup:"))
         query = select(Action).where(
-            Action.state == "pending", Action.available_at <= now(), cleanup if cleanup_only else ~cleanup
+            Action.state == "pending", cleanup if cleanup_only else ~cleanup
         )
         if not include_progress:
             query = query.where(Action.kind.not_in(("progress", "emoji_status_check", "advertisement_check")))
@@ -92,11 +94,11 @@ class ActionRunner:
             query = query.where(Action.kind.in_(NOTIFICATION_ACTIONS))
         async with self.action_claims.lock:
             async with self.db.sessions() as session:
-                offset = 0
+                offset, blocked = 0, set()
                 while True:
                     rows = (
                         await session.scalars(
-                            query.order_by(Action.priority, Action.created_at, Action.id)
+                            query.order_by(Action.priority, Action.created_at, literal_column("actions.rowid"))
                             .offset(offset)
                             .limit(100)
                         )
@@ -116,6 +118,11 @@ class ActionRunner:
                             scope = ("member", action.group_id, action.user_id)
                         else:
                             scope = ("action", action.id)
+                        if scope in blocked:
+                            continue
+                        blocked.add(scope)
+                        if action.available_at > now():
+                            continue
                         if self.action_claims.claim(action.id, scope):
                             return action.id, action.kind, scope
                     offset += len(rows)
@@ -159,10 +166,10 @@ class ActionRunner:
                     action.state = "succeeded"
                 if action.state == "succeeded":
                     action.error = ""
-            except ActionSuperseded:
+            except ActionSuperseded as exc:
                 if action.state == "pending":
                     action.state = "cancelled"
-                    action.error = "成员批次或管理决定已变化，已停止旧任务"
+                    action.error = str(exc)
             except TelegramRetryAfter as exc:
                 failure(
                     logger,
@@ -237,6 +244,12 @@ class ActionRunner:
             else None
         )
         member = await session.get(Member, (action.group_id, action.user_id)) if action.user_id else None
+        if not await current_decision(session, action):
+            action.state, action.error = "cancelled", "管理员已作出新的成员处理决定"
+            return
+        if action.kind == "profile_mute" and not action.payload.get("generation"):
+            action.state, action.error = "cancelled", "旧昵称处罚缺少入群批次，已停止执行；请重新核实成员"
+            return
         if await self.policy.moderation_paused(session, action):
             action.state, action.error = "cancelled", "群保护已暂停，已停止自动处置"
             return
@@ -304,6 +317,7 @@ class ActionRunner:
             await self.verification.fail_verification(session, verification, "验证超时")
             action.state = "cancelled"
             return
+        await self.transport.authorize_actor(session, action)
         # These handlers perform their own checked member lookup before any
         # mutation. Repeating it here adds a Telegram round trip to every join.
         if administrator_protected_action(action) and action.kind not in (

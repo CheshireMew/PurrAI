@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 
 from purrai.models import Action, ArchivedMessage, Meta, Verification, Violation
 from purrai.stickers import sticker_text
+from purrai.telegram_sources import channel_sources
 from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
 
 FOLLOWUP_WINDOW = 90
@@ -54,19 +55,25 @@ def permitted_images(rows, message_id, direct):
     ), set())
 
 
-def reply_snapshot(message):
-    """Keep only the text needed by an explicit question about a channel/image."""
+def reply_snapshot(message, *, direct=True):
+    """Retain source identity for filtering, plus explicit channel/image questions."""
+    sources = channel_sources(message)
+    metadata = {"channel_sources": sources} if sources else {}
+    fallback = json.dumps(metadata, ensure_ascii=False) if metadata else ""
+    if not direct:
+        return fallback
     reply = message.get("reply_to_message") or {}
     sender = reply.get("sender_chat") or reply.get("from") or {}
     channel = (reply.get("sender_chat") or {}).get("type") == "channel"
     if not reply.get("message_id") or not (channel or has_image(reply)):
-        return ""
+        return fallback
     if not channel and (sender.get("is_bot") or reply.get("via_bot")
                         or (reply.get("forward_from") or {}).get("is_bot")
                         or ((reply.get("forward_origin") or {}).get("sender_user") or {}).get("is_bot")):
-        return ""
+        return fallback
     text = (reply.get("text") or reply.get("caption") or "")[:1600]
-    return json.dumps({"version": 1, "message_id": reply["message_id"], "sender_id": sender.get("id", 0),
+    return json.dumps({**metadata, "version": 1, "message_id": reply["message_id"], "sender_id": sender.get("id", 0),
+                       "reference_sources": channel_sources(reply),
                        "text": text, "image_unavailable": has_image(reply)}, ensure_ascii=False)
 
 
@@ -87,21 +94,23 @@ def following_up(state, sender_id, received_at, *, allow_join=False, message_id=
     )
 
 
-def ignored_text(text, phrases):
+def ignored_text(text, phrases, bot_username=""):
     # Reply keyboards send ordinary text. Match the whole button label, never a
     # word inside a real question; whitespace and Latin case are insignificant.
-    canonical = "".join(text.split()).casefold()
-    return canonical in {"".join(phrase.split()).casefold() for phrase in phrases}
+    from purrai.chat_commands import candidate, canonical, utility_command
+
+    labels = {canonical(phrase) for phrase in phrases}
+    return utility_command(text, bot_username) or canonical(text) in labels or candidate(text) in labels
 
 
-def human_message(message, ignored_texts=()):
+def human_message(message, ignored_texts=(), *, bot_username=""):
     sender = message.get("from") or {}
     origin = message.get("forward_origin") or {}
     text = sticker_text(message)
     return bool(
         text
         and not text.lstrip().startswith("/")
-        and not ignored_text(text, ignored_texts)
+        and not ignored_text(text, ignored_texts, bot_username)
         and sender.get("id")
         and not sender.get("is_bot")
         and not message.get("sender_chat")
@@ -134,7 +143,7 @@ def blocked_message(group_id, message_id, sender_id):
             Action.kind == "delete",
             Action.state != "cancelled",
             func.coalesce(Action.payload["chat_id"].as_integer(), Action.group_id) == group_id,
-            Action.payload["message_id"].as_integer() == message_id,
+            Action.target_message_id == message_id,
         )
         .exists(),
         select(ArchivedMessage.id)

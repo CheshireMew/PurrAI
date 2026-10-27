@@ -1,54 +1,55 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { api, time } from './api'
+import { applyBeijingDates, type DateRange } from './query'
+import { useLatestRequest } from './composables/useLatestRequest'
+import { useRefresh } from './composables/useRefresh'
+import type { ArchivedDetail, ArchivedMessage, ArchivePage, ArchiveRecording } from './types'
 
-const props = defineProps<{ groupId: number; enabled: boolean }>()
-const rows = ref<any[]>([]), total = ref(0), page = ref(1), busy = ref(false), error = ref('')
-const opened = ref(false), detail = ref<any>(null), detailBusy = ref(false)
-const filters = reactive({ query: '', sender_id: '', message_type: '', flagged: false, deletion: '', dates: null as string[] | null })
+const props = defineProps<{ groupId: number; refreshKey: number }>()
+const recording = ref<ArchiveRecording>({ state: 'unknown', reason: '' })
+const recordingLabels: Record<string, string> = { active: '正在记录新消息', disabled: '已停止记录新消息', capacity_paused: '容量不足，已暂停记录' }
+const recordingLabel = computed(() => recordingLabels[recording.value.state] || '归档状态待确认')
+const listing = useLatestRequest(), details = useLatestRequest()
+const { busy } = listing, { busy: detailBusy } = details
+const error = computed(() => listing.error.value || details.error.value)
+const rows = ref<ArchivedMessage[]>([]), total = ref(0), page = ref(1)
+const opened = ref(false), detail = ref<ArchivedDetail | null>(null)
+const filters = reactive({ query: '', sender_id: '', message_type: '', flagged: false, deletion: '', dates: null as DateRange })
 const applied = ref('')
 const states: Record<string, string> = { not_requested: '未发起删除', pending: '等待删除', failed: '删除失败', deleted: 'PurrAI 已确认删除', already_absent: '删除时已不存在' }
 const types: Record<string, string> = { text: '文字', photo: '图片', video: '视频', document: '文件', animation: '动图', sticker: '贴纸', voice: '语音', audio: '音频', video_note: '视频留言', contact: '联系人', location: '位置', poll: '投票', service: '群事件', unknown: '历史摘录' }
 const exportUrl = computed(() => `/api/groups/${props.groupId}/messages/export?${applied.value}`)
-let version = 0, detailVersion = 0
 async function load(apply = false) {
-  error.value = ''; busy.value = true
-  const current = ++version
-  try {
+  details.error.value = ''
+  await listing.run(async () => {
     if (apply) {
       if (filters.sender_id && !/^-?\d+$/.test(filters.sender_id.trim())) throw new Error('请填写有效的用户或频道数字 ID')
       const query = new URLSearchParams()
       for (const key of ['query', 'sender_id', 'message_type', 'deletion'] as const) if (filters[key].trim()) query.set(key, filters[key].trim())
       if (filters.flagged) query.set('flagged', 'true')
-      if (filters.dates) {
-        query.set('after', String(Date.parse(filters.dates[0]!.replace(' ', 'T') + '+08:00') / 1000))
-        query.set('before', String(Date.parse(filters.dates[1]!.replace(' ', 'T') + '+08:00') / 1000))
-      }
+      applyBeijingDates(query, filters.dates)
       applied.value = query.toString(); page.value = 1
     }
-    const result = await api(`/api/groups/${props.groupId}/messages?${applied.value}&page_number=${page.value}`)
-    if (current === version) { rows.value = result.items; total.value = result.total }
-  } catch (e) { if (current === version) error.value = (e as Error).message }
-  finally { if (current === version) busy.value = false }
+    return api<ArchivePage>(`/api/groups/${props.groupId}/messages?${applied.value}&page_number=${page.value}`)
+  }, result => {
+    rows.value = result.items; total.value = result.total
+    recording.value = result.recording || { state: 'unknown', reason: '' }
+  })
 }
-async function show(row: any) {
-  const current = ++detailVersion
-  detail.value = null; opened.value = true; detailBusy.value = true; error.value = ''
-  try {
-    const result = await api(`/api/groups/${props.groupId}/messages/${row.id}`)
-    if (current === detailVersion) detail.value = result
-  } catch (e) { if (current === detailVersion) error.value = (e as Error).message }
-  finally { if (current === detailVersion) detailBusy.value = false }
+async function show(row: ArchivedMessage) {
+  detail.value = null; opened.value = true; listing.error.value = ''
+  await details.run(() => api<ArchivedDetail>(`/api/groups/${props.groupId}/messages/${row.id}`), result => { detail.value = result })
 }
-watch(opened, value => { if (!value) { detailVersion++; detail.value = null; detailBusy.value = false } }, { flush: 'sync' })
-watch(() => props.groupId, () => { opened.value = false; load(true) })
-onUnmounted(() => { version++; detailVersion++ })
-onMounted(() => load(true))
+watch(opened, value => { if (!value) { details.cancel(); detail.value = null } }, { flush: 'sync' })
+watch(() => props.groupId, () => { opened.value = false; void load(true) })
+useRefresh(() => load(false), () => props.refreshKey)
 </script>
 
 <template>
   <section class="panel archive-panel" v-loading="busy">
-    <div class="panel-title"><h2>消息归档</h2><el-tag :type="enabled ? 'success' : 'info'">{{ enabled ? '正在记录新消息' : '已停止记录新消息' }}</el-tag></div>
+    <div class="panel-title"><h2>消息归档</h2><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag></div>
+    <el-alert v-if="recording.reason" :title="recording.reason" type="warning" :closable="false"/>
     <p class="muted">保存机器人收到的群消息、编辑版本和处置结果，关闭记录不会清除已有数据。发送者及媒体信息保存在详情和导出中，图片、视频原文件不会自动下载。</p>
     <div class="filterbar">
       <el-input v-model="filters.query" aria-label="归档关键词" placeholder="搜索正文、昵称或历史编辑" clearable @keyup.enter="load(true)"/>

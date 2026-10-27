@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 
 from purrai import captcha
 from purrai.action_queue import enqueue
+from purrai.action_execution import ActionPreflightError
 from purrai.models import (
     now,
 )
@@ -56,13 +57,22 @@ class VerificationActions:
             "image_seconds": round(perf_counter() - generation_started, 3),
             "send_started_at": started,
         }
-        action.payload = {**action.payload, "challenge_delivery": "sending", "timing": timing}
-        send_started = perf_counter()
+        action.payload = {**action.payload, "challenge_delivery": "preparing",
+                          "challenge_nonce": verification.nonce, "timing": timing}
+        send_started = None
+
+        def sending():
+            nonlocal send_started
+            send_started = perf_counter()
+            timing["send_started_at"] = now()
+            action.payload = {**action.payload, "challenge_delivery": "sending", "timing": dict(timing)}
+
         try:
             response = await self.action_call(
                 session,
                 action,
                 "send_photo",
+                before_send=sending,
                 request_timeout=30,
                 chat_id=verification.prompt_chat_id or group.id,
                 photo=image,
@@ -79,7 +89,7 @@ class VerificationActions:
                 ),
                 reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
             )
-        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
+        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError, ActionPreflightError):
             self.delivery_result(action, timing, send_started, "rejected")
             raise
         except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
@@ -93,7 +103,7 @@ class VerificationActions:
 
     @staticmethod
     def delivery_result(action, timing, started, delivery):
-        elapsed = round(perf_counter() - started, 3)
+        elapsed = round(perf_counter() - started, 3) if started is not None else 0
         timing = {**timing, "send_seconds": elapsed, "send_finished_at": now()}
         action.payload = {**action.payload, "challenge_delivery": delivery, "timing": timing}
         if elapsed >= 3:
