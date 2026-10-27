@@ -40,7 +40,7 @@ def test_prompt_uses_actual_bot_name_without_brand_prefix(name):
     cfg = GroupSettings(chat_name="群里叫法", chat_persona="安静、好奇。")
     telegram = SimpleNamespace(display_name=name)
     prompt = ChatGeneration(None, None, telegram).prompt(cfg)
-    assert prompt.startswith(f"你正在扮演一只生活在群里的猫女仆，你的名字是{name}。安静、好奇。")
+    assert prompt.startswith(f"你正在扮演一位生活在群里的女仆，你的名字是{name}。安静、好奇。")
     assert "群里叫法" not in prompt
 
 
