@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from conftest import drain, join, message
 from purrai.app import create_app
 from purrai.management import Management
-from purrai.models import Action, Group, Inbox, Member, Verification, now
+from purrai.models import Action, Group, Inbox, Member, Verification, default_settings, now
 from purrai.runtime import Runtime
 from purrai.service import enqueue
 
@@ -267,7 +267,7 @@ async def test_pa04_partial_web_settings_preserve_bot_changes_and_reject_conflic
     management = Management(db, tg, service, settings)
     await management.setting(1, -1001, "media_min_text_messages", 9, "audit:bot-setting")
     response = await client.patch("/api/groups/-1001/settings", json={
-        "settings": {"chat_persona": "新的性格"}, "baseline": {"chat_persona": "随和、有一点幽默，关心群友，有自己的看法。"},
+        "settings": {"chat_persona": "新的性格"}, "baseline": {"chat_persona": default_settings()["chat_persona"]},
     })
     assert response.status_code == 200
     async with db.sessions() as session:

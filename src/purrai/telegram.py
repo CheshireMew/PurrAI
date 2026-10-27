@@ -23,6 +23,7 @@ class TelegramGateway:
         self.bot = Bot(token, session=AiohttpSession(proxy=proxy or None)) if token else None
         self.user_id = 0
         self.username = ""
+        self.display_name = ""
         self.connected = False
 
     async def call(self, method: str, **kwargs):
@@ -42,6 +43,7 @@ class TelegramGateway:
         me = await self.call("get_me")
         self.user_id = me["id"]
         self.username = me.get("username", "")
+        self.display_name = " ".join(filter(None, [me.get("first_name"), me.get("last_name")])).strip()
         self.connected = True
 
     async def register_commands(self):
@@ -71,6 +73,10 @@ class TelegramGateway:
     async def close(self):
         if self.bot:
             await self.bot.session.close()
+
+
+def bot_display_name(telegram, fallback: str) -> str:
+    return getattr(telegram, "display_name", "") or fallback
 
 
 def is_present(member: dict) -> bool:

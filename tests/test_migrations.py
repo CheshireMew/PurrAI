@@ -379,6 +379,42 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
     assert len(list(backup_dir.glob("*.sqlite3"))) >= 3
 
 
+def test_roleplay_persona_migration_preserves_custom_personas_and_other_settings(monkeypatch):
+    import importlib.util
+    import sqlalchemy as sa
+
+    script = Path(__file__).resolve().parents[1] / "migrations/versions/0021_roleplay_persona.py"
+    spec = importlib.util.spec_from_file_location("roleplay_persona", script)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    original = [
+        {"chat_persona": "随和、有一点幽默，关心群友，有自己的看法。"},
+        {"chat_persona": "安静的图书管理员"},
+        {},
+        {"chat_persona": ""},
+    ]
+    engine = sa.create_engine("sqlite:///:memory:")
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("CREATE TABLE groups (id INTEGER PRIMARY KEY, settings TEXT NOT NULL)"))
+            for identifier, settings in enumerate(original):
+                connection.execute(sa.text("INSERT INTO groups VALUES (:id,:settings)"),
+                                   {"id": identifier, "settings": json.dumps({**settings, "chat_name": "原昵称",
+                                                                           "chat_proactive": False})})
+            monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+            migration.upgrade()
+            first = connection.execute(sa.text("SELECT settings FROM groups ORDER BY id")).scalars().all()
+            migration.upgrade()
+            assert connection.execute(sa.text("SELECT settings FROM groups ORDER BY id")).scalars().all() == first
+            for identifier, (saved, before) in enumerate(zip(first, original, strict=True)):
+                expected = {**before, "chat_name": "原昵称", "chat_proactive": False}
+                if identifier == 0:
+                    expected["chat_persona"] = default_settings()["chat_persona"]
+                assert json.loads(saved) == expected
+    finally:
+        engine.dispose()
+
+
 def test_newcomer_migration_updates_defaults_and_preserves_custom_settings(tmp_path, monkeypatch):
     import importlib.util
     import sqlalchemy as sa

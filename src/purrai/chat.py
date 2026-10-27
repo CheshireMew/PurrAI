@@ -99,7 +99,7 @@ class GroupChat:
                 if not partial:
                     await self.contexts.remember_sent_context(session, turn, context)
                 sticker_options = await self.stickers.options(session, turn.group_id, cfg)
-            generated = await ChatGeneration(self.model, self.budget).generate(
+            generated = await ChatGeneration(self.model, self.budget, self.tg).generate(
                 turn, cfg, context, sender_id, mode, audience, sticker_options
             )
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)

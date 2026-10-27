@@ -10,6 +10,7 @@ from purrai.chat_retraction import remember_receipt
 from purrai.chat_state import following_up, message_bursts, session_state, store_state
 from purrai.models import ChatMessage, ChatTurn, Meta, now
 from purrai.stickers import sticker_text
+from purrai.telegram import bot_display_name
 
 
 class ChatReceipts:
@@ -19,13 +20,14 @@ class ChatReceipts:
     async def record(self, session, turn, cfg, group, sent, sender_id, *, text=None, sticker=None):
         current = await session.get(ChatTurn, turn.id)
         current.sent_message_id = sent["message_id"]
+        name = bot_display_name(self.tg, cfg.chat_name)
         session.add(
             ChatMessage(
                 group_id=turn.group_id,
                 topic_id=turn.topic_id,
                 message_id=sent["message_id"],
                 sender_id=self.tg.user_id,
-                sender_name=cfg.chat_name,
+                sender_name=name,
                 text=sticker_text({"sticker": sticker}) if sticker else text,
                 is_bot=True,
                 reply_to_id=turn.message_id,
@@ -65,7 +67,7 @@ class ChatReceipts:
             session,
             {
                 "chat": {"id": turn.group_id, "type": group.type, "title": group.title},
-                "from": {"id": self.tg.user_id, "is_bot": True, "first_name": cfg.chat_name},
+                "from": {"id": self.tg.user_id, "is_bot": True, "first_name": name},
                 "message_id": sent["message_id"],
                 "date": int(now()),
                 **({"sticker": sticker} if sticker else {"text": text}),

@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 from sqlalchemy import select
 
 from purrai.models import Group, Meta, now
+from purrai.telegram import bot_display_name
 
 from purrai.pack_names import (
     DEFAULT_CHAT_PACKS as DEFAULT_CHAT_PACKS,
@@ -216,7 +217,8 @@ class Stickers:
                 self.save(session, row, group_id, state)
                 await capture(session, {
                     "chat": {"id": group_id, "type": group.type, "title": group.title},
-                    "from": {"id": self.tg.user_id, "is_bot": True, "first_name": cfg.chat_name},
+                    "from": {"id": self.tg.user_id, "is_bot": True,
+                             "first_name": bot_display_name(self.tg, cfg.chat_name)},
                     "message_id": sent["message_id"], "date": sent.get("date", int(now())),
                     "sticker": sticker, **({"message_thread_id": topic_id} if topic_id else {}),
                 })

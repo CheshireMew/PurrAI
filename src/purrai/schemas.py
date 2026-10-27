@@ -9,7 +9,10 @@ class GroupSettings(BaseModel):
     chat_enabled: bool = False
     chat_proactive: bool = True
     chat_name: str = Field(default="柴郡喵", min_length=2, max_length=24)
-    chat_persona: str = Field(default="随和、有一点幽默，关心群友，有自己的看法。", max_length=1000)
+    chat_persona: str = Field(
+        default="随性、好奇，有一点幽默，跟群友相处熟络，用自然随意的群聊口吻说话。",
+        max_length=1000,
+    )
     chat_ignored_texts: list[str] = Field(
         default_factory=lambda: ["签到", "积分", "抽奖", "注册币安", "注册 OKX", "币圈教程"],
         max_length=100,

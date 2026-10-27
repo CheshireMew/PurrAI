@@ -4,7 +4,7 @@
       "chat_enabled": false,
       "chat_proactive": true,
       "chat_name": "柴郡喵",
-      "chat_persona": "随和、有一点幽默，关心群友，有自己的看法。",
+      "chat_persona": "随性、好奇，有一点幽默，跟群友相处熟络，用自然随意的群聊口吻说话。",
       "chat_ignored_texts": [
         "签到",
         "积分",
@@ -105,7 +105,7 @@
         "type": "string"
       },
       "chat_persona": {
-        "default": "随和、有一点幽默，关心群友，有自己的看法。",
+        "default": "随性、好奇，有一点幽默，跟群友相处熟络，用自然随意的群聊口吻说话。",
         "maxLength": 1000,
         "title": "Chat Persona",
         "type": "string"
