@@ -51,16 +51,16 @@ useRefresh(() => load(false), () => props.refreshKey)
     <div class="panel-title"><h2>消息归档</h2><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag></div>
     <el-alert v-if="recording.reason" :title="recording.reason" type="warning" :closable="false"/>
     <p class="muted">保存机器人收到的群消息、编辑版本和处置结果，关闭记录不会清除已有数据。发送者及媒体信息保存在详情和导出中，图片、视频原文件不会自动下载。</p>
-    <div class="filterbar">
-      <el-input v-model="filters.query" aria-label="归档关键词" placeholder="搜索正文、昵称或历史编辑" clearable @keyup.enter="load(true)"/>
+    <form class="filterbar" aria-label="筛选归档消息" @submit.prevent="load(true)">
+      <el-input v-model="filters.query" aria-label="归档关键词" placeholder="搜索正文、昵称或历史编辑" clearable/>
       <el-input v-model="filters.sender_id" aria-label="归档发送者 ID" placeholder="用户或频道数字 ID" clearable/>
       <el-select v-model="filters.message_type" aria-label="归档消息类型" placeholder="全部消息类型" clearable><el-option v-for="(name, key) in types" :key="key" :value="key" :label="name"/></el-select>
       <el-select v-model="filters.deletion" aria-label="归档删除状态" placeholder="全部删除状态" clearable><el-option v-for="(name, key) in states" :key="key" :value="key" :label="name"/></el-select>
       <el-date-picker v-model="filters.dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
       <el-checkbox v-model="filters.flagged">只看命中规则</el-checkbox>
-      <el-button type="primary" @click="load(true)">查询归档</el-button>
+      <el-button type="primary" native-type="submit">查询归档</el-button>
       <a class="archive-download" :href="exportUrl">导出当前查询 JSONL</a>
-    </div>
+    </form>
     <el-alert v-if="error" :title="error" type="error" :closable="false"/>
     <el-table :data="rows" empty-text="暂无匹配的归档消息">
       <el-table-column label="发送时间 / 编号" min-width="175"><template #default="{ row }">{{ time(row.sent_at) }}<div class="cell-sub">{{ row.message_id }}{{ row.source === 'violation_excerpt' ? '（旧摘录，时间为记录时间）' : '' }}</div></template></el-table-column>
@@ -68,7 +68,7 @@ useRefresh(() => load(false), () => props.refreshKey)
       <el-table-column label="内容" min-width="250"><template #default="{ row }"><span class="archive-excerpt">{{ row.text || row.caption || `（${types[row.message_type] || row.message_type}）` }}</span><div class="cell-sub">{{ row.revision_count }} 个版本 <span v-if="!row.original_observed">· 未收到原始版本</span></div></template></el-table-column>
       <el-table-column label="命中原因" min-width="180"><template #default="{ row }">{{ row.violation?.reasons.join('；') || '未命中规则' }}</template></el-table-column>
       <el-table-column label="删除结果" min-width="170"><template #default="{ row }">{{ states[row.deletion_state] }}<div class="cell-sub">{{ row.deletion_error }}</div></template></el-table-column>
-      <el-table-column label="操作" width="95"><template #default="{ row }"><el-button text @click="show(row)">查看详情</el-button></template></el-table-column>
+      <el-table-column label="操作" width="95" fixed="right"><template #default="{ row }"><el-button text @click="show(row)">查看详情</el-button></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load(false)"/>
     <p class="muted">“未发起删除”仅表示 PurrAI 没有删除任务，不能证明消息仍在群中。其他人删除消息通常没有 Bot 通知；接入前的历史消息无法补抓。导出包含当前查询全部匹配消息及其收到的版本。</p>

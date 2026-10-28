@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useTask } from '../composables/useTask'
-import { api, label, time } from '../api'
+import { api, label } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ refreshKey: number }>()
 const emit = defineEmits<{ navigate: [page: string] }>()
-const { groups } = useWorkspace(), stats = ref<Record<string, number>>({})
+const { groups, me } = useWorkspace(), stats = ref<Record<string, number>>({})
 const { busy, error, safe } = useTask()
 async function load() { await safe(async () => { stats.value = await api<Record<string, number>>('/api/dashboard') }) }
 useRefresh(load, () => props.refreshKey, () => !busy.value)
@@ -15,14 +15,15 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 
 <template>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
-<section v-loading="busy">
-<div class="stat-grid">
+<section v-loading="busy" aria-label="群管理总览">
+<div class="stat-grid" aria-label="管理统计">
 <article v-for="(title, key) in { active_groups: '保护中的群', pending: '等待完成验证', passed_today: '24 小时验证通过', violations_today: '24 小时广告记录' }" :key="key" class="stat-card">
 <span>{{ title }}</span>
 <strong>{{ stats[key] ?? '—' }}</strong>
-<small>{{ key === 'pending' ? '包含等待禁言、放行和失败处理的任务' : '按你有权限管理的群统计' }}</small>
+<small v-if="key === 'pending'">含等待处理的任务</small>
 </article>
 </div>
+<p class="stats-caption">按你有权限管理的群统计</p>
 <div class="overview-grid">
 <section class="panel protection-card">
 <div class="panel-title">
@@ -40,8 +41,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </div>
 </section>
 <section class="panel attention-card">
-<span class="eyebrow">需要留意</span>
-<h2>让处理有始有终</h2>
+<h2>待跟进事项</h2>
 <p>未完成的验证和失败操作会持续保留。先查看原因，再决定重新出题或人工放行。</p>
 <div class="attention-numbers">
 <div>
@@ -54,6 +54,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </div>
 </div>
 <el-button @click="emit('navigate', 'verifications')">查看验证记录</el-button>
+<el-button v-if="me?.root && stats.failed_actions" text @click="emit('navigate', 'system')">查看失败操作</el-button>
 </section>
 </div>
 </section>

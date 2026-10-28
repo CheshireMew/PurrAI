@@ -5,6 +5,7 @@ import { useRecords } from '../composables/useRecords'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
+import { statusTone } from '../presentation'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
@@ -31,14 +32,14 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <h2>验证记录</h2>
 <el-button @click="confirmAction(`/api/groups/${selected}/release-pending`, 'release', '批量放行待验证成员')">批量放行</el-button>
 </div>
-<div class="filterbar">
+<form class="filterbar" aria-label="筛选验证记录" @submit.prevent="filters">
 <el-input v-model="userFilter" placeholder="Telegram 用户 ID" aria-label="筛选用户 ID" clearable/>
 <el-select v-model="statusFilter" placeholder="全部状态" clearable aria-label="筛选验证状态">
 <el-option v-for="s in ['pending', 'muting', 'releasing', 'removing', 'failing', 'passed', 'failed', 'left']" :key="s" :value="s" :label="label(s)"/>
 </el-select>
 <el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
-<el-button @click="filters">查询</el-button>
-</div>
+<el-button type="primary" native-type="submit">查询</el-button>
+</form>
 <el-table :data="rows" empty-text="暂无验证记录">
 <el-table-column label="成员" min-width="160">
 <template #default="{ row }">{{ row.user_name }}<div class="cell-sub">{{ row.user_id }}</div>
@@ -46,7 +47,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </el-table-column>
 <el-table-column label="状态" width="140">
 <template #default="{ row }">
-<el-tag>{{ label(row.state) }}</el-tag>
+<el-tag :type="statusTone(row.state)">{{ label(row.state) }}</el-tag>
 </template>
 </el-table-column>
 <el-table-column label="截止时间" min-width="170">
@@ -57,7 +58,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <template #default="{ row }">{{ catalog!.failure_actions[row.failure_action] || row.failure_action }}<div>{{ row.error }}</div>
 </template>
 </el-table-column>
-<el-table-column label="操作" min-width="260">
+<el-table-column label="操作" width="180" fixed="right">
 <template #default="{ row }">
 <el-button v-if="row.allowed_operations.includes('reissue')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'reissue', '重新出题')">重出题</el-button>
 <el-button v-if="row.allowed_operations.includes('release')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'release', '人工放行')">放行</el-button>

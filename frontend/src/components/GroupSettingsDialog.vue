@@ -11,6 +11,11 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 const { catalog, groups, reloadGroups } = useWorkspace()
 const { busy, error, safe } = useTask()
 const dialog = ref(false), editingId = ref('')
+const activeTab = ref('verification')
+const settingsTabs = [
+  { name: 'verification', label: '入群验证' }, { name: 'moderation', label: '防广告' },
+  { name: 'chat', label: '群聊天' }, { name: 'emoji', label: '状态表情' }, { name: 'archive', label: '消息归档' },
+]
 const copySettings = (value: GroupSettings): GroupSettings => JSON.parse(JSON.stringify(value))
 const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
@@ -21,14 +26,17 @@ const allowedLinksText = ref('')
 const chatStatus = ref<Partial<ChatStatus>>({})
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
 type BooleanKey = { [K in keyof GroupSettings]: GroupSettings[K] extends boolean ? K : never }[keyof GroupSettings]
-const numericSettings = computed(() => Object.entries(catalog.value!.settings.numbers) as [NumericKey, string][])
-const boolSettings = computed(() => Object.entries(catalog.value!.settings.booleans) as [BooleanKey, string][])
+const verificationKeys = new Set(['join_requests', 'verification_enabled', 'verification_timeout', 'max_attempts', 'failure_ban_seconds'])
+const sectionFor = (key: string) => key === 'archive_enabled' ? 'archive' : verificationKeys.has(key) ? 'verification' : 'moderation'
+const numericSettings = computed(() => (Object.entries(catalog.value!.settings.numbers) as [NumericKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
+const boolSettings = computed(() => (Object.entries(catalog.value!.settings.booleans) as [BooleanKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
 const bounds = (key: keyof GroupSettings) => catalog.value!.settings.fields[key]
 let version = 0
 watch(() => props.group, group => {
   const current = ++version
   if (!group) { dialog.value = false; return }
   editingId.value = String(group.id)
+  activeTab.value = 'verification'
   Object.assign(form, copySettings({ ...catalog.value!.settings.defaults, ...group.settings }))
   settingsBaseline.value = copySettings({ ...form })
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
@@ -82,8 +90,12 @@ async function save() {
 </script>
 
 <template>
-<el-dialog v-model="dialog" title="群设置" width="min(620px, 94vw)" :close-on-click-modal="false" destroy-on-close>
-<el-form label-position="top" @submit.prevent="save">
+<el-dialog v-model="dialog" title="群设置" class="settings-dialog" width="min(760px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<p class="settings-group-name">{{ group?.title }}</p>
+<el-tabs v-model="activeTab" class="settings-tabs">
+<el-tab-pane v-for="tab in settingsTabs" :key="tab.name" :label="tab.label" :name="tab.name">
+<el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
+<section v-show="activeTab === 'verification'" aria-label="入群验证设置">
 
 <el-form-item label="已入群成员验证失败处理">
 <el-select v-model="form.verification_failure_action" aria-label="验证失败处理">
@@ -92,9 +104,11 @@ async function save() {
 </el-select>
 </el-form-item>
 <p class="muted">超时或错误次数用尽后执行所选方式；默认永久禁言，可由管理员放行或重出题。申请入群者尚未进群，失败仅拒绝申请。</p>
+</section>
+<section v-if="['verification', 'moderation', 'archive'].includes(activeTab)" :aria-label="activeTab === 'moderation' ? '防广告设置' : activeTab === 'archive' ? '消息归档设置' : '验证选项'">
 <div class="settings-toggles">
 <el-form-item v-for="[key, name] in boolSettings" :key="key" :label="name">
-<el-switch v-model="form[key]"/>
+<el-switch v-model="form[key]" :aria-label="name"/>
 </el-form-item>
 </div>
 <div class="settings-grid">
@@ -102,6 +116,8 @@ async function save() {
 <el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum"/>
 </el-form-item>
 </div>
+</section>
+<section v-show="activeTab === 'moderation'" aria-label="防广告处理说明">
 <p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
 <p class="muted">普通成员分享联系人会删除消息、踢出并禁止重新加入，不限入群时长；群主、管理员及防广告白名单豁免。</p>
 <p class="muted">明确广告招揽和外群链接不限入群时长，删消息并永久封禁。公开链接会先核实群组类型；外部私密邀请统一处理。本群已知链接、允许链接及允许提及账号豁免链接检查；名单不豁免广告正文。明确举报或防骗引用只删外群链接，不自动永久封禁。</p>
@@ -109,8 +125,9 @@ async function save() {
 <el-input v-model="allowedLinksText" type="textarea" :rows="3" placeholder="每行一个群组、频道或邀请链接"/>
 </el-form-item>
 <p class="muted">新成员观察期默认 3 天，并检查前 3 条消息；时限和条数都满足后结束。期间限制链接、@账号或群组、用户及频道转发、加密货币地址，命中删除消息。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
-
-
+</section>
+<section v-show="activeTab === 'archive'" aria-label="归档说明"><p class="muted">保存机器人收到的群消息、编辑版本和处置结果。关闭记录不会清除已有数据；图片、视频原文件不会自动下载。已有消息可在“消息归档”中查询和导出。</p></section>
+<section v-show="activeTab === 'emoji'" aria-label="状态表情设置">
 <el-form-item label="名字旁状态表情包黑名单">
 <div style="display:flex;flex-direction:column;gap:6px;width:100%">
 <div v-for="pack in form.emoji_status_blocked_packs" :key="pack" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -129,16 +146,17 @@ async function save() {
 </div>
 <p class="muted">新增、移除和清空会立即保存，不影响其他尚未保存的群设置；重复链接自动忽略。</p>
 <p class="muted">名字旁的表情状态来自这些表情包时，踢出并禁止重新加入；由发言触发检查时还会删除对应消息。仅在入群和发消息时触发检查，普通贴纸消息不触发这项处罚。默认已加入 bygbb666 和 GsHeChaba；清空名单不会自动解除已有封禁或禁言。</p>
-<el-divider content-position="left">群聊天</el-divider>
+</section>
+<section v-show="activeTab === 'chat'" aria-label="群聊天设置">
 <p class="muted">{{ chatStatus.configured ? `模型：${chatStatus.model}` : '使用前请在服务器填写聊天 API 地址、Key 和模型名。' }} 最近消息按群及话题分开。</p>
 <p v-if="chatStatus.budget" class="muted">今日模型请求 {{ chatStatus.budget.group_calls }}/{{ chatStatus.budget.group_call_limit }}；Token 预算 {{ chatStatus.budget.group_tokens }}/{{ chatStatus.budget.group_token_limit }}。额度每日按北京时间重置，由所有者配置；用完只暂停 AI 聊天。</p>
 <el-alert v-if="chatStatus.error" :title="chatStatus.error" type="warning" :closable="false"/>
 <div class="settings-toggles">
 <el-form-item label="开启群聊天">
-<el-switch v-model="form.chat_enabled"/>
+<el-switch v-model="form.chat_enabled" aria-label="开启群聊天"/>
 </el-form-item>
 <el-form-item label="主动参与讨论">
-<el-switch v-model="form.chat_proactive"/>
+<el-switch v-model="form.chat_proactive" aria-label="主动参与讨论"/>
 </el-form-item>
 </div>
 <el-form-item label="聊天昵称">
@@ -152,7 +170,7 @@ async function save() {
 </el-form-item>
 <p class="muted">整条消息与口令相同时不进入 AI 聊天或上下文；“今天积分怎么算”等正常句子仍可讨论。积分红包后带数字、明确发给其他机器人的结构化指令直接排除，留空只关闭自定义名单。</p>
 <el-form-item label="自动识别重复口令">
-<el-switch v-model="form.chat_command_learning"/>
+<el-switch v-model="form.chat_command_learning" aria-label="自动识别重复口令"/>
 </el-form-item>
 <el-form-item label="7 天内识别次数（至少 3 位群友）">
 <el-input-number v-model="form.chat_command_threshold" :min="bounds('chat_command_threshold').minimum" :max="bounds('chat_command_threshold').maximum"/>
@@ -178,10 +196,10 @@ async function save() {
 <p class="muted">被 @、叫昵称或被回复时接话；刚聊过的群友可以接着说。不再固定等待，模型生成及接口限流仍需处理时间。普通含图消息不主动接话；明确提问时仍回答，说明看不到图片并依据正文和引用文字，不猜测图中内容。主动接话会先让模型判断是否适合发言。</p>
 <div class="settings-toggles">
 <el-form-item label="聊天使用贴纸">
-<el-switch v-model="form.chat_stickers"/>
+<el-switch v-model="form.chat_stickers" aria-label="聊天使用贴纸"/>
 </el-form-item>
 <el-form-item label="偶尔发防诈贴纸">
-<el-switch v-model="form.chat_antifraud"/>
+<el-switch v-model="form.chat_antifraud" aria-label="偶尔发防诈贴纸"/>
 </el-form-item>
 </div>
 <el-form-item label="聊天贴纸包">
@@ -201,10 +219,13 @@ async function save() {
 </p>
 <el-alert v-if="chatStatus.stickers?.error" :title="chatStatus.stickers.error" type="warning" :closable="false"/>
 <el-button @click="resetChat">重新开始聊天上下文</el-button>
-
+</section>
 </el-form>
+</el-tab-pane>
+</el-tabs>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <template #footer>
+<span class="settings-save-note">保存会应用所有分页中的修改</span>
 <el-button @click="dialog = false">取消</el-button>
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>
 </template>

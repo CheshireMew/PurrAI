@@ -37,13 +37,13 @@ useRefresh(load, () => props.refreshKey)
 <el-table :data="rows" empty-text="暂无白名单成员">
 <el-table-column prop="user_id" label="Telegram 用户 ID" min-width="180"/>
 <el-table-column label="免验证" width="100">
-<template #default="{ row }">{{ row.verification ? '是' : '否' }}</template>
+<template #default="{ row }"><el-tag :type="row.verification ? 'success' : 'info'">{{ row.verification ? '是' : '否' }}</el-tag></template>
 </el-table-column>
 <el-table-column label="免自动处罚" width="120">
-<template #default="{ row }">{{ row.moderation ? '是' : '否' }}</template>
+<template #default="{ row }"><el-tag :type="row.moderation ? 'success' : 'info'">{{ row.moderation ? '是' : '否' }}</el-tag></template>
 </el-table-column>
 <el-table-column prop="note" label="备注" min-width="170"/>
-<el-table-column label="操作" width="150">
+<el-table-column label="操作" width="120" fixed="right">
 <template #default="{ row }">
 <el-button text @click="edit(row)">编辑</el-button>
 <el-button text type="danger" @click="removeWhite(row)">移出</el-button>
@@ -58,10 +58,10 @@ useRefresh(load, () => props.refreshKey)
 <el-input v-model="form.user_id"/>
 </el-form-item>
 <el-form-item label="免图片验证">
-<el-switch v-model="form.verification"/>
+<el-switch v-model="form.verification" aria-label="免图片验证"/>
 </el-form-item>
 <el-form-item label="免自动处罚">
-<el-switch v-model="form.moderation"/>
+<el-switch v-model="form.moderation" aria-label="免自动处罚"/>
 </el-form-item>
 <el-form-item label="备注">
 <el-input v-model="form.note" maxlength="300"/>

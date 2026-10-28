@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Grid, ChatDotRound, Key, Filter, Warning, User as UserIcon, Setting, Refresh, SwitchButton, CircleCheck } from '@element-plus/icons-vue'
+import { Grid, ChatDotRound, Key, Filter, Warning, User as UserIcon, Setting, Refresh, SwitchButton, CircleCheck, Menu, Close, Document } from '@element-plus/icons-vue'
 import { api, ApiError, post, setCsrf } from './api'
 import { ActionTracker } from './actionTracker'
 import { ActionRequests, type AcceptedAction, type ActionBody, type ActionRequest } from './actionRequests'
@@ -23,6 +23,7 @@ import SystemPage from './pages/SystemPage.vue'
 
 const me = ref<User | null>(null), starting = ref(true)
 const page = ref('overview'), selected = ref<number | null>(null), groups = ref<Group[]>([]), refreshKey = ref(0)
+const menuExpanded = ref(false)
 const { busy, error, safe } = useTask(expireSession)
 const actionTracker = reactive(new ActionTracker())
 const actionRequests = reactive(new ActionRequests())
@@ -32,15 +33,19 @@ const nav = [
   { id: 'verifications', name: '入群验证', icon: Key, detail: '从进群的第一步开始把关' },
   { id: 'rules', name: '防广告规则', icon: Filter, detail: '把规则讲清楚，把打扰挡下来' },
   { id: 'violations', name: '违规记录', icon: Warning, detail: '每次处理，都有原因可查' },
-  { id: 'messages', name: '消息归档', icon: ChatDotRound, detail: '保留消息与编辑版本，方便查询和后续分析' },
+  { id: 'messages', name: '消息归档', icon: Document, detail: '保留消息与编辑版本，方便查询和后续分析' },
   { id: 'whitelist', name: '白名单', icon: CircleCheck, detail: '给信任的成员留一条通道' },
   { id: 'admins', name: '权限说明', icon: UserIcon, detail: '群管理员自动管理本群，超级管理员负责全局维护' },
   { id: 'system', name: '系统状态', icon: Setting, detail: '连接、任务和备份，一眼看清' },
 ]
 const navigation = computed(() => nav.filter(item => me.value?.root || !['admins', 'system'].includes(item.id)))
 const current = computed(() => nav.find(item => item.id === page.value)!)
-const group = computed(() => groups.value.find(value => value.id === selected.value))
 const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages'].includes(page.value))
+watch(page, async () => {
+  menuExpanded.value = false
+  await nextTick()
+  document.querySelector('.sidebar button.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+})
 async function reloadGroups() {
   groups.value = await api<Group[]>('/api/groups')
   if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value[0]?.id ?? null
@@ -96,18 +101,16 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <div v-if="starting" class="startup">正在连接 PurrAI…</div>
+  <div v-if="starting" class="startup" role="status"><CatMark class="startup-mark"/><span>正在连接 PurrAI…</span></div>
 <main v-else-if="!me" class="login-wrap">
 <section class="login-story">
 <div class="wordmark">
 <CatMark class="cat"/> PurrAI</div>
-<span class="eyebrow">给讨论留一点安静</span>
 <h1>群里的热闹，<br>交给真正的成员。</h1>
 <p>从入群验证到广告处理，<br>让每一次管理都有迹可循。</p>
 <div class="story-foot">入群验证 <i>·</i> 群管理 <i>·</i> 广告拦截</div>
 </section>
 <section class="login-card">
-<span class="eyebrow">管理员工作台</span>
 <h2>欢迎回来</h2>
 <p>这里是可选网页后台。也可私聊机器人发送 /admin，直接在 Telegram 管理群。</p>
 <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon/>
@@ -122,12 +125,15 @@ onUnmounted(() => clearInterval(timer))
 </section>
 </main>
 <div v-else class="workspace">
+<a class="skip-link" href="#main-content">跳到主要内容</a>
 <aside class="sidebar">
+<div class="sidebar-brand">
 <a class="wordmark" href="/" aria-label="PurrAI 首页">
 <CatMark class="cat"/> PurrAI</a>
-<div class="sidebar-caption">群管理工作台</div>
-<nav>
-<button v-for="item in navigation" :key="item.id" :class="{ active: page === item.id }" @click="page = item.id">
+<button class="mobile-menu" :aria-expanded="menuExpanded" aria-controls="workspace-nav" :aria-label="menuExpanded ? '收起导航' : '展开导航'" @click="menuExpanded = !menuExpanded"><el-icon><component :is="menuExpanded ? Close : Menu"/></el-icon></button>
+</div>
+<nav id="workspace-nav" aria-label="管理导航" :class="{ expanded: menuExpanded }">
+<button v-for="item in navigation" :key="item.id" :class="{ active: page === item.id, 'nav-system': item.id === 'admins' }" :aria-current="page === item.id ? 'page' : undefined" @click="page = item.id">
 <el-icon>
 <component :is="item.icon"/>
 </el-icon>
@@ -135,29 +141,26 @@ onUnmounted(() => clearInterval(timer))
 </button>
 </nav>
 <div class="sidebar-bottom">
-<span class="live-dot">
-</span> 按自己的规则守护群聊<div>{{ me.root ? '超级管理员' : '群管理员' }} · {{ me.id }}</div>
+<span class="account-avatar"><el-icon><UserIcon/></el-icon></span><div><strong>{{ me.root ? '超级管理员' : '群管理员' }}</strong><span>{{ me.id }}</span></div>
 </div>
 </aside>
 <div class="main-area">
 <header class="topbar">
-<span>PurrAI <span class="slash">/</span> {{ current.name }}</span>
+<span class="breadcrumb">工作台 <span class="slash">/</span> {{ current.name }}</span>
 <div class="top-actions">
-<el-select v-model="selected" placeholder="选择群" aria-label="选择群" style="width: 220px">
+<el-select v-model="selected" placeholder="选择群" aria-label="选择群" class="group-selector" filterable :disabled="!groups.length">
 <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="g.title"/>
 </el-select>
-<el-button :icon="Refresh" circle aria-label="刷新" @click="refreshView"/>
-<el-button :icon="SwitchButton" circle aria-label="退出登录" @click="logout"/>
+<el-tooltip content="刷新当前页面" placement="bottom"><el-button :icon="Refresh" circle aria-label="刷新" :aria-busy="busy" @click="refreshView"/></el-tooltip>
+<el-tooltip content="退出登录" placement="bottom"><el-button :icon="SwitchButton" circle aria-label="退出登录" @click="logout"/></el-tooltip>
 </div>
 </header>
-<main class="content">
+<main id="main-content" class="content" tabindex="-1">
 <div class="page-heading">
 <div>
-<span class="eyebrow">{{ needsGroup ? group?.title || '请选择群' : 'PURRAI WORKSPACE' }}</span>
 <h1>{{ current.name }}</h1>
 <p>{{ current.detail }}</p>
 </div>
-<span class="timezone">时间均为北京时间</span>
 </div>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <el-alert v-if="needsGroup && !selected" title="还没有可以管理的群。请先将机器人加入超级群，再由本群管理员启用保护。" type="info" :closable="false"/>
@@ -171,7 +174,7 @@ onUnmounted(() => clearInterval(timer))
 <PermissionsPage v-else-if="page === 'admins'" :refresh-key="refreshKey"/>
 <SystemPage v-else-if="page === 'system'" :refresh-key="refreshKey"/>
 <ActionResults/>
-<footer>PurrAI <span>让群聊回到交流本身。</span>
+<footer>PurrAI <span>时间均为北京时间</span>
 </footer>
 </main>
 </div>

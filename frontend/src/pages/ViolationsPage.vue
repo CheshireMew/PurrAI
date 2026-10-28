@@ -22,11 +22,11 @@ useRefresh(load, () => props.refreshKey)
 <h2>违规记录</h2>
 <span class="muted">已删除的 Telegram 消息无法原地恢复</span>
 </div>
-<div class="filterbar">
+<form class="filterbar" aria-label="筛选违规记录" @submit.prevent="filters">
 <el-input v-model="userFilter" placeholder="Telegram 用户 ID" aria-label="违规用户 ID" clearable/>
 <el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
-<el-button @click="filters">查询</el-button>
-</div>
+<el-button type="primary" native-type="submit">查询</el-button>
+</form>
 <el-table :data="rows" empty-text="暂无违规记录">
 <el-table-column label="时间 / 成员" min-width="180">
 <template #default="{ row }">{{ time(row.created_at) }}<div class="cell-sub">{{ row.user_id }} {{ row.sender_chat ? '（频道身份）' : '' }}</div>
@@ -43,7 +43,7 @@ useRefresh(load, () => props.refreshKey)
 </div>
 </template>
 </el-table-column>
-<el-table-column label="纠正操作" min-width="280">
+<el-table-column label="纠正操作" width="120" fixed="right">
 <template #default="{ row }">
 <el-button v-if="row.allowed_operations.includes('revoke_warning')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'revoke_warning', '撤销警告')">撤销警告</el-button>
 <el-button v-if="row.allowed_operations.includes('unmute')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>

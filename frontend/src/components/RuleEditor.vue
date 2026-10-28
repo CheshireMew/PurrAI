@@ -72,7 +72,7 @@ async function save() {
 </el-form-item>
 <p class="muted">谐音与忽略分隔符仅对你配置的词组匹配。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
 <el-form-item label="启用">
-<el-switch v-model="form.enabled"/>
+<el-switch v-model="form.enabled" aria-label="启用规则"/>
 </el-form-item>
 <el-form-item label="测试昵称及用户名">
 <el-input v-model="previewInput.sender_name" placeholder="例如：显示昵称 @username"/>
@@ -80,7 +80,7 @@ async function save() {
 <el-form-item label="保存前测试">
 <el-input v-model="previewInput.text" type="textarea" :rows="2" placeholder="输入消息，测试这次修改后的规则"/>
 </el-form-item>
-<el-button @click="previewDraft">预览当前草稿</el-button>
+<el-button :loading="busy" @click="previewDraft">预览当前草稿</el-button>
 <el-alert v-if="previewReasons !== null" :type="previewReasons.length ? 'warning' : 'success'" :title="previewReasons.length ? previewReasons.join('；') : '未命中规则'" :closable="false" style="margin-top:12px"/>
 
 </el-form>

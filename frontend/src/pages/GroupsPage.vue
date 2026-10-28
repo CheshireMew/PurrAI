@@ -8,6 +8,7 @@ import { useTask } from '../composables/useTask'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
+import { statusTone } from '../presentation'
 
 const props = defineProps<{ refreshKey: number }>()
 const { me, groups, reloadGroups, submitAction } = useWorkspace()
@@ -61,7 +62,7 @@ useRefresh(load, () => props.refreshKey)
 </el-table-column>
 <el-table-column label="状态" width="110">
 <template #default="{ row }">
-<el-tag :type="row.status === 'active' ? 'success' : 'info'">{{ row.approved ? label(row.status) : '等待所有者批准' }}</el-tag>
+<el-tag :type="row.approved ? statusTone(row.status) : 'warning'">{{ row.approved ? label(row.status) : '等待所有者批准' }}</el-tag>
 </template>
 </el-table-column>
 <el-table-column label="操作" min-width="330">

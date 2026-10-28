@@ -41,7 +41,7 @@ useRefresh(load, () => props.refreshKey)
 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
 </template>
 </el-table-column>
-<el-table-column label="操作" width="100">
+<el-table-column label="操作" width="80" fixed="right">
 <template #default="{ row }">
 <el-button text @click="edit(row)">编辑</el-button>
 </template>
@@ -63,7 +63,7 @@ useRefresh(load, () => props.refreshKey)
 <el-input-number v-model="previewInput.similar" :min="0" :max="100"/>
 <span>连续发送次数</span>
 <el-input-number v-model="previewInput.burst" :min="0" :max="100"/>
-<el-button type="primary" @click="preview">测试规则</el-button>
+<el-button type="primary" :loading="busy" @click="preview">测试规则</el-button>
 </div>
 <el-alert v-if="previewReasons !== null" :type="previewReasons.length ? 'warning' : 'success'" :title="previewReasons.length ? previewReasons.join('；') : '未命中当前规则'" :closable="false"/>
 </section>

@@ -24,23 +24,23 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <template>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 
-<section class="panel">
+<section class="panel" v-loading="reads.busy.value">
 <div class="panel-title">
 <h2>运行状态</h2>
-<el-button @click="systemAction('/api/system/backup')">生成数据库备份</el-button>
+<el-button :loading="actions.busy.value" @click="systemAction('/api/system/backup')">生成数据库备份</el-button>
 </div>
 <div class="system-grid">
 <div>
 <span>Telegram 连接</span>
-<strong>{{ system.connected ? '已连接' : '未连接' }}</strong>
+<strong :class="{ 'status-error': system.connected === false }">{{ system.connected === undefined ? '—' : system.connected ? '已连接' : '未连接' }}</strong>
 </div>
 <div>
 <span>Bot 配置</span>
-<strong>{{ system.bot_configured ? '已配置' : '未配置' }}</strong>
+<strong>{{ system.bot_configured === undefined ? '—' : system.bot_configured ? '已配置' : '未配置' }}</strong>
 </div>
 <div>
 <span>后台登录</span>
-<strong>{{ system.login_configured ? '已配置' : '未配置' }}</strong>
+<strong>{{ system.login_configured === undefined ? '—' : system.login_configured ? '已配置' : '未配置' }}</strong>
 </div>
 <div>
 <span>待执行任务</span>
@@ -61,7 +61,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-table-column prop="error" label="失败原因" min-width="220"/>
 <el-table-column label="操作" width="100">
 <template #default="{ row }">
-<el-button text @click="systemAction(`/api/actions/${row.id}/retry`)">重试</el-button>
+<el-button text :disabled="actions.busy.value" @click="systemAction(`/api/actions/${row.id}/retry`)">重试</el-button>
 </template>
 </el-table-column>
 </el-table>
@@ -73,7 +73,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-table-column prop="error" label="失败原因"/>
 <el-table-column label="操作" width="100">
 <template #default="{ row }">
-<el-button text @click="systemAction(`/api/events/${row.id}/retry`)">重试</el-button>
+<el-button text :disabled="actions.busy.value" @click="systemAction(`/api/events/${row.id}/retry`)">重试</el-button>
 </template>
 </el-table-column>
 </el-table>
