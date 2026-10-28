@@ -52,6 +52,7 @@ function acceptAction({ receipt, reason }: AcceptedAction) {
   else if (receipt.state === 'cancelled') ElMessage.info('操作已取消，请查看下方结果')
   else if (receipt.state === 'failed') ElMessage.warning('操作未完成，请查看下方原因')
   else ElMessage.success(receipt.state === 'succeeded' ? '操作已完成' : '操作已提交，执行结果将在下方更新')
+  void refreshActions()
 }
 async function submitAction(path: string, body: ActionBody) {
   await safe(async () => acceptAction(await actionRequests.submit(path, body)))
@@ -72,6 +73,11 @@ async function refreshView() {
   refreshKey.value++
 }
 async function logout() { await safe(async () => { await post('/auth/logout'); me.value = null }) }
+async function refreshActions() {
+  if (!me.value) return
+  try { await actionTracker.refresh() }
+  catch (reason) { if (reason instanceof ApiError && reason.status === 401) expireSession() }
+}
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
   try {
@@ -84,11 +90,7 @@ onMounted(async () => {
     if (!(reason instanceof ApiError && reason.status === 401)) error.value = (reason as Error).message
   } finally { starting.value = false }
   const loginError = new URLSearchParams(location.search).get('login_error'); if (loginError) error.value = loginError
-  timer = setInterval(async () => {
-    if (!me.value || busy.value) return
-    try { await actionTracker.refresh() }
-    catch (reason) { if (reason instanceof ApiError && reason.status === 401) expireSession() }
-  }, 5000)
+  timer = setInterval(() => { void refreshActions() }, 1000)
 })
 onUnmounted(() => clearInterval(timer))
 </script>

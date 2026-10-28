@@ -365,5 +365,6 @@ class Runtime:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await self.admin.ui.close()
         await self.chat.close()
         await self.tg.close()

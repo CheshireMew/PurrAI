@@ -138,6 +138,11 @@ test('普通群管理员没有接入任意群的入口', async ({ page }) => {
 
 test('重出题提交回执丢失后刷新页面仍确认原请求，不重复出题', async ({ page }) => {
   await mock(page)
+  await page.clock.install()
+  let completed = false
+  await page.route('**/api/actions/only-one-challenge', route => route.fulfill({ json: {
+    id: 'only-one-challenge', state: completed ? 'succeeded' : 'pending', reason: '核实后重新出题',
+  } }))
   const requests: any[] = [], effects = new Map<string, string>()
   await page.route('**/api/verifications/v1/actions', async route => {
     const body = route.request().postDataJSON(); requests.push(body)
@@ -160,6 +165,9 @@ test('重出题提交回执丢失后刷新页面仍确认原请求，不重复�
   expect(requests).toHaveLength(2)
   expect(requests[0]).toEqual(requests[1]); expect(effects.size).toBe(1)
   await expect(page.getByRole('button', { name: '确认提交结果', exact: true })).toHaveCount(0)
+  completed = true
+  await page.clock.fastForward(1000)
+  await expect(page.locator('.action-results')).toContainText('已完成')
 })
 
 for (const [state, label] of [['active', '正在记录新消息'], ['disabled', '已停止记录新消息'], ['capacity_paused', '容量不足，已暂停记录']]) {
@@ -333,14 +341,62 @@ test('总览、群设置和规则保存均可操作', async ({ page }) => {
   expect(errors).toEqual([])
 })
 test('人工放行先显示处理中，再显示执行完成', async ({ page }) => {
-  await mock(page); await page.goto('/')
+  await mock(page); await page.clock.install()
+  let completed = false, reads = 0
+  await page.route('**/api/actions/a1', route => {
+    reads++
+    return route.fulfill({ json: { id: 'a1', state: completed ? 'succeeded' : 'pending', reason: '人工核实' } })
+  })
+  await page.goto('/')
   await page.getByRole('button', { name: '入群验证', exact: true }).click()
   await page.getByRole('button', { name: '放行', exact: true }).click()
   await page.getByRole('dialog').getByRole('textbox').fill('人工核实')
   await page.getByRole('button', { name: '提交操作' }).click()
   await expect(page.getByText('本次提交的操作')).toBeVisible()
   await expect(page.getByText('等待 Telegram 执行确认')).toBeVisible()
+  await expect.poll(() => reads).toBe(1)
+  completed = true
+  await page.clock.fastForward(1000)
   await expect(page.locator('.action-results').getByText('已完成')).toBeVisible({ timeout: 10000 })
+})
+
+test('多个独立操作每秒合并刷新，完成后停止查询', async ({ page }) => {
+  await mock(page); await page.clock.install()
+  let submissions = 0, singles = 0, batches = 0, completed = false
+  await page.route('**/api/verifications/v1/actions', route => {
+    submissions++
+    return route.fulfill({ json: { id: `task-${submissions}`, state: 'pending', reason: '人工核实' } })
+  })
+  await page.route('**/api/actions/task-*', route => {
+    singles++
+    return route.fulfill({ json: { id: new URL(route.request().url()).pathname.split('/').pop(),
+      state: completed ? 'succeeded' : 'pending', reason: '人工核实' } })
+  })
+  await page.route('**/api/actions?*', route => {
+    batches++
+    const ids = new URL(route.request().url()).searchParams.getAll('identifiers')
+    return route.fulfill({ json: { items: ids.map(id => ({ id, state: completed ? 'succeeded' : 'pending', reason: '人工核实' })), errors: {} } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '入群验证', exact: true }).click()
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: '重出题', exact: true }).click()
+    await page.getByRole('dialog').getByRole('textbox').fill('人工核实')
+    await page.getByRole('button', { name: '提交操作', exact: true }).click()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await expect(page.locator('.action-results .action-line')).toHaveCount(i + 1)
+  }
+  await expect.poll(() => batches).toBeGreaterThanOrEqual(2)
+  const previousBatches = batches, previousSingles = singles
+  completed = true
+  await page.clock.fastForward(1000)
+  await expect(page.locator('.action-results').getByText('已完成', { exact: true })).toHaveCount(3)
+  expect(batches).toBeGreaterThan(previousBatches)
+  expect(singles).toBe(previousSingles)
+  const finishedBatches = batches
+  await page.clock.fastForward(10000)
+  expect(batches).toBe(finishedBatches)
+  expect(submissions).toBe(3)
 })
 
 test('群聊天口令计数可查看并能修改门槛、例外和开关', async ({ page }) => {

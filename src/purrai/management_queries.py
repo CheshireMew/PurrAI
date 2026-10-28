@@ -137,6 +137,15 @@ class ManagementQueries:
             raise ManagementError(404, "群不存在")
         return row
 
+    async def action_statuses(self, actor, identifiers):
+        items, errors = [], {}
+        for identifier in dict.fromkeys(identifiers):
+            try:
+                items.append(await self.action(actor, identifier))
+            except ManagementError as exc:
+                errors[identifier] = {"status": exc.status, "detail": str(exc)}
+        return {"items": items, "errors": errors}
+
     async def failures(self, actor, *, event=False, page=0, size=6):
         await self.context.access.principal(actor, root=True)
         model = Inbox if event else Action

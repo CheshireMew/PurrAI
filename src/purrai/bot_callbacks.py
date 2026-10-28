@@ -11,6 +11,7 @@ from purrai.models import now
 class BotCallbacks:
     def __init__(self, ui, state, routes, inputs):
         self.send, self.acknowledge, self.recall = ui.send, ui.acknowledge, state.recall
+        self.state = state
         self.routes, self.inputs = routes, inputs
 
     @staticmethod
@@ -70,13 +71,29 @@ class BotCallbacks:
                 return True
             if record["actor"] != actor:
                 raise ManagementError(403, "此按钮属于其他管理员，请使用你自己的管理面板")
+            mutation = record["action"] not in NAVIGATION_ACTIONS
+            current = await self.recall(f"bot_panel:{actor}:{message.get('message_id')}")
+            if mutation and (
+                not record.get("panel") or record.get("processed")
+                or current and record.get("panel") != current["panel"]
+            ):
+                await self.acknowledge(query["id"], "面板已更新，本次未重复执行，请使用当前按钮")
+                resume = current or {
+                    "group_id": record["group_id"],
+                    "resume": record.get("resume") or self.legacy_resume(record),
+                }
+                await self.routes.route(actor, token, {"group_id": resume["group_id"], **resume["resume"]},
+                                        message.get("message_id"))
+                return True
             expires = record.get("expires")
             if record["action"] not in NAVIGATION_ACTIONS and expires is not None and expires <= now():
                 await self.acknowledge(query["id"], "已接续面板，请核对后再次选择要执行的操作")
                 await self.resume_panel(actor, token, record, message.get("message_id"))
                 return True
-            await self.acknowledge(query["id"], "正在处理")
+            await self.acknowledge(query["id"], "")
             await self.routes.route(actor, token, record, message.get("message_id"))
+            if mutation:
+                await self.state.complete_button(token)
         except (ManagementError, ValidationError) as exc:
             await self.acknowledge(query["id"], "操作未完成")
             await self.send(actor, explain(exc))

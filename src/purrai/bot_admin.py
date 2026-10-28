@@ -13,6 +13,7 @@ from purrai.bot_ui import BotUI
 
 class BotAdmin:
     def __init__(self, management):
+        self.access = management.access
         self.state = BotState(management.db)
         self.ui = BotUI(management.tg, management.settings, self.state)
         self.panels = BotPanels(management, self.ui, self.state)
@@ -22,10 +23,12 @@ class BotAdmin:
         self.callbacks = BotCallbacks(self.ui, self.state, self.routes, self.inputs)
 
     async def message(self, message):
-        return await self.commands.message(message)
+        async with self.access.operation():
+            return await self.commands.message(message)
 
     async def callback(self, query):
-        return await self.callbacks.callback(query)
+        async with self.access.operation():
+            return await self.callbacks.callback(query)
 
     async def remember(self, key, value):
         return await self.state.remember(key, value)

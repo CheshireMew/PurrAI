@@ -271,6 +271,14 @@ def install_api(app):
     async def save_admin(body: AdminInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.admin(user.id, body)
 
+    @app.get("/api/actions")
+    async def action_statuses(
+        request: Request,
+        identifiers: Annotated[list[str], Query(min_length=1, max_length=50)],
+        user: Identity = Depends(identity),
+    ):
+        return await request.app.state.management.queries.action_statuses(user.id, identifiers)
+
     @app.get("/api/actions/{identifier}")
     async def action(identifier: str, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.queries.action(user.id, identifier)

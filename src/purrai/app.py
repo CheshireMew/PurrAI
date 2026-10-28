@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from purrai.api import install_api
@@ -43,7 +43,12 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
             if db is None:
                 await database.close()
 
-    app = FastAPI(title="PurrAI", version="0.1.0", lifespan=lifespan)
+    async def management_operation():
+        async with runtime.management.access.operation():
+            yield
+
+    app = FastAPI(title="PurrAI", version="0.1.0", lifespan=lifespan,
+                  dependencies=[Depends(management_operation)])
     app.state.settings, app.state.db, app.state.tg = settings, database, gateway
     app.state.service, app.state.runtime = service, runtime
     app.state.management = runtime.management

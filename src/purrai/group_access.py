@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from sqlalchemy import select
 
@@ -14,6 +15,36 @@ from purrai.telegram import is_admin
 class GroupAccess:
     def __init__(self, db, telegram, settings):
         self.db, self.tg, self.settings = db, telegram, settings
+        self._operation_roles = ContextVar(f"purrai_admin_roles_{id(self)}", default=None)
+
+    def operation_roles(self):
+        scope = self._operation_roles.get()
+        return scope[1] if scope is not None and scope[0] is asyncio.current_task() else None
+
+    @asynccontextmanager
+    async def operation(self):
+        """Reuse role checks only within this task's current management request."""
+        if self.operation_roles() is not None:
+            yield
+            return
+        token = self._operation_roles.set((asyncio.current_task(), {}))
+        try:
+            yield
+        finally:
+            self._operation_roles.reset(token)
+
+    async def administrator(self, actor, group_id):
+        roles = self.operation_roles()
+        key = (actor, group_id)
+        if roles is not None and key in roles:
+            return roles[key]
+        member = await self.tg.call(
+            "get_chat_member", chat_id=group_id, user_id=actor, request_timeout=3
+        )
+        administrator = is_admin(member)
+        if roles is not None:
+            roles[key] = administrator
+        return administrator
 
     @staticmethod
     async def current_group(session, group_id):
@@ -48,12 +79,10 @@ class GroupAccess:
             group = await self.current_group(session, group_id)
         if not owner:
             try:
-                member = await self.tg.call(
-                    "get_chat_member", chat_id=group_id, user_id=actor, request_timeout=3
-                )
+                administrator = await self.administrator(actor, group_id)
             except Exception as exc:
                 raise ManagementError(503, "暂时无法核实 Telegram 群管理员身份") from exc
-            if not is_admin(member):
+            if not administrator:
                 raise ManagementError(403, "你不是此群的 Telegram 管理员，无法管理此群")
             async with self.db.sessions() as session:
                 group = await self.current_group(session, group_id)
@@ -65,8 +94,11 @@ class GroupAccess:
         if actor in self.settings.superadmin_ids:
             return [row_dict(row) for row in rows]
         semaphore = asyncio.Semaphore(4)
+        cached = self.operation_roles()
 
         async def check(row):
+            if cached is not None and (actor, row.id) in cached:
+                return cached[(actor, row.id)]
             try:
                 async with semaphore:
                     member = await self.tg.call(
@@ -78,6 +110,8 @@ class GroupAccess:
 
         approved_rows = [row for row in rows if row.approved]
         roles = await asyncio.gather(*(check(row) for row in approved_rows))
+        if cached is not None:
+            cached.update({(actor, row.id): role for row, role in zip(approved_rows, roles) if role is not None})
         result = [row_dict(row) for row, administrator in zip(approved_rows, roles) if administrator]
         unavailable = any(role is None for role in roles)
         if not result and unavailable:
