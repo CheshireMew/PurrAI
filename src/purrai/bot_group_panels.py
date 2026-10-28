@@ -1,7 +1,7 @@
 """Telegram panels for group panels."""
 
 from purrai.admin_labels import STATE
-from purrai.bot_common import button
+from purrai.bot_common import button, url_button
 from purrai.errors import ManagementError
 
 
@@ -23,6 +23,9 @@ class GroupPanels:
             )
             for g in groups[page * 5 : page * 5 + 5]
         ]
+        public_url = self.management.settings.public_url.rstrip("/")
+        if public_url.startswith("https://"):
+            buttons.insert(0, url_button("🌐 登录网页后台", public_url + "/"))
         if page:
             buttons.append(button("上一页", "groups", page=page - 1))
         if len(groups) > page * 5 + 5:

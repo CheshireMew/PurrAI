@@ -31,14 +31,18 @@ class BotState:
         keyboard = []
         async with self.db.transaction() as session:
             previous = previous or []
-            keys = [f"bot_button:{item['callback_data'][2:]}" for item in previous]
+            keys = [f"bot_button:{item['callback_data'][2:]}" for item in previous if "callback_data" in item]
             records = {
                 row.key: json.loads(row.value)
                 for row in await session.scalars(select(Meta).where(Meta.key.in_(keys)))
             } if keys else {}
-            for index, (label, action, data) in enumerate(buttons):
+            for index, item in enumerate(buttons):
+                if isinstance(item, dict):
+                    keyboard.append(item)
+                    continue
+                label, action, data = item
                 old = previous[index] if index < len(previous) else None
-                record = records.get(f"bot_button:{old['callback_data'][2:]}") if old else None
+                record = records.get(f"bot_button:{old['callback_data'][2:]}") if old and "callback_data" in old else None
                 if record and record.get("panel") == panel_id and not record.get("processed") and (
                     record.get("expires") is None or record["expires"] > now()
                 ):

@@ -100,6 +100,8 @@ npm run build
 
 将生成的 `frontend/dist` 与对应源码一起放到服务器。配置 HTTPS 正式地址、`PURRAI_COOKIE_SECURE=true`、OIDC Client ID / Client Secret 及至少 32 字符的 `PURRAI_SESSION_SECRET`，并在 BotFather 配置相应登录与回调地址。
 
+在 BotFather 的机器人登录设置中，若仍显示旧版 Login Widget，先选择“Switch to OpenID Connect Login”。在 Allowed URLs 登记 `PURRAI_PUBLIC_URL` 对应的网站地址，以及该地址加上 `/auth/telegram/callback` 的完整回调地址；将页面显示的 Client ID 和 Client Secret 填入服务器环境配置。配置 HTTPS 地址后，Telegram 选群菜单会提供“🌐 登录网页后台”链接。
+
 正式构建同时生成 `build-manifest.json`，记录源码及当前网页文件的内容身份。`purrai doctor` 与网页服务共用检查：源码更新、产物损坏或缺少清单时提示重新构建，网页返回 503；Bot 与 API 继续使用各自入口。旧资源文件保留在磁盘上，但不会被选入当前网页或直接提供。重复执行 `npm run build` 会替换当前清单，无需删除旧文件。
 
 [Nginx 示例](../deploy/nginx.conf.example)需要替换域名、证书路径，并合入现有反向代理；限流区域放在 `http` 层。应用前在服务器执行 `nginx -t`。Bot 和网页共享群授权、配置及操作记录。
