@@ -102,6 +102,8 @@ npm run build
 
 在 BotFather 的机器人登录设置中，若仍显示旧版 Login Widget，先选择“Switch to OpenID Connect Login”。在 Redirect URIs 登记 `PURRAI_PUBLIC_URL` 加上 `/auth/telegram/callback` 的完整回调地址，在 Trusted Origins 登记网站地址本身；有些界面将它们统称为 Allowed URLs。将页面显示的 Client ID 和 Client Secret 填入服务器环境配置。配置 HTTPS 地址后，Telegram 选群菜单会提供“🌐 登录网页后台”链接。
 
+机器人菜单的入口使用 Telegram `login_url` 授权按钮，回到 `/auth/telegram/button` 后校验 Telegram 签名并建立网页会话，不经过 OIDC 授权页。域名须通过 BotFather 的 `/setdomain` 与当前机器人绑定；这项绑定与上面的 OIDC 回调配置分别保留。按钮授权在五分钟内有效且仅使用一次，完成身份核验后仍检查当前群管理权限。直接访问网页继续使用 OIDC 登录。
+
 正式构建同时生成 `build-manifest.json`，记录源码及当前网页文件的内容身份。`purrai doctor` 与网页服务共用检查：源码更新、产物损坏或缺少清单时提示重新构建，网页返回 503；Bot 与 API 继续使用各自入口。旧资源文件保留在磁盘上，但不会被选入当前网页或直接提供。重复执行 `npm run build` 会替换当前清单，无需删除旧文件。
 
 [Nginx 示例](../deploy/nginx.conf.example)需要替换域名、证书路径，并合入现有反向代理；限流区域放在 `http` 层。应用前在服务器执行 `nginx -t`。Bot 和网页共享群授权、配置及操作记录。

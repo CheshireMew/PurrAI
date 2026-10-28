@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import secrets
 import asyncio
 from dataclasses import dataclass
@@ -8,6 +9,24 @@ from fastapi.responses import RedirectResponse
 
 from purrai.errors import ManagementError
 from purrai.models import LoginAttempt, Session, now
+
+
+def telegram_button_identity(parameters, bot_token):
+    fields = dict(parameters.multi_items())
+    if len(fields) != len(parameters.multi_items()):
+        raise ValueError("重复的授权字段")
+    signature = fields.pop("hash", "")
+    if len(signature) != 64 or any(char not in "0123456789abcdef" for char in signature):
+        raise ValueError("缺少有效授权签名")
+    check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+    secret = hashlib.sha256(bot_token.encode()).digest()
+    expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("授权签名不匹配")
+    user_id, timestamp = int(fields["id"]), int(fields["auth_date"])
+    if user_id <= 0 or not -30 <= now() - timestamp <= 300:
+        raise ValueError("授权已过期")
+    return user_id, "telegram-button:" + hashlib.sha256(signature.encode()).hexdigest(), timestamp + 331
 
 
 @dataclass
@@ -56,6 +75,47 @@ def install_auth(app):
 
     metadata_cache, metadata_expires = None, 0
     metadata_lock = asyncio.Lock()
+
+    async def finish_login(request, user_id, *, button_key=None, button_expires=0):
+        from urllib.parse import urlencode
+
+        settings = request.app.state.settings
+        try:
+            await request.app.state.management.principal(user_id)
+        except ManagementError as exc:
+            return RedirectResponse("/?" + urlencode({"login_error": str(exc)}))
+        async with request.app.state.db.transaction() as session:
+            if button_key:
+                from sqlalchemy import delete
+
+                await session.execute(delete(LoginAttempt).where(LoginAttempt.expires_at <= now()))
+                if await session.get(LoginAttempt, button_key):
+                    return RedirectResponse("/?" + urlencode({"login_error": "此登录授权已使用，请重新点击机器人中的登录按钮"}))
+                session.add(LoginAttempt(state=button_key, nonce="", verifier="", expires_at=button_expires))
+            raw = secrets.token_urlsafe(48)
+            session.add(Session(
+                id=hashlib.sha256(raw.encode()).hexdigest(), user_id=user_id,
+                csrf=secrets.token_urlsafe(32), expires_at=now() + 28800,
+            ))
+        response = RedirectResponse("/", headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+        response.delete_cookie("purrai_login", path="/auth")
+        response.set_cookie(
+            "purrai_session", raw, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=28800,
+        )
+        return response
+
+    @app.get("/auth/telegram/button")
+    async def button_login(request: Request):
+        from urllib.parse import urlencode
+
+        settings = request.app.state.settings
+        if not settings.bot_token or len(settings.session_secret) < 32:
+            raise HTTPException(503, "尚未配置机器人网页登录，请完成 Bot Token 与会话密钥配置")
+        try:
+            user_id, key, expires = telegram_button_identity(request.query_params, settings.bot_token)
+        except (ValueError, KeyError):
+            return RedirectResponse("/?" + urlencode({"login_error": "Telegram 授权无效或已过期，请重新点击机器人中的登录按钮"}))
+        return await finish_login(request, user_id, button_key=key, button_expires=expires)
 
     async def discovery():
         import httpx
@@ -163,28 +223,7 @@ def install_auth(app):
             user_id = int(claims["id"])
         except Exception:
             return RedirectResponse("/?login_error=Telegram身份核验失败，请重新登录")
-        try:
-            await request.app.state.management.principal(user_id)
-        except ManagementError as exc:
-            from urllib.parse import urlencode
-
-            return RedirectResponse("/?" + urlencode({"login_error": str(exc)}))
-        async with request.app.state.db.transaction() as session:
-            raw = secrets.token_urlsafe(48)
-            session.add(
-                Session(
-                    id=hashlib.sha256(raw.encode()).hexdigest(),
-                    user_id=user_id,
-                    csrf=secrets.token_urlsafe(32),
-                    expires_at=now() + 28800,
-                )
-            )
-        response = RedirectResponse("/")
-        response.delete_cookie("purrai_login", path="/auth")
-        response.set_cookie(
-            "purrai_session", raw, httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=28800
-        )
-        return response
+        return await finish_login(request, user_id)
 
     @app.post("/auth/logout")
     async def logout(request: Request, user: Identity = Depends(identity)):

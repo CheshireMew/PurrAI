@@ -16,7 +16,7 @@ def keyboard_rows(buttons):
     for item in buttons:
         label = item["text"]
         width = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in label)
-        if "url" in item or width > 32 or label.startswith(("返回", "取消", "切换群")):
+        if "url" in item or "login_url" in item or width > 32 or label.startswith(("返回", "取消", "切换群")):
             if pair:
                 rows.append(pair)
                 pair = []
@@ -41,8 +41,8 @@ def button(label, action, **data):
     return label, action, data
 
 
-def url_button(label, url):
-    return {"text": label[:60], "url": url, "style": "primary"}
+def login_button(label, url):
+    return {"text": label[:60], "login_url": {"url": url}, "style": "primary"}
 
 
 def explain(error):
