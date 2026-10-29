@@ -99,7 +99,7 @@ async def test_model_advertisement_flag_overrides_reply_and_sticker(env):
 
 
 async def test_legitimate_scam_advice_remains_in_the_followup_context(env):
-    chat, model = await configured(env, chat_proactive=False)
+    chat, model = await configured(env)
     model.result = "私聊推返佣的先警惕，别给陌生人垫款。"
     await chat.observe(message(1, "柴郡喵，怎么识别返佣骗局？"))
     await chat.run_one()

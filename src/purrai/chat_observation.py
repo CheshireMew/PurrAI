@@ -10,8 +10,8 @@ from purrai import chat_commands
 from purrai.chat_retraction import RECEIPT_RETENTION
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import (
-    UNREADABLE_IMAGE, addressed, chat_sender, following_up, has_image, human_message, ignored_text,
-    message_bursts, reply_snapshot, session_state,
+    UNREADABLE_IMAGE, addressed, chat_sender, has_image, human_message, ignored_text,
+    message_bursts, reply_snapshot,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, now
 from purrai.rules import message_content
@@ -129,7 +129,6 @@ class ChatObservation:
     async def schedule(self, session, row, cfg, message, direct, image, reasons):
         group_id, topic_id = row.group_id, row.topic_id
         message_id = row.message_id
-        text, reply = row.text, message.get("reply_to_message") or {}
         recent = await self.contexts.recent(session, group_id, topic_id)
         burst = next((items for items in message_bursts(recent) if row in items), [])
         if not burst:
@@ -137,34 +136,9 @@ class ChatObservation:
         if reasons or image and not direct:
             return
         await self.stickers.activity(session, group_id, topic_id, cfg.chat_antifraud_interval)
-        _, state = await session_state(session, group_id, topic_id)
-        reply_elsewhere = bool(reply and reply.get("from", {}).get("id") != self.tg.user_id)
-        inflight = False
-        if not direct and not reply_elsewhere:
-            # A supplement can arrive while the answer to this same burst
-            # is still being generated, before last_reply has been recorded.
-            inflight = bool(await session.scalar(select(ChatTurn.id).where(
-                ChatTurn.group_id == group_id, ChatTurn.topic_id == topic_id,
-                ChatTurn.message_id.in_([item.message_id for item in burst]),
-                ChatTurn.state == "generating",
-            )))
-        followup = not reply_elsewhere and (inflight or following_up(
-            state, row.sender_id, row.received_at, allow_join=cfg.chat_proactive,
-        ))
-        if not direct and not followup:
-            reason = (
-                "主动聊天关闭，且不是直接对话或续聊" if not cfg.chat_proactive
-                else "普通插话内容过短" if len(text) < 4
-                else "聊天失败后的暂停尚未结束" if now() < state.get("blocked_until", 0)
-                else "主动插话冷却尚未结束"
-                if now() - state.get("last_attempt", 0) < cfg.chat_interval else ""
-            )
-            if reason:
-                logger.info(
-                    "聊天未进入模型 group=%s topic=%s message=%s reason=%s",
-                    group_id, topic_id, message_id, reason,
-                )
-                return
+        if not cfg.chat_proactive and not direct:
+            logger.info("聊天未进入模型 group=%s message=%s reason=主动参与关闭，消息未叫到机器人", group_id, message_id)
+            return
         if now() - message["date"] > 120:
             logger.info(
                 "聊天未进入模型 group=%s topic=%s message=%s reason=消息已过期",

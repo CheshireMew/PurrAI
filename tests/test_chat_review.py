@@ -14,7 +14,7 @@ from test_chat import age_reply, configured, due
 
 @pytest.mark.parametrize("topic_flag", [None, False])
 async def test_ordinary_reply_chain_and_plain_followup_share_one_conversation(env, topic_flag):
-    chat, model = await configured(env, chat_proactive=False)
+    chat, model = await configured(env)
     model.result = "那我给你讲个冷笑话。"
     flags = {} if topic_flag is None else {"is_topic_message": topic_flag}
     await chat.observe(message(
@@ -32,7 +32,7 @@ async def test_ordinary_reply_chain_and_plain_followup_share_one_conversation(en
     await chat.observe(message(2, "什么冷笑话"))
     await due(chat)
     assert await chat.run_one()
-    assert model.calls[-1][1]["reply_mode"] == "followup"
+    assert "reply_mode" not in model.calls[-1][1]
     assert any(row["bot"] and "冷笑话" in row["text"] for row in model.calls[-1][1]["messages"])
 
 
@@ -46,12 +46,12 @@ async def test_another_member_can_join_recent_conversation_without_a_mention(env
     await due(chat)
     assert await chat.run_one()
     request = model.calls[-1][1]
-    assert len(model.calls) == 2 and request["reply_mode"] == "followup"
+    assert len(model.calls) == 2 and "reply_mode" not in request
     assert request["reply_to"] == 2 and any(row["bot"] for row in request["messages"])
-    assert len([1 for method, _ in chat.tg.calls if method == "send_chat_action"]) == 2
+    assert len([1 for method, _ in chat.tg.calls if method == "send_chat_action"]) == 1
 
 
-async def test_new_participant_does_not_replace_an_existing_followup_in_a_batch(env):
+async def test_batch_does_not_favor_a_previous_participant(env):
     chat, model = await configured(env)
     await chat.observe(message(1, "柴郡喵，讲点什么"))
     await due(chat)
@@ -61,21 +61,25 @@ async def test_new_participant_does_not_replace_an_existing_followup_in_a_batch(
     await chat.observe(message(3, "我下楼拿个快递", user_id=43))
     await due(chat)
     assert await chat.run_one()
-    assert model.calls[-1][1]["reply_to"] == 2
+    assert model.calls[-1][1]["reply_to"] == 3
     assert [row["id"] for row in model.calls[-1][1]["messages"]][-2:] == [2, 3]
     assert not await chat.run_one()
 
 
-async def test_active_conversation_does_not_bypass_explicit_reply_to_someone_else(env):
+async def test_model_decides_about_a_message_quoting_someone_else(env):
     chat, model = await configured(env)
     await chat.observe(message(1, "柴郡喵，讲点什么"))
     await due(chat)
     assert await chat.run_one()
     await age_reply(chat)
+    model.result = ChatReply(should_reply=False)
     await chat.observe(message(2, "你几点出门", user_id=43,
                                reply_to_message={"message_id": 500, "from": {"id": 44}}))
     await due(chat)
-    assert not await chat.run_one() and len(model.calls) == 1
+    assert await chat.run_one() and len(model.calls) == 2
+    entry = model.calls[-1][1]["messages"][-1]
+    assert entry["speaker_id"] == 43 and entry["reply_to"] == 500 and entry["reply_to_speaker_id"] == 44
+    assert len([1 for method, _ in chat.tg.calls if method == "send_message"]) == 1
 
 
 async def test_short_throttle_defers_a_direct_question_without_spending_a_model_call(env, caplog):
@@ -128,7 +132,7 @@ async def test_filtered_message_explains_why_it_did_not_reach_model(env, caplog)
     chat, model = await configured(env, chat_proactive=False)
     await chat.observe(message(1, "朋友们晚上好"))
     assert not await chat.run_one() and not model.calls
-    assert "聊天未进入模型" in caplog.text and "主动聊天关闭" in caplog.text
+    assert "聊天未进入模型" in caplog.text and "主动参与关闭" in caplog.text
     assert "message=1" in caplog.text and "朋友们晚上好" not in caplog.text
 
 

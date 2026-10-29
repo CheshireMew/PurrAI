@@ -3,11 +3,11 @@
 import json
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from purrai import chat_commands
 from purrai.chat_state import (
-    following_up, has_sent_text, ignored_text, image_message_ids,
+    has_sent_text, ignored_text, image_message_ids,
     message_bursts, session_state, store_state,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, Meta, now
@@ -48,7 +48,9 @@ class ChatScheduler:
         ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
         batch = (await session.scalars(select(ChatTurn).where(
             ChatTurn.group_id == group.id, ChatTurn.topic_id == topic_id,
-            ChatTurn.state == "pending", ChatTurn.available_at <= now(),
+            ChatTurn.state == "pending", or_(ChatTurn.available_at <= now(), and_(
+                ChatTurn.direct.is_(False), ChatTurn.attempts == 0, ChatTurn.error == "",
+            )),
         ).order_by(ChatTurn.id))).all()
         for item in batch:
             if (now() - item.created_at > 120 or not group.approved
@@ -78,7 +80,8 @@ class ChatScheduler:
             if any(row.message_id == message_id for row in burst)
         ), {message_id})
 
-    async def choose_target(self, session, batch, recent, state):
+    async def choose_target(self, session, batch, recent):
+        # Keep different members' explicit questions as separate pending tasks.
         first_direct = next((item for item in batch if item.direct), None)
         if first_direct:
             burst = self.burst_ids(recent, first_direct.message_id)
@@ -86,13 +89,6 @@ class ChatScheduler:
             batch = [item for item in batch if not item.direct or item.message_id in burst]
         else:
             leader = batch[-1]
-        if not leader.direct and len(batch) > 1 and state.get("last_user"):
-            continuing = set(await session.scalars(select(ChatMessage.message_id).where(
-                ChatMessage.group_id == leader.group_id, ChatMessage.topic_id == leader.topic_id,
-                ChatMessage.sender_id == state["last_user"],
-                ChatMessage.message_id.in_([item.message_id for item in batch]),
-            )))
-            leader = next((item for item in reversed(batch) if item.message_id in continuing), leader)
         target = await session.scalar(select(ChatMessage).where(
             ChatMessage.group_id == leader.group_id, ChatMessage.message_id == leader.message_id,
             ChatMessage.eligible.is_(True),
@@ -103,42 +99,27 @@ class ChatScheduler:
             return None
         return batch, leader, target
 
-    async def reply_mode(self, session, batch, leader, target, recent, state, cfg):
-        partial = has_sent_text(leader)
-        followup = following_up(
-            state, target.sender_id, target.received_at, allow_join=cfg.chat_proactive,
-            message_id=target.message_id, burst_ids=self.burst_ids(recent, target.message_id),
-        )
-        audience = "none"
-        if target.reply_to_id:
-            source = await session.scalar(select(ChatMessage).where(
-                ChatMessage.group_id == target.group_id, ChatMessage.message_id == target.reply_to_id,
-            ))
-            bot_reply = bool(source and source.is_bot and source.sender_id == self.tg.user_id)
-            audience = "bot" if bot_reply else "other"
-            followup = followup and bot_reply
-        if not leader.direct and not partial and not (cfg.chat_proactive or followup):
-            self.skip(batch, "主动聊天关闭，且不是直接对话或续聊")
-            return None
-        mode = "direct" if leader.direct else "followup" if followup else "ambient"
-        if not leader.direct and "广告" in target.text and not (
-            mode == "followup" and state.get("ad_conversation") and state.get("last_user") == target.sender_id
-        ):
-            self.skip(batch, "普通广告议论不主动插话")
-            return None
-        if mode == "ambient" and not partial:
+    async def pace(self, session, batch, leader, cfg):
+        if has_sent_text(leader) or leader.attempts or leader.error:
+            return True
+        if not cfg.chat_proactive and not leader.direct:
+            self.skip(batch, "主动参与关闭，消息未叫到机器人")
+            return False
+        if not leader.direct:
             attention = await session.get(Meta, f"chat_attention:{leader.group_id}")
             activity = json.loads(attention.value) if attention else {}
-            if now() < max(activity.get("last_attempt", 0), activity.get("last_reply", 0)) + cfg.chat_interval:
-                self.skip(batch, "主动插话冷却尚未结束")
-                return None
+            ready_at = max(activity.get("last_attempt", 0), activity.get("last_reply", 0)) + cfg.chat_interval
+            if now() < ready_at:
+                for item in batch:
+                    item.available_at = ready_at
+                return False
             activity["last_attempt"] = now()
             encoded = json.dumps(activity)
             if attention:
                 attention.value = encoded
             else:
                 session.add(Meta(key=f"chat_attention:{leader.group_id}", value=encoded))
-        return mode, audience
+        return True
 
     async def prepare(self, session, key):
         group = await session.get(Group, key[0])
@@ -147,7 +128,7 @@ class ChatScheduler:
         if not batch:
             return None
         state_row, state = await session_state(session, *key)
-        chosen = await self.choose_target(session, batch, recent, state)
+        chosen = await self.choose_target(session, batch, recent)
         if not chosen:
             return None
         batch, leader, target = chosen
@@ -155,8 +136,7 @@ class ChatScheduler:
             for item in batch:
                 item.available_at = state["blocked_until"]
             return None
-        mode = await self.reply_mode(session, batch, leader, target, recent, state, cfg)
-        if mode is None:
+        if not await self.pace(session, batch, leader, cfg):
             return None
         for item in batch:
             item.state = "generating" if item.id == leader.id else "merged"
@@ -168,6 +148,6 @@ class ChatScheduler:
         state["last_attempt"] = now()
         store_state(session, state_row, *key, state)
         self.busy.add(key)
-        logger.info("聊天选择 turn=%s group=%s topic=%s message=%s mode=%s audience=%s",
-                    leader.id, leader.group_id, leader.topic_id, leader.message_id, *mode)
-        return leader, cfg, context, target.text, target.sender_id, *mode
+        logger.info("聊天选择 turn=%s group=%s topic=%s message=%s",
+                    leader.id, leader.group_id, leader.topic_id, leader.message_id)
+        return leader, cfg, context, target.text, target.sender_id

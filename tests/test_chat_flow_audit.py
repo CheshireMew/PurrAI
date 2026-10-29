@@ -10,7 +10,6 @@ from sqlalchemy import select
 from conftest import message
 from purrai.archive import capture
 from purrai.chat_model import ChatReply
-from purrai.chat_state import following_up
 from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, now
 from test_chat import age_reply, configured, due
 from test_chat_context import remove
@@ -57,8 +56,8 @@ async def test_deleted_candidate_does_not_swallow_another_members_valid_question
     assert model.calls[0][1]["reply_to"] == 1
 
 
-async def test_supplement_during_generation_is_queued_even_with_proactive_chat_disabled(env, monkeypatch):
-    chat, model = await configured(env, chat_proactive=False)
+async def test_supplement_during_generation_is_queued_without_semantic_classification(env, monkeypatch):
+    chat, model = await configured(env)
     await chat.observe(message(1, "柴郡喵，周末去哪里玩"))
     await due(chat)
     model.release = asyncio.Event()
@@ -75,10 +74,11 @@ async def test_supplement_during_generation_is_queued_even_with_proactive_chat_d
     later = now() + 11
     monkeypatch.setattr("purrai.chat.now", lambda: later)
     monkeypatch.setattr("purrai.chat_context.now", lambda: later)
+    await age_reply(chat)
     await due(chat)
     assert await chat.run_one() and len(model.calls) == 2
     assert model.calls[-1][1]["reply_to"] == 2
-    assert model.calls[-1][1]["reply_mode"] == "followup"
+    assert "reply_mode" not in model.calls[-1][1]
 
 
 @pytest.mark.parametrize("values", [
@@ -184,11 +184,6 @@ async def test_sticker_retry_keeps_original_sources_and_cancels_after_history_de
     assert len([1 for method, _ in chat.tg.calls if method == "send_message"]) == 1
 
 
-@pytest.mark.parametrize("offset,expected", [(-1, False), (0, True), (89, True), (90, False)])
-def test_messages_received_before_bot_reply_are_not_its_followups(offset, expected):
-    assert following_up({"last_reply": 100, "last_user": 42}, 42, 100 + offset) is expected
-
-
 async def test_image_silences_the_entire_time_connected_burst_not_just_nearest_message(env, monkeypatch):
     chat, model = await configured(env)
     clock = [now()]
@@ -209,9 +204,11 @@ async def test_ad_aside_during_unrelated_followup_is_silent_but_explicit_ad_conv
     await due(chat)
     assert await chat.run_one()
     await age_reply(chat)
+    model.result = ChatReply(should_reply=False)
     await chat.observe(message(2, "广告又多了啊"))
     await due(chat)
-    assert not await chat.run_one() and len(model.calls) == 1
+    assert await chat.run_one() and len(model.calls) == 2
+    model.result = ChatReply("可以先检查来源和承诺。")
     await chat.observe(message(3, "柴郡喵，怎么辨别广告里的骗局？"))
     await due(chat)
     assert await chat.run_one()
@@ -219,7 +216,7 @@ async def test_ad_aside_during_unrelated_followup_is_silent_but_explicit_ad_conv
     await chat.observe(message(4, "那这种广告有什么明显特征？"))
     await due(chat)
     assert await chat.run_one()
-    assert model.calls[-1][1]["reply_mode"] == "followup" and len(model.calls) == 3
+    assert "reply_mode" not in model.calls[-1][1] and len(model.calls) == 4
 
 
 async def test_sticker_does_not_erase_the_explicit_ad_conversation(env):
@@ -234,7 +231,7 @@ async def test_sticker_does_not_erase_the_explicit_ad_conversation(env):
     await chat.observe(message(2, "那这种广告还有什么明显特征？"))
     await due(chat)
     assert await chat.run_one() and len(model.calls) == 2
-    assert model.calls[-1][1]["reply_mode"] == "followup"
+    assert "reply_mode" not in model.calls[-1][1]
 
 
 async def test_ad_aside_during_generation_is_not_promoted_into_a_direct_question(env):
@@ -251,4 +248,6 @@ async def test_ad_aside_during_generation_is_not_promoted_into_a_direct_question
         await running
     await age_reply(chat)
     await due(chat)
-    assert not await chat.run_one() and len(model.calls) == 1
+    model.result = ChatReply(should_reply=False)
+    assert await chat.run_one() and len(model.calls) == 2
+    assert len([1 for method, _ in chat.tg.calls if method == "send_message"]) == 1

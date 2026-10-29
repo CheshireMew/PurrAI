@@ -36,7 +36,7 @@ async def test_anonymous_direct_chat_uses_group_identity_and_replies_to_message(
     assert source == original
     request = model.calls[0][1]
     entry = request["messages"][-1]
-    assert request["reply_mode"] == "direct" and request["reply_to"] == 1
+    assert "reply_mode" not in request and request["reply_to"] == 1
     assert entry["speaker_id"] == -1001 and entry["name"] == "匿名管理员 · 测试群"
     assert entry["bot"] is False
     assert any(method == "send_message" and data["chat_id"] == -1001
@@ -49,7 +49,7 @@ async def test_anonymous_direct_chat_uses_group_identity_and_replies_to_message(
 
 
 async def test_anonymous_followup_survives_rebuilt_context_and_uses_group_budget(env):
-    chat, model = await configured(env, chat_proactive=False)
+    chat, model = await configured(env)
     settings, db, tg, _ = env
     await chat.observe(anonymous(1, "@purrai_bot 周末去哪玩？"))
     assert await chat.run_one()
@@ -61,7 +61,7 @@ async def test_anonymous_followup_survives_rebuilt_context_and_uses_group_budget
         await rebuilt.observe(anonymous(2, "附近还有别的地方吗？"))
         assert await rebuilt.run_one()
         request = rebuilt_model.calls[0][1]
-        assert request["reply_mode"] == "followup"
+        assert "reply_mode" not in request
         people = [row for row in request["messages"] if not row["bot"]]
         assert [row["id"] for row in people] == [1, 2]
         assert {row["speaker_id"] for row in people} == {-1001}

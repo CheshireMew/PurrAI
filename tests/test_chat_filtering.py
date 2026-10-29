@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from conftest import message
 from purrai.chat import GroupChat
+from purrai.chat_model import ChatReply
 from purrai.models import ChatMessage, ChatTurn, Group, now
 from test_bot_admin import click, deliver, markup, open_group, private
 from test_chat import FakeModel, age_reply, configured, due
@@ -39,17 +40,19 @@ async def test_normal_questions_containing_utility_or_ad_words_still_reach_model
     await due(chat)
     assert await chat.run_one()
     assert model.calls[0][1]["messages"][0]["text"] == text
-    assert model.calls[0][1]["reply_mode"] == "direct"
+    assert "reply_mode" not in model.calls[0][1]
 
 
-async def test_ambient_ad_discussion_is_silent_without_requesting_model(env):
+async def test_model_decides_whether_to_reply_to_ad_discussion(env):
     chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False)
     await chat.observe(message(1, "今天广告又多了啊"))
     await due(chat)
-    assert not await chat.run_one() and not model.calls
+    assert await chat.run_one() and len(model.calls) == 1
+    assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
     async with chat.db.sessions() as session:
         turn = await session.scalar(select(ChatTurn))
-        assert turn.state == "skipped" and "广告议论" in turn.error
+        assert turn.state == "silent" and "模型判断无需回复" in turn.error
 
 
 async def test_group_ignore_setting_filters_old_frozen_messages_and_own_reply_without_reset(env):

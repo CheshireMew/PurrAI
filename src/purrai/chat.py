@@ -67,11 +67,11 @@ class GroupChat:
         claimed = await self.claim()
         if not claimed:
             return False
-        turn, cfg, context, original, sender_id, mode, audience = claimed
+        turn, cfg, context, original, sender_id = claimed
         key = turn.group_id, turn.topic_id
         try:
             partial = has_sent_text(turn)
-            if mode in ("direct", "followup") and not turn.response:
+            if turn.direct and not turn.response:
                 with suppress(Exception):
                     await self.tg.call(
                         "send_chat_action",
@@ -100,7 +100,7 @@ class GroupChat:
                     await self.contexts.remember_sent_context(session, turn, context)
                 sticker_options = await self.stickers.options(session, turn.group_id, cfg)
             generated = await ChatGeneration(self.model, self.budget, self.tg).generate(
-                turn, cfg, context, sender_id, mode, audience, sticker_options
+                turn, cfg, context, sender_id, sticker_options
             )
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)
         except BudgetCooldown as exc:

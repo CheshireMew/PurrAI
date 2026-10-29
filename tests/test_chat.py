@@ -51,13 +51,16 @@ async def due(chat):
         await session.execute(update(ChatTurn).where(ChatTurn.state == "pending").values(available_at=0))
 
 
-async def age_reply(chat, seconds=10):
+async def age_reply(chat, seconds=100):
     async with chat.db.transaction() as session:
         row = await session.get(Meta, "chat_session:-1001:0")
         state = json.loads(row.value)
         state["last_reply"] = now() - seconds
         state["last_attempt"] = now() - seconds
         row.value = json.dumps(state)
+        attention = await session.get(Meta, "chat_attention:-1001")
+        if attention:
+            attention.value = json.dumps({"last_reply": now() - seconds, "last_attempt": now() - seconds})
 
 
 async def test_batch_keeps_speakers_and_reply_relationship_and_sends_once(env):
@@ -74,9 +77,14 @@ async def test_batch_keeps_speakers_and_reply_relationship_and_sends_once(env):
     assert len(model.calls) == 1
     context = model.calls[0][1]
     assert context["reply_to"] == 2
+    assert context["bot_id"] == tg.user_id
+    assert context["bot_username"] == tg.username
+    assert "reply_mode" not in context and "reply_audience" not in context
     assert [row["id"] for row in context["messages"]] == [1, 2, 3]
     assert context["messages"][0]["name"] == "小明"
     assert context["messages"][1]["reply_to"] == 1
+    assert context["messages"][1]["reply_to_speaker_id"] == 42
+    assert context["messages"][1]["reply_to_name"] == "小明"
     sent = [kwargs for method, kwargs in tg.calls if method == "send_message"]
     assert len(sent) == 1 and sent[0]["reply_parameters"]["message_id"] == 2
     async with db.sessions() as session:
@@ -114,10 +122,11 @@ async def test_model_can_stay_silent_and_ambient_checks_have_cooldown(env):
     assert len(model.calls) == 1
     assert not any(method == "send_message" for method, _ in env[2].calls)
     async with chat.db.sessions() as session:
-        assert await session.scalar(select(ChatTurn.state)) == "silent"
+        assert await session.scalar(select(ChatTurn.state).where(ChatTurn.message_id == 1)) == "silent"
+        assert await session.scalar(select(ChatTurn.state).where(ChatTurn.message_id == 2)) == "pending"
 
 
-async def test_natural_followup_works_with_proactive_disabled(env):
+async def test_proactive_disabled_does_not_infer_a_conversation_from_elapsed_time(env):
     chat, model = await configured(env, chat_proactive=False)
     await chat.observe(message(1, "柴郡喵，你觉得周末去哪玩"))
     await due(chat)
@@ -126,10 +135,11 @@ async def test_natural_followup_works_with_proactive_disabled(env):
     await chat.observe(message(2, "那你觉得几点出发合适"))
     await chat.observe(message(3, "其他群友在聊另一件事", 43))
     await due(chat)
+    assert not await chat.run_one() and len(model.calls) == 1
+    await chat.observe(message(4, "柴郡喵，几点出发合适"))
     assert await chat.run_one()
-    assert len(model.calls) == 2 and model.calls[-1][1]["reply_to"] == 2
-    assert any(row["bot"] for row in model.calls[-1][1]["messages"])
-    assert not await chat.run_one()
+    assert model.calls[-1][1]["reply_to"] == 4
+    assert [row["id"] for row in model.calls[-1][1]["messages"]][-3:] == [2, 3, 4]
 
 
 async def test_runtime_filters_pending_members_ads_commands_bots_and_edits(env):

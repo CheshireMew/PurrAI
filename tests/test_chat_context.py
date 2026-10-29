@@ -81,9 +81,41 @@ async def test_untrusted_embedded_quotes_are_not_a_second_input_channel(env, sou
     context = model.calls[0][1]
     assert len(context["messages"]) == 1
     row = context["messages"][0]
-    assert "quote" not in row and "reply_to" not in row
+    assert "quote" not in row and row["reply_to"] == 700
+    assert row["reply_to_speaker_id"] == source["from"]["id"]
     serialized = json.dumps(context, ensure_ascii=False)
     assert source["text"] not in serialized and "外群内容" not in serialized and "额外引用的广告" not in serialized
+
+
+async def test_unaddressed_reply_keeps_the_quoted_speaker_even_outside_history(env):
+    from purrai.chat_model import ChatReply
+
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False)
+    source = message(700, "这里是另一个人说的话", **{"from": {"id": 43, "first_name": "豆腐"}})
+    await chat.observe(message(1, "你几点出门？", reply_to_message=source,
+                               **{"from": {"id": 42, "first_name": "小明"}}))
+    assert await chat.run_one()
+    request = model.calls[0][1]
+    entry = request["messages"][0]
+    assert request["bot_id"] == 999 and request["reply_to"] == 1
+    assert entry["speaker_id"] == 42 and entry["name"] == "小明"
+    assert entry["reply_to"] == 700 and entry["reply_to_speaker_id"] == 43 and entry["reply_to_name"] == "豆腐"
+    assert "quote" not in entry and not any(method == "send_message" for method, _ in chat.tg.calls)
+
+
+async def test_deferred_background_is_included_when_a_direct_question_arrives(env):
+    chat, model = await configured(env)
+    model.result = None
+    await chat.observe(message(1, "开始聊周末活动"))
+    assert await chat.run_one()
+    await chat.observe(message(2, "我只有半天时间", user_id=43))
+    assert not await chat.run_one()
+    await chat.observe(message(3, "柴郡喵，按这个时间怎么安排？"))
+    assert await chat.run_one()
+    assert [entry["id"] for entry in model.calls[-1][1]["messages"]] == [1, 2, 3]
+    async with chat.db.sessions() as session:
+        assert await session.scalar(select(ChatTurn.state).where(ChatTurn.message_id == 2)) == "merged"
 
 
 async def test_bots_commands_service_notifications_are_excluded_but_own_chat_can_continue(env):
@@ -218,20 +250,20 @@ async def test_private_cleanup_with_same_message_id_does_not_hide_group_message(
     assert [row["id"] for row in model.calls[0][1]["messages"]] == [1, 2]
 
 
-async def test_eligible_sent_prefix_is_unchanged_by_later_edits_and_reply_mode(env):
+async def test_eligible_sent_prefix_is_unchanged_by_later_edits_and_addressing(env):
     chat, model = await configured(env, chat_interval=15)
     model.result = None
     await chat.observe(message(1, "周末大家一起出去走走怎么样"))
     await due(chat)
     assert await chat.run_one()
     system, first = model.calls[0]
-    assert first["reply_mode"] == "ambient"
+    assert "reply_mode" not in first and "reply_audience" not in first
     await chat.observe(message(1, "后来被编辑的内容", edit_date=int(now()) + 1), edited=True, update_id=2)
     await chat.observe(message(2, "柴郡喵你觉得呢"))
     await due(chat)
     assert await chat.run_one()
     second = model.calls[1][1]
-    assert second["reply_mode"] == "direct" and model.calls[1][0] == system
+    assert "reply_mode" not in second and model.calls[1][0] == system
     assert second["messages"][:len(first["messages"])] == first["messages"]
     assert second["messages"][0]["text"] == "周末大家一起出去走走怎么样"
     # Everything before the old array terminator is a byte-identical reusable prefix.

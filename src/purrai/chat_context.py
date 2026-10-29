@@ -45,7 +45,7 @@ class ChatContext:
         speakers = {row["id"]: row["speaker_id"] for row in context}
         for row in context:
             if row.get("reply_to"):
-                speakers.setdefault(row["reply_to"], 0)
+                speakers.setdefault(row["reply_to"], row.get("reply_to_speaker_id", 0))
         recent = await self.recent(session, group_id, topic_id)
         rules = await effective_rules(session, group_id)
         allowed_images = permitted_images(recent, message_id, direct)
@@ -112,7 +112,8 @@ class ChatContext:
             if (row.get("reply_to") in excluded or input_reasons(quote, rules, cfg.model_dump())
                     or quote and (ignored_text(quote, ignored, getattr(self.tg, "username", ""))
                                   or chat_commands.known_ad(command_state, quote))):
-                row = {key: value for key, value in row.items() if key not in ("reply_to", "quote")}
+                row = {key: value for key, value in row.items()
+                       if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
             result.append(row)
         return result
 
@@ -167,7 +168,7 @@ class ChatContext:
                 ChatTurn.group_id == turn.group_id,
                 ChatTurn.message_id == ChatMessage.message_id,
                 ChatTurn.state == "pending",
-                or_(ChatTurn.available_at > now(), and_(ChatTurn.direct.is_(True), ChatTurn.id != turn.id)),
+                ChatTurn.direct.is_(True), ChatTurn.id != turn.id,
             ).exists(),
         )
         rows = (
@@ -229,17 +230,26 @@ class ChatContext:
                 }
             )
         result.reverse()
+        for row in selected:
+            if not row.reply_to_id:
+                continue
+            entry = next(item for item in result if item["id"] == row.message_id)
+            source = sources.get(row.reply_to_id)
+            if source:
+                entry.update(reply_to_speaker_id=source.sender_id, reply_to_name=source.sender_name)
+                continue
+            reference = await self.reference(session, row)
+            if reference:
+                other_size = sum(len(item["text"]) + len(item.get("quote", ""))
+                                 for item in result if item["id"] != row.message_id)
+                if "quote" in reference:
+                    reference["quote"] = reference["quote"][:max(0, 18000 - other_size - len(entry["text"]))]
+                entry.update(reference)
         target = next((row for row in selected if row.message_id == turn.message_id), None)
         if target and turn.direct:
             entry = next(row for row in result if row["id"] == turn.message_id)
             if turn.message_id in image_message_ids(recent):
                 entry["image_unavailable"] = True
-            reference = await self.reference(session, target)
-            if reference:
-                other_size = sum(len(row["text"]) + len(row.get("quote", ""))
-                                 for row in result if row["id"] != turn.message_id)
-                reference["quote"] = reference["quote"][:max(0, 18000 - other_size - len(entry["text"]))]
-                entry.update(reference)
         combined = await self.filter(session, turn.group_id, turn.topic_id, history + result, cfg,
                                      message_id=turn.message_id, direct=turn.direct)
         history = [row for row in combined if row["id"] in history_ids]
@@ -254,23 +264,27 @@ class ChatContext:
         return history + result
 
     async def reference(self, session, target):
-        """Explicitly referenced text is context, never an autonomous chat trigger."""
+        """Supply factual reply identity, plus eligible explicit image/channel text."""
         try:
             snapshot = json.loads(target.reply_text)
             if snapshot.get("version") != 1 or snapshot.get("message_id") != target.reply_to_id:
-                return {}
+                snapshot = {}
         except (ValueError, TypeError, AttributeError):
-            return {}
+            snapshot = {}
         archived = await session.scalar(select(ArchivedMessage).where(
             ArchivedMessage.group_id == target.group_id, ArchivedMessage.message_id == target.reply_to_id,
             ArchivedMessage.source == "telegram",
         ))
         sender_id = archived.sender_id if archived else snapshot.get("sender_id", 0)
-        if (archived and archived.sender_type == "bot") or not await self.allowed(
+        sender_name = archived.sender_name if archived else snapshot.get("sender_name", "")
+        if not snapshot and not archived:
+            return {}
+        if not await self.allowed(
             session, target.group_id, target.reply_to_id, sender_id,
         ):
             return {}
-        text = (archived.text or archived.caption) if archived else snapshot.get("text", "")
+        include_text = "text" in snapshot and not (archived and archived.sender_type == "bot")
+        text = ((archived.text or archived.caption) if archived else snapshot["text"]) if include_text else ""
         group = await session.get(Group, target.group_id)
         rules = await effective_rules(session, target.group_id)
         origins = snapshot.get("reference_sources", [])
@@ -285,8 +299,11 @@ class ChatContext:
             return {}
         if input_reasons(text, rules, group.settings):
             text = ""
-        image = bool(archived and archived.message_type == "photo" or snapshot.get("image_unavailable"))
-        return {"reply_to": target.reply_to_id, "quote": text[:1600],
+        image = include_text and bool(archived and archived.message_type == "photo" or snapshot.get("image_unavailable"))
+        return {"reply_to": target.reply_to_id,
+                **({"reply_to_speaker_id": sender_id} if sender_id else {}),
+                **({"reply_to_name": sender_name} if sender_name else {}),
+                **({"quote": text[:1600]} if include_text else {}),
                 **({"image_unavailable": True} if image else {})}
 
     async def remember_sent_context(self, session, turn, context):

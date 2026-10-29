@@ -90,7 +90,7 @@ async def test_model_negative_decision_ignores_accidental_reply_content():
         await model.close()
 
 
-async def test_ambient_checks_share_cooldown_across_topics_and_can_resume(env):
+async def test_unaddressed_checks_share_cooldown_across_topics_and_can_resume(env):
     chat, model = await configured(env, chat_interval=90)
     model.result = ChatReply(should_reply=False)
     await chat.observe(message(1, "大家在讨论周末活动", message_thread_id=77, is_topic_message=True))
@@ -101,11 +101,16 @@ async def test_ambient_checks_share_cooldown_across_topics_and_can_resume(env):
     async with chat.db.transaction() as session:
         row = await session.get(Meta, "chat_attention:-1001")
         row.value = json.dumps({"last_attempt": now() - 100})
-    model.result = ChatReply("这个建议不错，可以试试。")
     await chat.observe(message(3, "大家有没有合适的活动建议", user_id=43, message_thread_id=99, is_topic_message=True))
     await due(chat)
+    assert await chat.run_one()  # The other topic's deferred message is handled first.
+    async with chat.db.transaction() as session:
+        row = await session.get(Meta, "chat_attention:-1001")
+        row.value = json.dumps({"last_attempt": now() - 100})
+    model.result = ChatReply("这个建议不错，可以试试。")
+    await due(chat)
     await chat.run_one()
-    assert len(model.calls) == 2 and model.calls[-1][1]["reply_mode"] == "ambient"
+    assert len(model.calls) == 3 and "reply_mode" not in model.calls[-1][1]
     assert [data["text"] for kind, data in chat.tg.calls if kind == "send_message"] == ["这个建议不错，可以试试。"]
 
 
@@ -122,8 +127,8 @@ async def test_recent_user_replying_to_someone_else_does_not_force_followup(env)
     await chat.observe(message(3, "柴郡喵你觉得如何", reply_to_message=reply))
     await due(chat)
     await chat.run_one()
-    assert len(model.calls) == 2 and model.calls[-1][1]["reply_mode"] == "direct"
-    assert model.calls[-1][1]["reply_audience"] == "other"
+    assert len(model.calls) == 2 and "reply_mode" not in model.calls[-1][1]
+    assert model.calls[-1][1]["messages"][-1]["reply_to_speaker_id"] == 43
 
 
 @pytest.mark.parametrize("direct", [True, False])

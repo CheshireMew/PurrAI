@@ -29,7 +29,7 @@ def budget():
 async def generate(generation, record):
     return await generation.generate(record, GroupSettings(),
                                      [{"id": 1, "text": "现在北京时间多少？", "time": "01-01 01:00:00"}],
-                                     42, "direct", "none", {})
+                                     42, {})
 
 
 @pytest.mark.parametrize("utc,expected", [

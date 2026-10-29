@@ -2,12 +2,9 @@
 
 import json
 
-from sqlalchemy import select
-
 from purrai.archive import capture
-from purrai.chat_messages import recent_messages
 from purrai.chat_retraction import remember_receipt
-from purrai.chat_state import following_up, message_bursts, session_state, store_state
+from purrai.chat_state import session_state, store_state
 from purrai.models import ChatMessage, ChatTurn, Meta, now
 from purrai.stickers import sticker_text
 from purrai.telegram import bot_display_name
@@ -35,24 +32,7 @@ class ChatReceipts:
             )
         )
         state_row, state = await session_state(session, turn.group_id, turn.topic_id)
-        target = await session.scalar(select(ChatMessage).where(
-            ChatMessage.group_id == turn.group_id, ChatMessage.message_id == turn.message_id,
-        ))
-        target_burst = next((
-            {row.message_id for row in burst}
-            for burst in message_bursts(await recent_messages(session, turn.group_id, turn.topic_id))
-            if any(row.message_id == turn.message_id for row in burst)
-        ), {turn.message_id})
-        if state.get("last_request") == turn.message_id:
-            discussing_ads = state.get("ad_conversation", False)
-        else:
-            discussing_ads = bool(target and (
-                turn.direct and "广告" in target.text
-                or not turn.direct and state.get("ad_conversation")
-                and following_up(state, sender_id, target.received_at, message_id=turn.message_id, burst_ids=target_burst)
-            ))
-        state.update(last_reply=now(), last_user=sender_id, last_request=turn.message_id,
-                     blocked_until=0, ad_conversation=discussing_ads)
+        state.update(last_reply=now(), blocked_until=0)
         store_state(session, state_row, turn.group_id, turn.topic_id, state)
         attention = await session.get(Meta, f"chat_attention:{turn.group_id}")
         activity = json.loads(attention.value) if attention else {}

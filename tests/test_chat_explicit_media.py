@@ -47,7 +47,7 @@ async def test_direct_reference_to_channel_post_uses_caption_without_triggering_
     entry = next(row for row in model.calls[0][1]["messages"] if row["id"] == 1)
     assert entry["quote"] == "新功能下周上线，大家想拿它做什么？" and entry["reply_to"] == 700
     assert entry.get("image_unavailable", False) is image
-    assert model.calls[0][1]["reply_mode"] == "direct"
+    assert "reply_mode" not in model.calls[0][1]
     assert "file_id" not in json.dumps(model.calls[0][1])
 
 
@@ -62,7 +62,7 @@ async def test_direct_image_caption_or_reply_to_bot_is_answered(env, addressing)
     assert await chat.run_one()
     entry = model.calls[0][1]["messages"][-1]
     assert entry["image_unavailable"] is True
-    assert model.calls[0][1]["reply_mode"] == "direct"
+    assert "reply_mode" not in model.calls[0][1]
 
 
 async def test_direct_reply_can_use_another_members_image_caption(env):

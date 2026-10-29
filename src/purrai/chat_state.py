@@ -11,7 +11,6 @@ from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources
 from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
 
-FOLLOWUP_WINDOW = 90
 IMAGE_BURST_WINDOW = 10
 UNREADABLE_IMAGE = "[无法读取的图片]"
 
@@ -56,42 +55,25 @@ def permitted_images(rows, message_id, direct):
 
 
 def reply_snapshot(message, *, direct=True):
-    """Retain source identity for filtering, plus explicit channel/image questions."""
+    """Retain who was quoted; only explicit image/channel questions retain text."""
     sources = channel_sources(message)
     metadata = {"channel_sources": sources} if sources else {}
     fallback = json.dumps(metadata, ensure_ascii=False) if metadata else ""
-    if not direct:
-        return fallback
     reply = message.get("reply_to_message") or {}
-    sender = reply.get("sender_chat") or reply.get("from") or {}
+    if not reply.get("message_id"):
+        return fallback
+    source = {"chat": message.get("chat", {}), **reply}
+    sender = chat_sender(source) if anonymous_admin(source) else reply.get("sender_chat") or reply.get("from") or {}
+    snapshot = {**metadata, "version": 1, "message_id": reply["message_id"],
+                "sender_id": sender.get("id", 0),
+                "sender_name": sender.get("title") or " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")])),
+                "reference_sources": channel_sources(reply)}
     channel = (reply.get("sender_chat") or {}).get("type") == "channel"
-    if not reply.get("message_id") or not (channel or has_image(reply)):
-        return fallback
-    if not channel and (sender.get("is_bot") or reply.get("via_bot")
-                        or (reply.get("forward_from") or {}).get("is_bot")
-                        or ((reply.get("forward_origin") or {}).get("sender_user") or {}).get("is_bot")):
-        return fallback
-    text = (reply.get("text") or reply.get("caption") or "")[:1600]
-    return json.dumps({**metadata, "version": 1, "message_id": reply["message_id"], "sender_id": sender.get("id", 0),
-                       "reference_sources": channel_sources(reply),
-                       "text": text, "image_unavailable": has_image(reply)}, ensure_ascii=False)
-
-
-def following_up(state, sender_id, received_at, *, allow_join=False, message_id=0, burst_ids=()):
-    # Classify when the message arrived, so waiting for a worker cannot turn a
-    # timely continuation into an unrelated ambient message.
-    elapsed = received_at - state.get("last_reply", 0)
-    queued_supplement = (
-        state.get("last_user") == sender_id
-        and message_id > state.get("last_request", 0) > 0
-        and state["last_request"] in burst_ids
-        and -FOLLOWUP_WINDOW < elapsed < 0
-    )
-    return (
-        (state.get("last_user") == sender_id or allow_join)
-        and state.get("last_reply", 0) > 0
-        and (0 <= elapsed < FOLLOWUP_WINDOW or queued_supplement)
-    )
+    bot_source = (sender.get("is_bot") or reply.get("via_bot") or (reply.get("forward_from") or {}).get("is_bot")
+                  or ((reply.get("forward_origin") or {}).get("sender_user") or {}).get("is_bot"))
+    if direct and (channel or has_image(reply)) and (channel or not bot_source):
+        snapshot.update(text=(reply.get("text") or reply.get("caption") or "")[:1600], image_unavailable=has_image(reply))
+    return json.dumps(snapshot, ensure_ascii=False)
 
 
 def ignored_text(text, phrases, bot_username=""):
