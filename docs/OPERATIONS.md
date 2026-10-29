@@ -163,3 +163,9 @@ $env:TMP = 'D:\Tools\Temp'
 后端测试模拟 Telegram 和 OIDC，前端浏览器测试模拟后台接口，均不操作真实群。浏览器输出位于 `frontend/test-results` 的独立运行目录。既有验证范围与结果见 [VALIDATION.md](../VALIDATION.md)，本地测试通过不代表服务器或真实 Telegram 群已经验收。
 
 README 的 SVG 标志由 `scripts/readme_logo.py` 从 `CatMark.vue` 与项目主色生成；用 `--write` 更新，`--check` 核对同步。
+
+## 通用设置和群专属设置
+
+数据库 `0022` 起，所有群配置项目（包括聊天昵称、人设、开关、验证、防广告、刷屏与归档）都有通用值。超级管理员在网页“群管理 → 通用设置”维护通用值；管理员在具体群内的修改只覆盖对应项目。使用“恢复通用设置”可取消本群覆盖，已有处罚不会自动解除。状态表情包黑名单同样可逐群添加、移除或清空。
+
+外部工具可通过超级管理员会话读取 `GET /api/settings/defaults`，再以 `PATCH /api/settings/defaults` 提交 `settings` 或 `rules`、读取时的完整 `baseline` 以及唯一 `request_id`。更新有管理审计与幂等回执，过期 baseline 返回 409。本群设置 PATCH 支持 `reset` 项目列表；通用规则的本群覆盖通过 `POST /api/groups/{id}/rules/{rule_id}/inherit` 恢复。沿用现有会话和 CSRF 校验。
