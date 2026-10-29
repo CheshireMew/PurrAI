@@ -34,7 +34,7 @@ async def test_add_is_incremental_deduplicated_and_replay_does_not_restore_remov
     response = await client.post(path, json=body)
     assert response.status_code == 200
     result = response.json()
-    assert result["packs"] == ["bygbb666", "gshechaba", "newpack"]
+    assert result["packs"] == ["bygbb666", "gshechaba", "tgvip_16", "newpack"]
     assert result["added"] == ["newpack"]
     response = await client.post(path, json={"packs": ["NEWPACK"], "request_id": "duplicate-123"})
     assert response.status_code == 200 and response.json()["added"] == []
@@ -43,7 +43,7 @@ async def test_add_is_incremental_deduplicated_and_replay_does_not_restore_remov
     )
     assert response.status_code == 200 and response.json()["removed"] == ["newpack"]
     assert (await client.post(path, json=body)).json() == result
-    assert await packs(db) == ["bygbb666", "gshechaba"]
+    assert await packs(db) == ["bygbb666", "gshechaba", "tgvip_16"]
     assert (await client.post(path, json={**body, "packs": ["otherpack"]})).status_code == 409
     async with db.sessions() as session:
         changes = (await session.scalars(select(Action))).all()
@@ -86,7 +86,7 @@ async def test_concurrent_adds_merge_under_lock_and_preserve_other_settings(env,
     finally:
         release.set()
         await asyncio.gather(*tasks)
-    assert set(await packs(db)) == {"bygbb666", "gshechaba", "new_a", "new_b"}
+    assert set(await packs(db)) == {"bygbb666", "gshechaba", "tgvip_16", "new_a", "new_b"}
     async with db.sessions() as session:
         assert (await session.get(Group, -1001)).settings["repeat_count"] == 9
 
@@ -102,7 +102,7 @@ async def test_remove_and_clear_work_without_fetching_deleted_or_unavailable_pac
     response = await client.post(
         path, json={"operation": "remove", "packs": ["bygbb666"], "request_id": "remove-offline"}
     )
-    assert response.status_code == 200 and await packs(db) == ["gshechaba"]
+    assert response.status_code == 200 and await packs(db) == ["gshechaba", "tgvip_16"]
     response = await client.post(path, json={"operation": "clear", "request_id": "clear-offline"})
     assert response.status_code == 200 and await packs(db) == []
 
@@ -122,7 +122,7 @@ async def test_invalid_change_does_not_modify_list(env, client, body):
         "/api/groups/-1001/emoji-status-packs", json={**body, "request_id": "invalid-request"}
     )
     assert response.status_code == 422
-    assert await packs(env[1]) == ["bygbb666", "gshechaba"]
+    assert await packs(env[1]) == ["bygbb666", "gshechaba", "tgvip_16"]
 
 
 async def test_failed_add_does_not_modify_list_and_capacity_never_evicts_entries(env, monkeypatch, client):
@@ -134,7 +134,7 @@ async def test_failed_add_does_not_modify_list_and_capacity_never_evicts_entries
 
     monkeypatch.setattr(tg, "call", offline)
     response = await client.post(path, json={"packs": ["anotherpack"], "request_id": "offline-request"})
-    assert response.status_code == 503 and await packs(db) == ["bygbb666", "gshechaba"]
+    assert response.status_code == 503 and await packs(db) == ["bygbb666", "gshechaba", "tgvip_16"]
     await valid_packs(tg, monkeypatch)
     full = [f"pack_{n}" for n in range(100)]
     async with db.transaction() as session:
@@ -155,7 +155,7 @@ async def test_only_current_group_admin_can_change_list(env, monkeypatch, client
     async with db.transaction() as session:
         (await session.get(Group, -1001)).approved = False
     response = await client.post("/api/groups/-1001/emoji-status-packs", json=change.model_dump())
-    assert response.status_code == 403 and await packs(db) == ["bygbb666", "gshechaba"]
+    assert response.status_code == 403 and await packs(db) == ["bygbb666", "gshechaba", "tgvip_16"]
 
 
 async def test_bot_list_pages_and_long_existing_list_do_not_need_resubmission(env):

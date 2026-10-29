@@ -7,6 +7,7 @@ from contextlib import suppress
 from aiogram.exceptions import TelegramRetryAfter
 from sqlalchemy import func, select, update
 
+from purrai.shared_policy import effective_rules
 from purrai.chat_budget import BudgetCooldown, BudgetExceeded, ChatBudget
 from purrai import chat_commands
 from purrai.chat_context import ChatContext
@@ -20,8 +21,7 @@ from purrai.chat_retraction import recover_retractions
 from purrai.chat_state import addressed as addressed
 from purrai.chat_state import has_sent_text, session_state, store_state
 from purrai.diagnostics import failure
-from purrai.models import ChatTurn, Group, Rule, now
-from purrai.serialization import row_dict
+from purrai.models import ChatTurn, Group, now
 from purrai.schemas import GroupSettings
 from purrai.stickers import Stickers
 
@@ -212,7 +212,7 @@ class GroupChat:
             group = await session.get(Group, group_id)
             cfg = GroupSettings.model_validate(group.settings)
             _, command_state = await chat_commands.load(session, group_id)
-            rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+            rules = await effective_rules(session, group_id)
         return {
             "configured": self.settings.chat_ready,
             "model": self.settings.chat_model,

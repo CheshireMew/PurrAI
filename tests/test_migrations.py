@@ -345,7 +345,7 @@ def test_fresh_install_upgrade_backup_restore_preserves_members_and_tasks(tmp_pa
         assert settings["advertising_ban"] and settings["external_group_ban"] and settings["external_invite_ban"]
         assert settings["telegram_allowed_links"] == []
         assert settings["media_min_text_messages"] == 3
-        assert settings["emoji_status_blocked_packs"] == ["bygbb666", "gshechaba"]
+        assert settings["emoji_status_blocked_packs"] == ["bygbb666", "gshechaba", "tgvip_16"]
         assert connection.execute("SELECT count(*) FROM member_texts").fetchone()[0] == 0
         assert settings["chat_enabled"] is False and settings["chat_history"] == 40
         assert settings["chat_name"] == "柴郡喵"

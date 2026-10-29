@@ -2,11 +2,13 @@
 import { computed, reactive, ref, watch, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, post } from '../api'
-import type { ChatStatus, Group, GroupSettings } from '../types'
+import type { ChatStatus, Group, GroupSettings, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
 
-const props = defineProps<{ group: Group | null }>()
+const props = defineProps<{ group: Group | null; sharedBaseline?: SharedPolicy | null }>()
+const sharedMode = computed(() => props.group?.id === 0)
+const commonBaseline = ref<SharedPolicy | null>(null)
 const emit = defineEmits<{ close: []; saved: [] }>()
 const { catalog, groups, reloadGroups } = useWorkspace()
 const { busy, error, safe } = useTask()
@@ -36,6 +38,7 @@ watch(() => props.group, group => {
   const current = ++version
   if (!group) { dialog.value = false; return }
   editingId.value = String(group.id)
+  commonBaseline.value = props.sharedBaseline ? JSON.parse(JSON.stringify(props.sharedBaseline)) : null
   activeTab.value = 'verification'
   Object.assign(form, copySettings({ ...catalog.value!.settings.defaults, ...group.settings }))
   settingsBaseline.value = copySettings({ ...form })
@@ -45,7 +48,7 @@ watch(() => props.group, group => {
   commandExceptionsText.value = form.chat_command_exceptions.join('\n')
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
-  api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
+  if (group.id !== 0) api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
     .catch(() => { if (current === version) chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
 }, { immediate: true })
 watch(dialog, value => { if (!value) { version++; emit('close') } })
@@ -59,6 +62,15 @@ async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: st
   await safe(async () => {
     const packs = operation === 'add' ? emojiPacksText.value.split(/[\s,，]+/).filter(Boolean) : pack ? [pack] : []
     if (operation === 'add' && !packs.length) throw new Error('请填写要新增的表情包链接')
+    if (sharedMode.value) {
+      const old = form.emoji_status_blocked_packs
+      const names = packs
+      const updated = operation === 'add' ? [...new Set([...old, ...names])] : operation === 'clear' ? [] : old.filter(value => !names.includes(value))
+      commonBaseline.value = await api<SharedPolicy>('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ settings: { emoji_status_blocked_packs: updated }, baseline: commonBaseline.value, request_id: crypto.randomUUID() }) })
+      form.emoji_status_blocked_packs = commonBaseline.value.settings.emoji_status_blocked_packs
+      settingsBaseline.value.emoji_status_blocked_packs = [...form.emoji_status_blocked_packs]
+      emojiPacksText.value = ''; await reloadGroups(); ElMessage.success('已保存通用名单'); return
+    }
     const result = await post(`/api/groups/${id}/emoji-status-packs`, { operation, packs, request_id: crypto.randomUUID() }) as { packs: string[]; added: string[]; removed: string[] }
     if (editingId.value === id) {
       form.emoji_status_blocked_packs = result.packs; settingsBaseline.value.emoji_status_blocked_packs = [...result.packs]
@@ -72,6 +84,12 @@ async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: st
 async function resetChat() {
   await safe(async () => { await post(`/api/groups/${editingId.value}/chat/reset`); ElMessage.success('已重新开始聊天；消息归档仍然保留') })
 }
+async function restoreDefaults() {
+  if (await safe(async () => {
+    await api(`/api/groups/${editingId.value}/settings`, { method: 'PATCH', body: JSON.stringify({ reset: Object.keys(form) }) })
+    await reloadGroups(); ElMessage.success('已恢复通用设置')
+  })) dialog.value = false
+}
 async function save() {
   const id = editingId.value
   if (await safe(async () => {
@@ -83,14 +101,16 @@ async function save() {
     form.telegram_allowed_links = allowedLinksText.value.split(/\s+/).map(text => text.trim()).filter(Boolean)
     const changes = Object.fromEntries(Object.entries(form).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings])))
     const baseline = Object.fromEntries(Object.keys(changes).map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
-    await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline }) })
+    if (sharedMode.value) await api('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline: commonBaseline.value, request_id: crypto.randomUUID() }) })
+    else await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline }) })
     await reloadGroups(); ElMessage.success('已保存'); emit('saved')
   })) { if (editingId.value === id) dialog.value = false }
 }
 </script>
 
 <template>
-<el-dialog v-model="dialog" title="群设置" class="settings-dialog" width="min(760px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<el-dialog v-model="dialog" :title="sharedMode ? '通用设置' : '群设置'" class="settings-dialog" width="min(760px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<p v-if="sharedMode">修改会应用到没有单独设置该项目的群。</p>
 <p class="settings-group-name">{{ group?.title }}</p>
 <el-tabs v-model="activeTab" class="settings-tabs">
 <el-tab-pane v-for="tab in settingsTabs" :key="tab.name" :label="tab.label" :name="tab.name">
@@ -218,13 +238,14 @@ async function save() {
 <p v-if="chatStatus.stickers" class="muted">已加载 {{ chatStatus.stickers.ready }}/{{ chatStatus.stickers.total }} 个贴纸包；聊天 emoji 标签：{{ chatStatus.stickers.emoji_count || 0 }} 种<span v-if="chatStatus.stickers.unavailable?.length">；暂不可用：{{ chatStatus.stickers.unavailable.join('、') }}</span>
 </p>
 <el-alert v-if="chatStatus.stickers?.error" :title="chatStatus.stickers.error" type="warning" :closable="false"/>
-<el-button @click="resetChat">重新开始聊天上下文</el-button>
+<el-button v-if="!sharedMode" @click="resetChat">重新开始聊天上下文</el-button>
 </section>
 </el-form>
 </el-tab-pane>
 </el-tabs>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <template #footer>
+<el-button v-if="!sharedMode" :disabled="busy" @click="restoreDefaults">恢复通用设置</el-button>
 <span class="settings-save-note">保存会应用所有分页中的修改</span>
 <el-button @click="dialog = false">取消</el-button>
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>

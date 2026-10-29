@@ -4,6 +4,7 @@ import logging
 
 from sqlalchemy import delete, select
 
+from purrai.shared_policy import effective_rules
 from purrai.chat_input import input_reasons
 from purrai import chat_commands
 from purrai.chat_retraction import RECEIPT_RETENTION
@@ -12,10 +13,9 @@ from purrai.chat_state import (
     UNREADABLE_IMAGE, addressed, chat_sender, following_up, has_image, human_message, ignored_text,
     message_bursts, reply_snapshot, session_state,
 )
-from purrai.models import ChatMessage, ChatTurn, Group, Rule, now
+from purrai.models import ChatMessage, ChatTurn, Group, now
 from purrai.rules import message_content
 from purrai.schemas import GroupSettings
-from purrai.serialization import row_dict
 from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 
@@ -49,7 +49,7 @@ class ChatObservation:
             if not row and (not cfg.chat_enabled or not self.settings.chat_ready):
                 return
             direct = addressed(message, self.tg, cfg.chat_name)
-            rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+            rules = await effective_rules(session, group_id)
             urls = message_content(message)[1]
             reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
             reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,

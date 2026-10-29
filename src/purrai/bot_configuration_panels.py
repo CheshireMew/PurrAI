@@ -164,7 +164,7 @@ class ConfigurationPanels:
                 buttons.append(button(f"{name}：{value}", "prompt", kind="setting", key=key, section=section))
         if section == "moderation":
             packs = group.settings.get("emoji_status_blocked_packs", list(DEFAULT_BLOCKED_PACKS))
-            buttons.append(button(f"状态表情包黑名单：{len(packs)} 个（命中永久封禁）", "emoji_packs"))
+            buttons.append(button(f"状态表情包黑名单：{len(packs)} 个（发言永久禁言）", "emoji_packs"))
             buttons.append(button(f"允许的 Telegram 链接：{len(group.settings.get('telegram_allowed_links', []))} 个", "prompt", kind="telegram_links"))
         buttons.append(button("返回群管理", "group", id=group_id))
         await self.panel(
@@ -202,7 +202,7 @@ class ConfigurationPanels:
             f"{group.title} · 状态表情包黑名单（共 {len(packs)} 个）\n"
             "新增只需发送新链接，原名单自动保留，重复链接不会重复添加。\n"
             + ("当前条目：\n" + "\n".join(visible) if packs else "当前名单为空。")
-            + "\n命中后踢出并禁止重新加入；移除或清空名单不会自动解除已有封禁或禁言。",
+            + "\n入群命中永久封禁；已在群内发言命中则删消息并永久禁言；移除或清空名单不会自动解除已有封禁或禁言。",
             buttons,
             group_id,
             message_id,

@@ -88,11 +88,13 @@ class RecordPanels:
                 for action in choices
             ]
         elif kind == "rule":
+            if row.get("inherited_from"):
+                buttons.append(button("恢复通用规则", "rule_inherit", id=row['id']))
             body_penalty = "删消息并永久禁言" if row['penalty'] == "permanent_mute" else "只删消息"
             text = f"{KINDS[row['kind']]}：{row['value']}\n状态：{'启用' if row['enabled'] else '停用'}\n匹配：{MODES[row['mode']]}\n范围：{SCOPES[row['scope']]}\n处置：昵称违规删消息并永久禁言；正文违规{body_penalty}"
             if row['scope'] == "name_and_message":
                 text += f"\n正文还需命中：{row['context_value']}"
-            buttons = [
+            buttons += [
                 button("停用" if row['enabled'] else "启用", "rule_toggle", id=row['id'], enabled=not row['enabled']),
                 button("修改内容", "prompt", kind="rule", id=row['id'], rule_kind=row['kind']),
             ]

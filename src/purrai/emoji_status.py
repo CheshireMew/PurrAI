@@ -161,7 +161,7 @@ class EmojiStatusGuard:
                         f"action={identifier} group={action.group_id}",
                         terminal=True,
                     )
-                    action.error = f"未执行封禁；{diagnostic}"
+                    action.error = f"未执行处罚；{diagnostic}"
                 elif error:
                     action.available_at = now() + min(300, 2 ** min(action.attempts, 8))
                     diagnostic = failure(
@@ -172,15 +172,16 @@ class EmojiStatusGuard:
                         f"action={identifier} group={action.group_id}",
                         terminal=action.attempts >= 8,
                     )
-                    action.error = f"未执行封禁；{diagnostic}"
+                    action.error = f"未执行处罚；{diagnostic}"
                     if action.attempts >= 8:
                         action.state = "failed"
                 else:
                     action.payload = {**action.payload, **result, "checked_at": now()}
                     if result["pack"] in group.settings["emoji_status_blocked_packs"]:
-                        ban = await self.enqueue(
+                        message_ids = action.payload.get("message_ids", [])
+                        penalty = await self.enqueue(
                             session,
-                            "emoji_status_ban",
+                            "emoji_status_mute" if message_ids else "emoji_status_ban",
                             f"emoji-ban:{action.id}:{action.payload.get('cycle', '')}:{result['custom_emoji_id']}",
                             action.group_id,
                             action.user_id,
@@ -192,7 +193,7 @@ class EmojiStatusGuard:
                             priority=0,
                             reason=f"名字旁状态表情命中黑名单：{result['pack']}",
                         )
-                        action.payload = {**action.payload, "ban_action_id": ban.id}
+                        action.payload = {**action.payload, "penalty_action_id": penalty.id}
                     action.state, action.error = "succeeded", ""
                 action.updated_at = now()
             return True

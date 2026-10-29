@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+from purrai.shared_policy import initial_settings
 from purrai.action_queue import enqueue
 from purrai.errors import ManagementError
 from purrai.models import (
@@ -10,9 +11,6 @@ from purrai.models import (
     Group,
     Verification,
     now,
-)
-from purrai.schemas import (
-    GroupSettings,
 )
 from purrai.serialization import row_dict
 from purrai.telegram import is_present
@@ -63,7 +61,7 @@ class GroupAdministration:
                     title=str(group_id),
                     type="supergroup",
                     approved=False,
-                    settings=GroupSettings().model_dump(),
+                    settings=await initial_settings(session),
                 )
                 session.add(group)
                 await session.flush()
@@ -75,6 +73,7 @@ class GroupAdministration:
             if not allow:
                 group.enabled, group.status = False, "unapproved"
                 group.settings = {**group.settings, "chat_enabled": False}
+                group.setting_overrides = sorted(set(group.setting_overrides or []) | {"chat_enabled"})
                 for action in await session.scalars(
                     select(Action).where(Action.group_id == group_id, Action.state == "pending")
                 ):

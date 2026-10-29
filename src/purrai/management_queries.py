@@ -10,6 +10,7 @@ from purrai.moderation_records import violation_actions
 from purrai.serialization import row_dict
 from purrai.record_operations import permanently_banned, verification_operations, violation_operations
 from purrai.verification_state import ACTIVE
+from purrai.shared_policy import effective_rule, effective_rules
 
 RECORD_MODELS = {
     "pending": Verification,
@@ -63,6 +64,12 @@ class ManagementQueries:
     ):
         await self.context.access.authorize(actor, group_id)
         model = self.model(model)
+        if model is Rule:
+            async with self.context.db.sessions() as session:
+                items = sorted(await effective_rules(session, group_id), key=lambda item: item["id"])
+            start = (page_number - 1) * size if size is not None else 0
+            return {"items": items[start:start + size] if size is not None else items,
+                    "total": len(items), "page": page_number, "size": size}
         filters = [model.group_id == group_id]
         if pending and model is Verification:
             filters.append(Verification.state.in_(ACTIVE))
@@ -99,6 +106,11 @@ class ManagementQueries:
         return result["items"], result["total"]
 
     async def load_record(self, session, group_id, model, identifier):
+        if model is Rule:
+            item = await effective_rule(session, group_id, identifier)
+            if item is None:
+                raise ManagementError(404, "规则不存在，请刷新列表")
+            return Rule(**{key: value for key, value in item.items() if key in Rule.__table__.columns})
         key = (group_id, int(identifier)) if model is Whitelist else identifier
         row = await session.get(model, key)
         if row is None or row.group_id != group_id:

@@ -47,8 +47,16 @@ class Group(Base):
     status: Mapped[str] = mapped_column(String, default="pending")
     permissions: Mapped[dict] = mapped_column(JSON, default=dict)
     settings: Mapped[dict] = mapped_column(JSON, default=default_settings)
+    setting_overrides: Mapped[list] = mapped_column(JSON, server_default="[]")
     activated_at: Mapped[float] = mapped_column(Float, default=0)
     created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
+class SharedPolicy(Base):
+    __tablename__ = "shared_policy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    settings: Mapped[dict] = mapped_column(JSON, default=default_settings)
+    rules: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class Admin(Base):
@@ -116,6 +124,8 @@ class Rule(Base):
     scope: Mapped[str] = mapped_column(String, default="message")
     context_value: Mapped[str] = mapped_column(String, default="")
     penalty: Mapped[str] = mapped_column(String, default="delete")
+    inherited_from: Mapped[str] = mapped_column(String, server_default="")
+    customized: Mapped[bool] = mapped_column(Boolean, server_default="1")
 
 
 class Whitelist(Base):

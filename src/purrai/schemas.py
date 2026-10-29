@@ -122,6 +122,20 @@ class SettingsPatch(BaseModel):
     enabled: bool | None = None
     settings: dict | None = None
     baseline: dict | None = None
+    reset: list[str] = Field(default_factory=list)
+
+    @field_validator("reset")
+    @classmethod
+    def validate_reset(cls, value):
+        if set(value) - GroupSettings.model_fields.keys():
+            raise ValueError("恢复设置包含未知配置项")
+        return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def reset_without_write(self):
+        if set(self.reset) & (self.settings or {}).keys():
+            raise ValueError("同一配置项不能同时修改和恢复")
+        return self
 
     @field_validator("settings", "baseline")
     @classmethod
@@ -188,6 +202,22 @@ class RuleInput(BaseModel):
                 ):
                     raise ValueError("谐音规则请至少填写两个字的词组")
         return self
+
+
+class SharedRuleInput(RuleInput):
+    id: str = Field(default="", max_length=32)
+
+
+class SharedPolicyPatch(BaseModel):
+    settings: dict | None = None
+    rules: list[SharedRuleInput] | None = Field(default=None, max_length=1000)
+    baseline: dict | None = None
+    request_id: str = Field(min_length=8, max_length=80)
+
+    @field_validator("settings")
+    @classmethod
+    def validate_settings(cls, value):
+        return SettingsPatch(settings=value).settings
 
 
 class PreviewInput(BaseModel):

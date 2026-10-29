@@ -113,7 +113,7 @@ Management access follows the current Telegram administrator identity. Group own
 | Sharing a contact card | Deletes the message and permanently bans ordinary members regardless of membership age; rejoining is prohibited |
 | New-member observation | Three days and the first three messages; links, @accounts or groups, user/channel forwards and common cryptocurrency addresses are deleted |
 | New-member media gate | For members with a reliable join record: lifted after 3 distinct text-only messages or 15 days in the group; this gate alone only deletes the message |
-| Profile status emoji | The `bygbb666` and `GsHeChaba` packs are blocked by default with a permanent ban; the list is editable |
+| Profile status emoji | The default list includes `bygbb666`, `GsHeChaba`, and `TGVIP_16`; a join match permanently bans, while a message match permanently mutes; each group can edit its list |
 | Manual unmute by an administrator | Adds the member to the group's whitelist, cancels queued penalties, and exempts future verification and automatic handling |
 
 “Pending” means accepted, while “completed” requires Telegram confirmation. PurrAI does not automatically override restrictions imposed by other administrators. Deleted messages cannot be restored in place. The image challenge raises the cost of automated entry; it cannot guarantee resistance to OCR or human assistance.

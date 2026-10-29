@@ -4,6 +4,7 @@ import secrets
 
 from sqlalchemy import select
 
+from purrai.shared_policy import initial_settings
 from purrai.action_queue import enqueue
 from purrai.restriction_state import ban_matches, restriction_matches
 from purrai.models import (
@@ -12,7 +13,6 @@ from purrai.models import (
     Member,
     Verification,
     Whitelist,
-    default_settings,
     now,
     uid,
 )
@@ -68,7 +68,7 @@ class MemberEvents:
                     id=chat["id"],
                     title=chat.get("title", ""),
                     type=chat["type"],
-                    settings=default_settings(),
+                    settings=await initial_settings(session),
                     enabled=False,
                     status="pending",
                     activated_at=0,

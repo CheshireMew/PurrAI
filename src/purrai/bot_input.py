@@ -40,7 +40,7 @@ class BotInput:
         group = await self.management.authorize(actor, group_id)
         kind = data["kind"]
         instructions = {
-            "emoji_packs": "请发送要新增的 t.me/addemoji 链接或表情包短名称，多个用空格、逗号或换行分隔。只追加新条目，原名单自动保留并去重。移除或清空请返回黑名单面板操作。仅检查名字旁的表情状态，命中永久封禁。"
+            "emoji_packs": "请发送要新增的 t.me/addemoji 链接或表情包短名称，多个用空格、逗号或换行分隔。只追加新条目，原名单自动保留并去重。移除或清空请返回黑名单面板操作。仅检查名字旁的表情状态；入群命中永久封禁，群内发言命中永久禁言。"
             + f"当前已有 {len(group.settings.get('emoji_status_blocked_packs', DEFAULT_BLOCKED_PACKS))} 个，可返回面板查看。",
             "archive_query": "请发送要搜索的文字（包含历史编辑版本），发送 - 清除关键词。",
             "archive_sender": "请发送用户或频道的数字 ID，发送 - 清除发送者筛选。",

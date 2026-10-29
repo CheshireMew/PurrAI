@@ -16,11 +16,16 @@ const archivedMessage = { id: 'm1', group_id: -1001, message_id: 88, sender_id: 
     { id: 2, is_edit: true, event_at: 1792368010, reasons: ['关键词：广告'], payload: { text: '被删除的广告原文', entities: [{ type: 'text_link', url: 'https://hidden.example' }] } } ] }
 async function mock(page: Page, authenticated = true, root = true) {
   const rules: any[] = []
-  const packLists = new Map(groups.map(group => [group.id, ['bygbb666', 'gshechaba']]))
+  let shared: any = { settings: structuredClone(catalog.settings.defaults), rules: [] }
+  const packLists = new Map(groups.map(group => [group.id, ['bygbb666', 'gshechaba', 'tgvip_16']]))
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()), method = route.request().method()
     let data: any = {}, status = 200
     if (url.pathname === '/api/me') { data = authenticated ? { id: 123456, root, csrf: 'test' } : { detail: '请先登录' }; status = authenticated ? 200 : 401 }
+    else if (url.pathname === '/api/settings/defaults') {
+      if (method === 'PATCH') { const body = route.request().postDataJSON(); shared = { settings: { ...shared.settings, ...body.settings }, rules: body.rules ?? shared.rules } }
+      data = shared
+    }
     else if (url.pathname === '/api/catalog') data = catalog
     else if (url.pathname === '/api/groups') data = groups.map(group => ({ ...group, settings: { ...group.settings, emoji_status_blocked_packs: packLists.get(group.id) } }))
     else if (url.pathname.endsWith('/emoji-status-packs')) {
@@ -813,3 +818,31 @@ for (const target of ['list', 'detail']) {
     await expect(page.getByRole('heading', { name: '欢迎回来', exact: true })).toBeVisible()
   })
 }
+
+
+test('超级管理员可以保存通用人设，群管理员只能修改本群', async ({ page }) => {
+  await mock(page); await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '通用设置', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '通用设置', exact: true })
+  await dialog.getByRole('tab', { name: '群聊天', exact: true }).click()
+  await dialog.getByLabel('性格与说话习惯', { exact: true }).fill('通用测试人设')
+  const saved = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/api/settings/defaults'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await saved).postDataJSON().settings.chat_persona).toBe('通用测试人设')
+  await expect(dialog).not.toBeVisible()
+  await mock(page, true, false); await page.reload()
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await expect(page.getByRole('button', { name: '通用设置', exact: true })).toHaveCount(0)
+})
+
+test('本群可以恢复通用设置', async ({ page }) => {
+  await mock(page); await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const reset = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/api/groups/-1001/settings'))
+  await page.getByRole('dialog').getByRole('button', { name: '恢复通用设置', exact: true }).click()
+  const keys = (await reset).postDataJSON().reset
+  expect(keys).toContain('chat_persona'); expect(keys).toContain('emoji_status_blocked_packs')
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+})

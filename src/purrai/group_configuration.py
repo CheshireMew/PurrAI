@@ -11,6 +11,7 @@ from purrai.schemas import (
     SettingsPatch,
 )
 from purrai.serialization import row_dict
+from purrai.shared_policy import policy, update_shared
 
 
 class GroupConfiguration:
@@ -41,7 +42,8 @@ class GroupConfiguration:
             != current.settings.get("emoji_status_blocked_packs", list(DEFAULT_BLOCKED_PACKS))
         ):
             await self.validate_status_packs(changes["emoji_status_blocked_packs"])
-        if changes.get("join_requests"):
+        reset_defaults = (await self.read_defaults()) if body.reset else {}
+        if changes.get("join_requests") or "join_requests" in body.reset and reset_defaults.get("join_requests"):
             await self.context.access.require_join_right(group_id)
         if body.enabled is True:
             raise ManagementError(422, "启用保护请使用群接入检查操作")
@@ -65,6 +67,10 @@ class GroupConfiguration:
                 group.enabled, group.status = False, "paused"
             if changes:
                 group.settings = GroupSettings.model_validate({**group.settings, **changes}).model_dump()
+            if body.reset:
+                defaults = (await policy(session)).settings
+                group.settings = {**group.settings, **{key: defaults[key] for key in body.reset}}
+            group.setting_overrides = sorted((set(group.setting_overrides or []) | changes.keys()) - set(body.reset))
             return await self.context.record(
                 session, actor, group_id, "settings", reason, row_dict(group), request_id
             )
@@ -95,6 +101,7 @@ class GroupConfiguration:
             if len(updated) > 100:
                 raise ManagementError(422, "每群最多添加 100 个状态表情包，请先移除不再需要的条目")
             group.settings = {**group.settings, "emoji_status_blocked_packs": updated}
+            group.setting_overrides = sorted(set(group.setting_overrides or []) | {"emoji_status_blocked_packs"})
             result = {
                 "group_id": group_id,
                 "operation": body.operation,
@@ -135,3 +142,40 @@ class GroupConfiguration:
                 raise ManagementError(503, "暂时无法向 Telegram 核实表情包，请稍后重试") from exc
             if result.get("sticker_type") != "custom_emoji" or result.get("name", "").lower() != name:
                 raise ManagementError(422, f"请使用自定义表情包的 addemoji 链接：{name}")
+
+    async def read_defaults(self):
+        async with self.context.db.sessions() as session:
+            return (await policy(session)).settings
+
+    async def shared(self, actor, body=None):
+        await self.context.access.principal(actor, root=True)
+        if body is None:
+            async with self.context.db.sessions() as session:
+                current = await policy(session)
+                return {"settings": current.settings, "rules": current.rules}
+        from sqlalchemy import select
+        from purrai.rule_admin import RuleAdministration
+
+        if body.settings and "emoji_status_blocked_packs" in body.settings:
+            await self.validate_status_packs(body.settings["emoji_status_blocked_packs"])
+        if body.settings and body.settings.get("join_requests"):
+            async with self.context.db.sessions() as session:
+                groups = (await session.scalars(select(Group).where(Group.approved.is_(True)))).all()
+            for group in groups:
+                if "join_requests" not in (group.setting_overrides or []):
+                    await self.context.access.require_join_right(group.id)
+        if body.rules is not None:
+            for rule in body.rules:
+                RuleAdministration.validate(rule)
+        async with self.context.db.transaction() as session:
+            previous = await self.context.previous(session, actor, body.request_id)
+            if previous is not None:
+                return previous
+            current = await policy(session)
+            if body.baseline is not None and body.baseline != {"settings": current.settings, "rules": current.rules}:
+                raise ManagementError(409, "通用设置已被修改，请刷新后重试")
+            try:
+                result = await update_shared(session, body.settings, [rule.model_dump() for rule in body.rules] if body.rules is not None else None)
+            except ValueError as exc:
+                raise ManagementError(422, str(exc)) from exc
+            return await self.context.record(session, actor, None, "settings", "修改通用配置", result, body.request_id)

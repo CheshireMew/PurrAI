@@ -3,7 +3,7 @@
 import re
 from urllib.parse import urlsplit
 
-DEFAULT_BLOCKED_PACKS = ("bygbb666", "gshechaba")
+DEFAULT_BLOCKED_PACKS = ("bygbb666", "gshechaba", "tgvip_16")
 DEFAULT_CHAT_PACKS = (
     "myadestes",
     "Beach_Bat_Responses_by_fStikBot",

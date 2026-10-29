@@ -2,6 +2,7 @@
 
 from sqlalchemy import select
 
+from purrai.shared_policy import effective_rules
 from purrai.action_queue import enqueue
 from purrai.advertising_patterns import source_titles
 from purrai.advertising_guard import message_links
@@ -12,7 +13,6 @@ from purrai.message_activity import observe_activity
 from purrai.models import (
     Group,
     Member,
-    Rule,
     Verification,
     Violation,
     Whitelist,
@@ -22,7 +22,6 @@ from purrai.models import (
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_violation
 from purrai.rules import assess, message_content
-from purrai.serialization import row_dict
 from purrai.telegram import is_admin
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 from purrai.verification_state import ACTIVE
@@ -47,8 +46,8 @@ class Moderation:
                 "@" + user["username"] if user.get("username") else "",
             ]
         ).strip()[:500]
-        rules = (await session.scalars(select(Rule).where(Rule.group_id == group.id))).all()
-        result = assess("", [], [row_dict(row) for row in rules], group.settings, sender_name=profile)
+        rules = await effective_rules(session, group.id)
+        result = assess("", [], rules, group.settings, sender_name=profile)
         if not result["name_reasons"]:
             return False
         violation = Violation(
@@ -147,11 +146,11 @@ class Moderation:
             display_name = " ".join(str(sender.get(key, "")) for key in ("first_name", "last_name")).strip()
             if sender.get("username"):
                 display_name += " @" + sender["username"]
-            rules = (await session.scalars(select(Rule).where(Rule.group_id == group_id))).all()
+            rules = await effective_rules(session, group_id)
             profile = assess(
                 text,
                 urls,
-                [row_dict(rule) for rule in rules],
+                rules,
                 group.settings,
                 sender_name=display_name,
                 contact=bool(message.get("contact")),
@@ -159,7 +158,7 @@ class Moderation:
             )
             if group.settings.get("external_group_ban", True):
                 channel_reasons = external_channel_reasons(
-                    channel_sources(message), group_id, group.settings, [row_dict(rule) for rule in rules],
+                    channel_sources(message), group_id, group.settings, rules,
                     linked_channel_id=await own_channel_id(session, group_id),
                 )
                 profile["reasons"] += channel_reasons
@@ -210,7 +209,7 @@ class Moderation:
                     return
         text, urls = message_content(message)
         activity = await observe_activity(session, group, member, message, text, edited)
-        rules = (await session.scalars(select(Rule).where(Rule.group_id == group_id))).all()
+        rules = await effective_rules(session, group_id)
         display_name = " ".join(
             str(sender.get(key, "")) for key in ("first_name", "last_name", "title")
         ).strip()[:500]
@@ -219,7 +218,7 @@ class Moderation:
         result = assess(
             text,
             urls,
-            [row_dict(r) for r in rules],
+            rules,
             group.settings,
             activity.newcomer,
             bool(message.get("contact")),

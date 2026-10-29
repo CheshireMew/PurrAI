@@ -141,6 +141,13 @@ class BotRoutes:
             await self.inputs.confirmation(actor, group_id, data, message_id)
         elif action == "execute":
             await self.inputs.submit(actor, group_id, actor, data, request_id)
+        elif action == "settings_inherit":
+            from purrai.schemas import GroupSettings
+            await self.management.settings_patch(actor, group_id, SettingsPatch(reset=list(GroupSettings.model_fields)), request_id)
+            await self.panels.group_panel(actor, group_id, message_id)
+        elif action == "rule_inherit":
+            await self.management.rules.inherit(actor, group_id, data["id"])
+            await self.panels.detail(actor, group_id, "rule", data["id"], message_id)
         elif action in ("rule_toggle", "rule_mode", "rule_scope", "rule_penalty"):
             row = await self.management.queries.single(actor, group_id, "rule", data["id"])
             if not row or row.group_id != group_id:

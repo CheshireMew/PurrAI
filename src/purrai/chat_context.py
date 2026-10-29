@@ -6,14 +6,14 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
+from purrai.shared_policy import effective_rules
 from purrai.chat_input import input_reasons
 from purrai import chat_commands
 from purrai.chat_messages import recent_messages
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
-from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, MessageRevision, Meta, Rule, now
+from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, MessageRevision, Meta, now
 from purrai.schemas import GroupSettings
-from purrai.serialization import row_dict
 from purrai.telegram_sources import channel_sources, external_channel_reasons, stored_channel_sources
 
 
@@ -47,7 +47,7 @@ class ChatContext:
             if row.get("reply_to"):
                 speakers.setdefault(row["reply_to"], 0)
         recent = await self.recent(session, group_id, topic_id)
-        rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+        rules = await effective_rules(session, group_id)
         allowed_images = permitted_images(recent, message_id, direct)
         if direct:
             target = next((row for row in recent if row.message_id == message_id), None)
@@ -272,7 +272,7 @@ class ChatContext:
             return {}
         text = (archived.text or archived.caption) if archived else snapshot.get("text", "")
         group = await session.get(Group, target.group_id)
-        rules = [row_dict(rule) for rule in await session.scalars(select(Rule).where(Rule.group_id == target.group_id))]
+        rules = await effective_rules(session, target.group_id)
         origins = snapshot.get("reference_sources", [])
         if archived:
             payload = await session.scalar(select(latest_payload()).select_from(ArchivedMessage).where(

@@ -68,6 +68,7 @@ class GroupPanels:
             button("白名单", "list", kind="whitelist"),
             button("成员放行 / 禁言 / 封禁", "members"),
             button("操作记录", "list", kind="action"),
+            button("恢复通用设置", "settings_inherit"),
             button("切换群", "groups"),
         ]
         if group.settings.get("join_requests"):

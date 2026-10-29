@@ -19,14 +19,54 @@ from purrai.schemas import (
     WhitelistInput,
 )
 from purrai.serialization import row_dict
+from purrai.shared_policy import effective_rule, effective_rules
 
 
 class RuleAdministration:
     def __init__(self, context):
         self.context = context
 
+    async def inherit(self, actor, group_id, identifier):
+        await self.context.access.authorize(actor, group_id, write=True)
+        async with self.context.access.group_transaction(group_id) as session:
+            item = await effective_rule(session, group_id, identifier)
+            if item is None:
+                raise ManagementError(404, "规则不存在")
+            from purrai.shared_policy import policy
+            if item["id"] not in {rule["id"] for rule in (await policy(session)).rules}:
+                raise ManagementError(409, "这条规则没有对应的通用规则")
+            for row in await session.scalars(select(Rule).where(Rule.group_id == group_id, Rule.inherited_from == item["id"])):
+                row.customized = False
+            await session.flush()
+            result = await effective_rule(session, group_id, item["id"])
+            return await self.context.record(session, actor, group_id, "rule", "恢复通用规则", result)
+
     async def rule(self, actor, group_id, body: RuleInput, identifier="", request_id=""):
         await self.context.access.authorize(actor, group_id, write=True)
+        self.validate(body)
+        async with self.context.access.group_transaction(group_id) as session:
+            previous = await self.context.previous(session, actor, request_id)
+            if previous is not None:
+                return previous
+            item = await effective_rule(session, group_id, identifier) if identifier else None
+            if identifier and item is None:
+                raise ManagementError(404, "规则不存在")
+            origin = item["id"] if item and (item.get("inherited") or item.get("inherited_from")) else ""
+            row = await session.scalar(select(Rule).where(Rule.group_id == group_id, Rule.inherited_from == origin)) if origin else await session.get(Rule, identifier) if identifier else None
+            if row is None:
+                row = Rule(id=uid(), group_id=group_id, inherited_from=origin)
+                session.add(row)
+            row.customized = True
+            for key, value in body.model_dump().items():
+                setattr(row, key, value)
+            await session.flush()
+            result = {**row_dict(row), "id": origin or row.id, "inherited": False}
+            return await self.context.record(
+                session, actor, group_id, "rule", "修改广告规则", result, request_id
+            )
+
+    @staticmethod
+    def validate(body):
         if body.kind in ("block_mention", "allow_mention"):
             if not re.fullmatch(r"@?[A-Za-z0-9_]{1,32}", body.value):
                 raise ManagementError(422, "引流账号请填写 @username 或 username，不要填写网址")
@@ -36,29 +76,12 @@ class RuleAdministration:
                     raise ValueError()
             except (ValueError, UnicodeError) as exc:
                 raise ManagementError(422, "域名规则请只填写主机名，例如 example.com") from exc
-        async with self.context.access.group_transaction(group_id) as session:
-            previous = await self.context.previous(session, actor, request_id)
-            if previous is not None:
-                return previous
-            row = await session.get(Rule, identifier) if identifier else Rule(id=uid(), group_id=group_id)
-            if not row or row.group_id != group_id:
-                raise ManagementError(404, "规则不存在")
-            if not identifier:
-                session.add(row)
-            for key, value in body.model_dump().items():
-                setattr(row, key, value)
-            return await self.context.record(
-                session, actor, group_id, "rule", "修改广告规则", row_dict(row), request_id
-            )
 
     async def preview(self, actor, group_id, body: PreviewInput):
         group = await self.context.access.authorize(actor, group_id)
         async with self.context.db.sessions() as session:
             rules = (
-                [
-                    row_dict(row)
-                    for row in (await session.scalars(select(Rule).where(Rule.group_id == group_id))).all()
-                ]
+                await effective_rules(session, group_id)
                 if body.rules is None
                 else [r.model_dump() for r in body.rules]
             )

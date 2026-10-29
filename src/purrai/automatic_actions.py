@@ -1,13 +1,11 @@
 """Automatic moderation actions selected by the action dispatcher."""
 
-from sqlalchemy import select
 
+from purrai.shared_policy import effective_rules
 from purrai.advertising_guard import link_reasons
 from purrai.advertising_patterns import advertising_reasons, is_ban_reason, source_titles
 from purrai.group_link_identity import own_channel_id, own_link_keys
-from purrai.models import Rule
 from purrai.rules import message_content, normalize
-from purrai.serialization import row_dict
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 
 
@@ -29,7 +27,7 @@ class AutomaticActions:
         message = evidence.get("message", {})
         reasons = advertising_reasons(normalize(message_content(message)[0]),
                                       [normalize(title) for title in source_titles(message)]) if group.settings.get("advertising_ban", True) else []
-        rules = [row_dict(row) for row in await session.scalars(select(Rule).where(Rule.group_id == group.id))]
+        rules = await effective_rules(session, group.id)
         reasons += link_reasons(message, group, rules, await own_link_keys(session, group.id), evidence.get("links", []))
         if group.settings.get("external_group_ban", True):
             reasons += external_channel_reasons(channel_sources(message), group.id, group.settings, rules,

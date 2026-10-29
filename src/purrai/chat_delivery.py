@@ -4,16 +4,15 @@ import json
 import logging
 
 from aiogram.exceptions import TelegramBadRequest
-from sqlalchemy import select
 
+from purrai.shared_policy import effective_rules
 from purrai.action_queue import enqueue
 from purrai.deletion_effects import deletion_result
 from purrai.chat_safety import output_reasons
 from purrai.chat_commands import remember_ad
 from purrai.chat_retraction import finish_receipt
-from purrai.models import ChatTurn, Rule, now
+from purrai.models import ChatTurn, now
 from purrai.schemas import GroupSettings
-from purrai.serialization import row_dict
 from purrai.stickers import emoji_key
 
 logger = logging.getLogger(__name__)
@@ -104,10 +103,10 @@ class ChatDelivery:
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             latest_cfg = GroupSettings.model_validate(group.settings)
-            rules = (await session.scalars(select(Rule).where(Rule.group_id == turn.group_id))).all()
+            rules = await effective_rules(session, turn.group_id)
             reasons = output_reasons(
                 result.text,
-                [row_dict(rule) for rule in rules],
+                rules,
                 group.settings,
                 getattr(self.tg, "username", ""),
             )

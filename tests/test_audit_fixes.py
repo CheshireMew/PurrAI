@@ -332,12 +332,12 @@ async def test_pa05_emoji_ban_is_visible_in_both_views(env, client, monkeypatch)
     await drain(service)
     response = await client.get("/api/groups/-1001/violations")
     item = next(row for row in response.json()["items"]
-                if any(a["kind"] == "emoji_status_ban" for a in row["actions"]))
-    assert any(a["kind"] == "emoji_status_ban" and a["state"] == "succeeded" for a in item["actions"])
+                if any(a["kind"] == "emoji_status_mute" for a in row["actions"]))
+    assert any(a["kind"] == "emoji_status_mute" and a["state"] == "succeeded" for a in item["actions"])
     runtime = Runtime(db, tg, service)
     try:
         await runtime.admin.detail(1, -1001, "violation", item["id"])
-        assert any("状态表情命中永久封禁：已完成" in args.get("text", "") for _, args in tg.calls)
+        assert any("状态表情命中永久禁言：已完成" in args.get("text", "") for _, args in tg.calls)
     finally:
         await runtime.stop()
 

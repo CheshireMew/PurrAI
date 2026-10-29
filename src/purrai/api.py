@@ -16,11 +16,20 @@ from purrai.schemas import (
     PreviewInput,
     RuleInput,
     SettingsPatch,
+    SharedPolicyPatch,
     WhitelistInput,
 )
 
 
 def install_api(app):
+    @app.get("/api/settings/defaults")
+    async def shared_policy(request: Request, user: Identity = Depends(root_identity)):
+        return await request.app.state.management.configuration.shared(user.id)
+
+    @app.patch("/api/settings/defaults")
+    async def update_shared_policy(body: SharedPolicyPatch, request: Request, user: Identity = Depends(root_identity)):
+        return await request.app.state.management.configuration.shared(user.id, body)
+
     @app.get("/api/me")
     async def me(request: Request, user: Identity = Depends(identity)):
         return {
@@ -206,6 +215,10 @@ def install_api(app):
         identifier: int, body: PreviewInput, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.preview(user.id, identifier, body)
+
+    @app.post("/api/groups/{identifier}/rules/{rule_id}/inherit")
+    async def inherit_rule(identifier: int, rule_id: str, request: Request, user: Identity = Depends(identity)):
+        return await request.app.state.management.rules.inherit(user.id, identifier, rule_id)
 
     @app.get("/api/groups/{identifier}/whitelist")
     async def whitelist(identifier: int, request: Request, user: Identity = Depends(identity)):

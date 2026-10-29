@@ -1,21 +1,33 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { post, put } from '../api'
-import type { Rule } from '../types'
+import { api, post, put } from '../api'
+import type { Rule, SharedPolicy } from '../types'
+import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
 import { usePreview } from '../composables/usePreview'
 
 const props = defineProps<{ open: boolean; rule: Rule | null; rules: Rule[]; groupId: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
+const { me } = useWorkspace()
+const sharedBaseline = ref<SharedPolicy | null>(null)
+let revision = 0
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
 const { busy, error, safe } = useTask()
 const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true })
 const { input: previewInput, reasons: previewReasons, preview } = usePreview(() => props.groupId)
-watch(() => props.open, open => {
+watch(() => props.open, async open => {
+  const current = ++revision
+  sharedBaseline.value = null
   if (!open) return
   Object.assign(form, { id: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true }, props.rule || {})
   previewReasons.value = null; previewInput.text = ''; previewInput.sender_name = ''; error.value = ''
+  if (me.value?.root) {
+    try {
+      const baseline = await api<SharedPolicy>('/api/settings/defaults')
+      if (current === revision) sharedBaseline.value = baseline
+    } catch (reason) { if (current === revision) error.value = (reason as Error).message }
+  }
 })
 async function previewDraft() {
   await safe(() => preview(props.rules.filter(rule => rule.id !== props.rule?.id).concat({ ...form })))
@@ -25,6 +37,26 @@ async function save() {
     if (!form.value.trim()) throw new Error('请填写规则内容')
     const path = `/api/groups/${props.groupId}/rules${props.rule?.id ? '/' + props.rule.id : ''}`
     await (props.rule?.id ? put(path, form) : post(path, form)); ElMessage.success('已保存')
+  })) { emit('saved'); emit('close') }
+}
+async function saveShared() {
+  if (await safe(async () => {
+    if (!form.value.trim()) throw new Error('请填写规则内容')
+    const baseline = sharedBaseline.value
+    if (!baseline) throw new Error('通用规则尚未加载，请重新打开后重试')
+    const index = baseline.rules.findIndex(rule => rule.id === props.rule?.id)
+    const rules = baseline.rules.map(rule => ({ ...rule }))
+    const draft = { ...form, id: index >= 0 ? props.rule?.id : '' }
+    if (index >= 0) rules[index] = draft
+    else rules.push(draft)
+    await api('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ rules, baseline, request_id: crypto.randomUUID() }) })
+    ElMessage.success('已保存通用规则')
+  })) { emit('saved'); emit('close') }
+}
+async function inheritRule() {
+  if (await safe(async () => {
+    await post(`/api/groups/${props.groupId}/rules/${props.rule!.id}/inherit`)
+    ElMessage.success('已恢复通用规则')
   })) { emit('saved'); emit('close') }
 }
 </script>
@@ -86,6 +118,8 @@ async function save() {
 </el-form>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <template #footer>
+<el-button v-if="props.rule?.inherited_from && !props.rule.inherited" :loading="busy" @click="inheritRule">恢复通用规则</el-button>
+<el-button v-if="me?.root" :loading="busy" :disabled="!sharedBaseline" @click="saveShared">保存为通用规则</el-button>
 <el-button @click="dialog = false">取消</el-button>
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>
 </template>

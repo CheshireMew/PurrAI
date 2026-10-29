@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { post } from '../api'
-import type { Group } from '../types'
+import type { Group, SharedPolicy } from '../types'
 import GroupSettingsDialog from '../components/GroupSettingsDialog.vue'
 import { useTask } from '../composables/useTask'
 import { api, label, time } from '../api'
@@ -14,6 +14,13 @@ const props = defineProps<{ refreshKey: number }>()
 const { me, groups, reloadGroups, submitAction } = useWorkspace()
 const { busy, error, safe } = useTask(), settingsGroup = ref<Group | null>(null)
 const admissionOpen = ref(false), admissionId = ref('')
+const sharedBaseline = ref<SharedPolicy | null>(null)
+async function openShared() {
+  await safe(async () => {
+    sharedBaseline.value = await api<SharedPolicy>('/api/settings/defaults')
+    settingsGroup.value = { id: 0, title: '通用设置', type: 'supergroup', status: 'active', approved: true, enabled: true, settings: sharedBaseline.value.settings }
+  })
+}
 const { busy: admissionBusy, error: admissionError, safe: admissionSafe } = useTask()
 function openAdmission() { admissionId.value = ''; admissionError.value = ''; admissionOpen.value = true }
 async function admitGroup() {
@@ -52,6 +59,7 @@ useRefresh(load, () => props.refreshKey)
 </h2>
 <span class="muted">仅限所有者批准的群；批准后由群管理员启用保护</span>
 <el-button v-if="me?.root" type="primary" @click="openAdmission">接入群组</el-button>
+<el-button v-if="me?.root" @click="openShared">通用设置</el-button>
 </div>
 <el-table :data="groups" empty-text="请先将机器人加入超级群">
 <el-table-column label="群" min-width="200">
@@ -91,5 +99,5 @@ useRefresh(load, () => props.refreshKey)
 <el-button type="primary" :loading="admissionBusy" @click="admitGroup">确认接入</el-button>
 </template>
 </el-dialog>
-<GroupSettingsDialog :group="settingsGroup" @close="settingsGroup = null"/>
+<GroupSettingsDialog :group="settingsGroup" :shared-baseline="sharedBaseline" @close="settingsGroup = null"/>
 </template>

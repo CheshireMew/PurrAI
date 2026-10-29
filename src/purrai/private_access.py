@@ -2,6 +2,7 @@
 
 from sqlalchemy import func, select
 
+from purrai.shared_policy import initial_settings
 from purrai.models import Group
 
 
@@ -20,7 +21,7 @@ async def discover(session, chat, pending_limit=50):
     if pending >= pending_limit:
         return None
     group = Group(id=chat["id"], title=chat.get("title", "")[:128], type=chat["type"],
-                  enabled=False, approved=False, status="unapproved")
+                  enabled=False, approved=False, status="unapproved", settings=await initial_settings(session))
     session.add(group)
     await session.flush()
     return group

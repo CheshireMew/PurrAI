@@ -7,16 +7,16 @@ import logging
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import select
 
+from purrai.shared_policy import effective_rules
 from purrai.action_queue import enqueue
 from purrai.archive import mark_reasons
 from purrai.advertising_patterns import GROUP_PREFIX, discussion
 from purrai.group_link_identity import own_link_keys, remember_group_link
 from purrai.diagnostics import failure
-from purrai.models import Action, Group, Member, Rule, Whitelist, now, uid
+from purrai.models import Action, Group, Member, Whitelist, now, uid
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_violation
 from purrai.rules import message_content, normalize
-from purrai.serialization import row_dict
 from purrai.telegram import is_admin
 from purrai.telegram_links import TelegramLink, allowed_link, extract_links, parse_link
 
@@ -99,7 +99,7 @@ class AdvertisingGuard:
                 identifier, cycle, group_id, user_id = action.id, action.payload["cycle"], action.group_id, action.user_id
                 incoming = copy.deepcopy(action.payload["message"])
                 keys = await own_link_keys(session, group_id)
-                rules = [row_dict(row) for row in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+                rules = await effective_rules(session, group_id)
                 settings = copy.deepcopy(group.settings)
             evidence, unknown, error, administrator, own = [], [], None, False, {}
             try:
@@ -154,7 +154,7 @@ class AdvertisingGuard:
                         if own.get("invite_link"):
                             await remember_group_link(session, group_id, own["invite_link"])
                     keys = await own_link_keys(session, group_id)
-                    rules = [row_dict(row) for row in await session.scalars(select(Rule).where(Rule.group_id == group_id))]
+                    rules = await effective_rules(session, group_id)
                     reasons = link_reasons(incoming, group, rules, keys, evidence)
                     if reasons:
                         await mark_reasons(session, incoming, action.payload.get("edited", False),
