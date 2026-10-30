@@ -24,10 +24,10 @@ ADDRESSES = [
 @pytest.mark.parametrize("address", ADDRESSES)
 def test_wallet_formats_in_text_and_captions(address):
     assert contains_wallet_address(f"收款地址：{address}。")
-    assert "新成员观察期发送加密货币地址" in assess(
+    assert "发送加密货币或代币合约地址" in assess(
         address, [], [], default_settings(), newcomer=True,
     )["reasons"]
-    assert not assess(address, [], [], default_settings())["reasons"]
+    assert "发送加密货币或代币合约地址" in assess(address, [], [], default_settings())["reasons"]
 
 
 @pytest.mark.parametrize("text", [
@@ -73,13 +73,13 @@ async def test_three_day_observation_covers_all_requested_content(env, age, obse
         await svc.message(incoming)
     await drain(svc)
     deleted = [args["message_id"] for name, args in tg.calls if name == "delete_message"]
-    assert sorted(deleted) == ([item["message_id"] for item in messages] if blocked else [])
+    assert sorted(deleted) == ([item["message_id"] for item in messages] if blocked else [4])
     assert not any(name in ("ban_chat_member", "restrict_chat_member") for name, _ in tg.calls)
     async with db.sessions() as session:
         assert all(not row.warning_active for row in (await session.scalars(select(Violation))).all())
 
 
-@pytest.mark.parametrize("exempt", ["administrator", "whitelist", "unknown", "disabled"])
+@pytest.mark.parametrize("exempt", ["administrator", "whitelist", "disabled"])
 async def test_new_observation_exemptions_and_switches(env, exempt):
     _, db, tg, svc = env
     async with db.transaction() as session:

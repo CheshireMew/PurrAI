@@ -3,7 +3,7 @@
 import re
 
 from purrai.chat_safety import LINKS
-from purrai.advertising_patterns import authored_text, discussion
+from purrai.advertising_patterns import ad_text, authored_text, discussion
 from purrai.rules import assess, compact, normalize
 
 TRADE = r"(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队)"
@@ -13,12 +13,11 @@ OFFER = re.compile(r"(?:带单|返佣|代刷|代充|代办|兼职|搬砖|策略�
 CONTACT = re.compile(r"(?:私聊|私信|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码|免费进群|免费进频道)")
 FOMO = re.compile(r"(?:花钱|付费|收费).{0,16}(?:频道|群).{0,16}(?:现在|如今|今天).{0,12}(?:免费|白送|直接进|随便进)")
 PROMISE = re.compile(r"(?:稳赚|包赚|保本收益|躺赚|零风险|日[入赚]\d+)")
-AD_VARIANTS = str.maketrans("來強勝滿莊點頭免費進發轉機賺個學葉頻內無們這準撿錢", "来强胜满庄点头免费进发转机赚个学叶频内无们这准捡钱")
 
 
 def solicitation(text):
     """Additional chat-only exclusions; never evidence for a member penalty."""
-    canonical = normalize(text).translate(AD_VARIANTS)
+    canonical = ad_text(text)
     if discussion(canonical):
         return ""
     value = compact(authored_text(canonical))
@@ -49,7 +48,7 @@ def solicitation(text):
 
 
 def advertising(text, *, direct=False):
-    canonical = normalize(text)
+    canonical = ad_text(text)
     extra = solicitation(canonical)
     if extra:
         return extra
@@ -76,7 +75,7 @@ def advertising(text, *, direct=False):
 def input_reasons(text, rules, settings, *, direct=False, urls=()):
     canonical = normalize(text)
     found = [match.group().rstrip(".,，。!?！？);；:：]】}）\"'") for match in LINKS.finditer(canonical)]
-    reasons = assess(canonical, list(urls) + found, rules, settings)["reasons"]
+    reasons = assess(text, list(urls) + found, rules, settings)["reasons"]
     name = normalize(settings.get("chat_name", ""))
     body = canonical.removeprefix(name).lstrip(" ，,：:") if name else canonical
     reason = advertising(body, direct=direct)

@@ -38,7 +38,7 @@ def output_reasons(text: str | None, rules: list[dict], settings: dict, bot_user
         allowed_mentions.add(normalize(bot_username).lstrip("@"))
     try:
         # Only message/either scopes apply. A user's name is not the AI's output.
-        reasons = assess(canonical, urls, active, settings)["reasons"]
+        reasons = assess(text, urls, active, settings)["reasons"]
         for url in urls:
             parsed = urlsplit(url if "://" in url else "https://" + url)
             host = domain(url)

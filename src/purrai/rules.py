@@ -211,10 +211,10 @@ def assess(
         reasons.append(CONTACT_REASON)
     if newcomer and forwarded and settings.get("newcomer_forwards", True):
         reasons.append("新成员观察期转发用户或频道消息")
-    if newcomer and settings.get("newcomer_wallets", True) and any(
+    if settings.get("newcomer_wallets", True) and any(
         contains_wallet_address(value) for value in [text, *urls]
     ):
-        reasons.append("新成员观察期发送加密货币地址")
+        reasons.append("发送加密货币或代币合约地址")
     if settings.get("repeat_enabled") and repeats >= settings["repeat_count"]:
         reasons.append("重复刷屏")
     if settings.get("similar_enabled") and similar >= settings.get("similar_count", 4):

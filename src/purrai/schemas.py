@@ -48,6 +48,8 @@ class GroupSettings(BaseModel):
     )
     newcomer_mentions: bool = True
     newcomer_forwards: bool = True
+    # Historical key retained for existing group settings and API clients.
+    # Address blocking applies to every ordinary member, independent of tenure.
     newcomer_wallets: bool = True
     repeat_enabled: bool = True
     repeat_window: int = Field(default=30, ge=5, le=3600)

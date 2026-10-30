@@ -76,7 +76,7 @@ BOOLEANS = {
     "newcomer_links": "新成员限制链接",
     "newcomer_mentions": "新成员限制 @账号及群组",
     "newcomer_forwards": "新成员限制用户及频道转发",
-    "newcomer_wallets": "新成员限制加密货币地址",
+    "newcomer_wallets": "全员拦截钱包及代币合约地址",
     "repeat_enabled": "重复刷屏检测",
     "block_invites": "群邀请链接拦截",
     "similar_enabled": "近似内容刷屏检测",
