@@ -81,7 +81,7 @@ async def test_private_bot_admin_needs_no_web_login_and_denies_other_users(env):
     await deliver(runtime, {"message": private("/admin", 7)})
     assert "不是机器人已加入群的管理员" in texts(telegram)[-1]
     await deliver(runtime, {"message": private("/start", 7)})
-    assert "完整答案" in texts(telegram)[-1]
+    assert "打开管理面板" in texts(telegram)[-1]
 
 
 async def test_bot_settings_validate_persist_across_runtime_restart_and_cancel_navigation(env):

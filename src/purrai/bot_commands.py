@@ -68,11 +68,11 @@ class BotCommands:
                     except ManagementError:
                         await self.send(
                             chat_id,
-                            "入群验证请在验证码图片下方选择与图片数字相同的完整答案，点击一次即可。群管理员可发送 /admin；查看自己的数字 ID 请发送 /id。",
+                            "/start 用于打开管理面板。群管理员可发送 /admin 选择要管理的群，设置入群验证、防广告和群聊天。发送 /id 可查看自己的 Telegram 数字 ID。",
                         )
                         return True
                 else:
-                    await self.send(chat_id, "新成员请在验证码图片下方作答；管理员请私聊机器人发送 /admin。")
+                    await self.send(chat_id, "/start 用于打开管理面板。管理员请私聊我发送 /start 或 /admin，选择要管理的群，可设置入群验证、防广告和群聊天。发送 /id 可查看自己的 Telegram 数字 ID。")
                 return True
             if not private and message.get("sender_chat"):
                 raise ManagementError(403, "匿名管理员请使用个人账号私聊机器人操作")
