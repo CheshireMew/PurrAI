@@ -47,7 +47,7 @@ class TelegramGateway:
         self.connected = True
 
     async def register_commands(self):
-        common = [("start", "开始使用"), ("help", "使用帮助"), ("id", "查看我的 Telegram 数字 ID")]
+        common = [("help", "使用帮助"), ("id", "查看我的 Telegram 数字 ID")]
         admin = [("admin", "打开管理面板"), ("groups", "选择管理群"), ("status", "查看当前群状态")]
         moderation = [
             ("release", "人工放行验证"),
@@ -59,7 +59,7 @@ class TelegramGateway:
         ]
         for scope, commands in (
             ("default", common),
-            ("all_private_chats", common + admin + moderation + [("cancel", "取消当前输入")]),
+            ("all_private_chats", [("start", "打开管理面板")] + common + admin + moderation + [("cancel", "取消当前输入")]),
             ("all_chat_administrators", admin + moderation + [("help", "使用帮助")]),
         ):
             await self.call(

@@ -38,7 +38,7 @@ class BotCommands:
             "/release",
             "/reissue",
         }
-        if not private and command not in commands:
+        if not private and (command not in commands or command == "/start"):
             return False
         addressed = text.split(maxsplit=1)[0] if text else ""
         if (

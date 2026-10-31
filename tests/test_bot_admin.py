@@ -67,15 +67,16 @@ def texts(telegram):
     return [data["text"] for method, data in telegram.calls if method == "send_message"]
 
 
-async def open_group(runtime, telegram, actor=1):
-    await deliver(runtime, {"message": private("/admin", actor)})
+async def open_group(runtime, telegram, actor=1, entry="/admin"):
+    await deliver(runtime, {"message": private(entry, actor)})
     await click(runtime, telegram, "测试群", actor)
 
 
-async def test_private_bot_admin_needs_no_web_login_and_denies_other_users(env):
+@pytest.mark.parametrize("entry", ["/admin", "/start", "/start admin"])
+async def test_private_bot_admin_needs_no_web_login_and_denies_other_users(env, entry):
     _, database, telegram, service = env
     runtime = Runtime(database, telegram, service)
-    await open_group(runtime, telegram)
+    await open_group(runtime, telegram, entry=entry)
     assert "验证设置" in str(markup(telegram))
     assert await runtime.admin.recall("bot_selected:1") == -1001
     await deliver(runtime, {"message": private("/admin", 7)})
@@ -256,13 +257,14 @@ async def test_bot_unmute_active_verification_finishes_it_and_old_buttons_do_not
     assert len([m for m, p in telegram.calls if m == "restrict_chat_member"]) == 2
 
 
-async def test_bot_pending_members_cannot_bypass_message_cleanup_using_commands(env, monkeypatch):
+@pytest.mark.parametrize("command", ["/help", "/start"])
+async def test_bot_pending_members_cannot_bypass_message_cleanup_using_commands(env, monkeypatch, command):
     monkeypatch.setattr(captcha, "make_image", lambda: ("123456", b"png"))
     _, database, telegram, service = env
     await service.member_event(join())
     await drain(service)
     runtime = Runtime(database, telegram, service)
-    await deliver(runtime, {"message": message(77, "/help https://spam.example", 42)})
+    await deliver(runtime, {"message": message(77, command + " https://spam.example", 42)})
     await drain(service)
     assert any(method == "delete_message" and p["message_id"] == 77 for method, p in telegram.calls)
 
@@ -418,6 +420,28 @@ async def test_bot_command_menu_has_private_and_group_admin_scopes():
         "all_chat_administrators",
     ]
     assert any(command["command"] == "admin" for command in calls[1].kwargs["commands"])
+    assert any(command["command"] == "start" for command in calls[1].kwargs["commands"])
+    assert all(command["command"] != "start" for index in (0, 2) for command in calls[index].kwargs["commands"])
+
+
+@pytest.mark.parametrize("chat_type", ["group", "supergroup"])
+@pytest.mark.parametrize("text", ["/start", "/start 189 @OtherBot", "/start@PurrAITestBot", " /START@PurrAITestBot admin"])
+async def test_group_start_is_silent_and_never_queues_chat(env, chat_type, text):
+    from purrai.models import ChatMessage, ChatTurn
+
+    settings, database, telegram, service = env
+    settings.chat_api_base, settings.chat_api_key = "https://model.test/v1", "offline"
+    telegram.username = "PurrAITestBot"
+    async with database.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "chat_enabled": True}
+    runtime = Runtime(database, telegram, service)
+    await deliver(runtime, {"message": message(700, text, 1, chat={"id": -1001, "type": chat_type})})
+    await drain(service)
+    assert not any(method in ("send_message", "send_photo", "send_sticker") for method, _ in telegram.calls)
+    async with database.sessions() as session:
+        assert await session.scalar(select(ChatMessage)) is None
+        assert await session.scalar(select(ChatTurn)) is None
 
 
 async def test_dispatcher_member_and_edited_ad_events_keep_telegram_field_names(env, monkeypatch):
