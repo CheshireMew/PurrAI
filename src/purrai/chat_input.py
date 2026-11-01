@@ -13,6 +13,11 @@ OFFER = re.compile(r"(?:带单|返佣|代刷|代充|代办|兼职|搬砖|策略�
 CONTACT = re.compile(r"(?:私聊|私信|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码|免费进群|免费进频道)")
 FOMO = re.compile(r"(?:花钱|付费|收费).{0,16}(?:频道|群).{0,16}(?:现在|如今|今天).{0,12}(?:免费|白送|直接进|随便进)")
 PROMISE = re.compile(r"(?:稳赚|包赚|保本收益|躺赚|零风险|日[入赚]\d+)")
+LINK_REASON = "链接消息不参与聊天"
+
+
+def has_link(text, urls=()):
+    return bool(any(urls) or LINKS.search(normalize(text)))
 
 
 def solicitation(text):
@@ -76,6 +81,8 @@ def input_reasons(text, rules, settings, *, direct=False, urls=()):
     canonical = normalize(text)
     found = [match.group().rstrip(".,，。!?！？);；:：]】}）\"'") for match in LINKS.finditer(canonical)]
     reasons = assess(text, list(urls) + found, rules, settings)["reasons"]
+    if has_link(text, urls):
+        reasons.append(LINK_REASON)
     name = normalize(settings.get("chat_name", ""))
     body = canonical.removeprefix(name).lstrip(" ，,：:") if name else canonical
     reason = advertising(body, direct=direct)

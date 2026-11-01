@@ -5,7 +5,7 @@ import logging
 from sqlalchemy import delete, select
 
 from purrai.shared_policy import effective_rules
-from purrai.chat_input import input_reasons
+from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
 from purrai.chat_retraction import RECEIPT_RETENTION
 from purrai.group_link_identity import own_channel_id
@@ -52,6 +52,8 @@ class ChatObservation:
             rules = await effective_rules(session, group_id)
             urls = message_content(message)[1]
             reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
+            if has_link(*message_content(message.get("reply_to_message") or {})):
+                reasons.append(LINK_REASON)
             reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
                                                 linked_channel_id=await own_channel_id(session, group_id))
             allowed = bool(sender.get("id")) and await self.contexts.allowed(session, group_id, message_id, sender["id"])

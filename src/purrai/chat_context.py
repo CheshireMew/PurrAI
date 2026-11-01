@@ -7,13 +7,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
 from purrai.shared_policy import effective_rules
-from purrai.chat_input import input_reasons
+from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
 from purrai.chat_messages import recent_messages
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
 from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, MessageRevision, Meta, now
 from purrai.schemas import GroupSettings
+from purrai.rules import message_content
 from purrai.telegram_sources import channel_sources, external_channel_reasons, stored_channel_sources
 
 
@@ -56,18 +57,21 @@ class ChatContext:
         sources = [row for row in recent if row.message_id in speakers]
         speakers.update({row.message_id: row.sender_id for row in sources})
         for row in sources:
-            if row.is_bot and row.reply_to_id:
+            if row.reply_to_id:
                 speakers.setdefault(row.reply_to_id, 0)
         source_metadata = {row["id"]: row.get("channel_sources", []) for row in context}
         source_metadata.update({row.message_id: stored_channel_sources(row.reply_text) for row in sources})
         # Older chat rows did not retain channel origins. Recover them from the
         # independent archive, including sources already absent from chat's window.
+        links = set()
         for identifier, sender, payload in await session.execute(select(
             ArchivedMessage.message_id, ArchivedMessage.sender_id, latest_payload(),
         ).where(ArchivedMessage.group_id == group_id, ArchivedMessage.message_id.in_(speakers))):
             speakers[identifier] = sender or 0
             if payload:
                 source_metadata[identifier] = channel_sources(payload)
+                if has_link(*message_content(payload)):
+                    links.add(identifier)
         linked_channel_id = await own_channel_id(session, group_id)
         # Include frozen entries whose small rolling ChatMessage row has aged out.
         # A single batch checks the existing moderation facts, without an LLM call.
@@ -85,13 +89,18 @@ class ChatContext:
             origins, group_id, cfg.model_dump(), rules, linked_channel_id=linked_channel_id,
         ))
         for burst in message_bursts(recent):
-            if not any(row.is_bot for row in burst) and input_reasons("\n".join(row.text for row in burst), rules, cfg.model_dump(),
-                             direct=direct and any(row.message_id == message_id for row in burst)):
+            if not any(row.is_bot for row in burst) and any(reason != LINK_REASON for reason in input_reasons(
+                "\n".join(row.text for row in burst), rules, cfg.model_dump(),
+                direct=direct and any(row.message_id == message_id for row in burst),
+            )):
                 excluded.update(row.message_id for row in burst)
         records = context + [
             {"id": row.message_id, "text": row.text, "bot": row.is_bot, "reply_to": row.reply_to_id}
             for row in sources
         ]
+        links.update(row["id"] for row in records if has_link(row["text"]))
+        excluded.update(links)
+        excluded.update(row["id"] for row in records if row.get("reply_to") in links)
         excluded.update(row["id"] for row in records if (
             not row["text"].strip() or row["text"].lstrip().startswith("/")
             or ignored_text(row["text"], ignored, getattr(self.tg, "username", ""))
