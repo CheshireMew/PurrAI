@@ -6,6 +6,8 @@ from sqlalchemy import select
 
 from purrai.action_queue import enqueue
 from purrai.models import (
+    Action,
+    Fingerprint,
     Member,
     Verification,
     now,
@@ -14,6 +16,10 @@ from purrai.rules import CONTACT_REASON, CONTACT_REASONS
 from purrai.advertising_patterns import is_ban_reason
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
+
+SPAM_REASONS = {"重复刷屏", "近似内容刷屏", "短时间连续发送"}
+SPAM_SETTINGS = ("repeat_enabled", "repeat_window", "repeat_count", "similar_enabled", "similar_window",
+                 "similar_count", "similar_threshold", "similar_min_length", "burst_enabled", "burst_window", "burst_count")
 
 
 async def apply_penalty(session, group, violation, member, actor_id=None, reason="", *, evidence=None):
@@ -25,7 +31,9 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             f"delete:{violation.id}",
             group.id,
             violation.user_id,
-            {"message_id": violation.message_id, "violation_id": violation.id},
+            {"message_id": violation.message_id, "violation_id": violation.id,
+             **({"spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}}
+                if set(violation.reasons) <= SPAM_REASONS else {})},
             1,
             actor_id,
             reason,
@@ -101,4 +109,37 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             reason or "正文广告规则命中，删除消息并永久禁言",
         )
         identifiers.append(action.id)
+    elif SPAM_REASONS.intersection(violation.reasons) and not violation.sender_chat:
+        if member is None:
+            member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
+            session.add(member)
+            await session.flush()
+        fingerprint = await session.get(Fingerprint, (group.id, violation.user_id, violation.message_id))
+        if fingerprint:
+            action = await enqueue(session, "spam_mute", f"spam-mute:{violation.id}", group.id, violation.user_id,
+                {"violation_id": violation.id, "message_id": violation.message_id, "generation": member.generation,
+                 "fingerprint": fingerprint.digest,
+                 "spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}},
+                1, actor_id, "重复刷屏，删除消息并临时禁言30分钟")
+            identifiers.append(action.id)
+            if "重复刷屏" in violation.reasons:
+                copies = await session.scalars(select(Fingerprint).where(
+                    Fingerprint.group_id == group.id, Fingerprint.user_id == violation.user_id,
+                    Fingerprint.generation == fingerprint.generation, Fingerprint.digest == fingerprint.digest,
+                    Fingerprint.created_at >= fingerprint.created_at - group.settings["repeat_window"],
+                    Fingerprint.created_at <= fingerprint.created_at,
+                    Fingerprint.message_id != violation.message_id,
+                ))
+                for copy in copies:
+                    if await session.scalar(select(Action.id).where(
+                        Action.group_id == group.id, Action.kind == "delete", Action.target_message_id == copy.message_id,
+                        Action.state.in_(("pending", "succeeded")),
+                    )):
+                        continue
+                    deletion = await enqueue(session, "delete", f"repeat-delete:{group.id}:{violation.user_id}:{copy.message_id}",
+                        group.id, violation.user_id,
+                        {"message_id": copy.message_id, "violation_id": violation.id, "spam_fingerprint": copy.digest,
+                         "spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}},
+                        1, actor_id, "清理同一成员的重复刷屏消息")
+                    identifiers.append(deletion.id)
     return identifiers

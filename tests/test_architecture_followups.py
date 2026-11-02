@@ -295,7 +295,7 @@ async def test_a_cooled_topic_with_over_100_turns_does_not_hide_another_group(en
         session.add(Meta(key="chat_session:-1001:0", value=json.dumps({"blocked_until": now() + 60})))
     for identifier in range(1, 102):
         await chat.observe(message(identifier, f"@purrai_bot 等待问题 {identifier}"))
-    await chat.observe(message(1, "@purrai_bot 请回应", chat={"id": -1002, "type": "supergroup"}))
+    await chat.observe(message(1, "@purrai_bot 请回应这个问题", chat={"id": -1002, "type": "supergroup"}))
     await due(chat)
     assert await chat.run_one()
     assert [args["chat_id"] for method, args in tg.calls if method == "send_message"] == [-1002]

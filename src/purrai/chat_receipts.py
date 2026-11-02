@@ -61,5 +61,6 @@ class ChatReceipts:
         for entry in saved.get("source_context", []):
             if entry.get("id") == turn.message_id and entry.get("reply_to"):
                 source_ids.add(entry["reply_to"])
-        await remember_receipt(session, current, sent["message_id"], source_ids)
+        await remember_receipt(session, current, sent["message_id"], source_ids,
+                               checkable_source_ids=[turn.message_id] if sender_id > 0 else [])
 

@@ -31,6 +31,7 @@ ACTION_POLICIES = {
     "advertisement_ban": MODERATION,
     "advertisement_check": MODERATION,
     "rule_mute": MODERATION,
+    "spam_mute": MODERATION,
     "moderation_mute": MODERATION,
     "delete": MODERATION,
     "emoji_status_check": ActionPolicySpec(True, True, True),

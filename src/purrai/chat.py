@@ -18,6 +18,7 @@ from purrai.chat_receipts import ChatReceipts
 from purrai.chat_scheduler import ChatScheduler
 from purrai.chat_model import ChatModel, ChatModelError
 from purrai.chat_retraction import recover_retractions
+from purrai.chat_source_checks import ReplySourceChecks
 from purrai.chat_state import addressed as addressed
 from purrai.chat_state import has_sent_text, session_state, store_state
 from purrai.diagnostics import failure
@@ -41,6 +42,7 @@ class GroupChat:
         self.observation = ChatObservation(db, telegram, settings, self.contexts, self.stickers, self.wakeup)
         self.scheduler = ChatScheduler(db, telegram, settings, self.contexts, self.busy)
         self.delivery = ChatDelivery(db, telegram, self.contexts, self.stickers, self.receipts)
+        self.source_checks = ReplySourceChecks(db, telegram)
 
     async def observe(self, message, edited=False, update_id=0):
         return await self.observation.observe(message, edited, update_id)
@@ -177,6 +179,7 @@ class GroupChat:
             workers.create_task(self.loop())
             workers.create_task(self.loop())
             workers.create_task(self.sticker_loop())
+            workers.create_task(self.source_checks.run())
 
     async def sticker_loop(self):
         while True:

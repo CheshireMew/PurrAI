@@ -30,6 +30,15 @@ class NotificationActions:
             action.payload = {**action.payload, "already_absent": True}
 
     async def delete(self, session, action, group, verification, member):
+        if any(group.settings.get(key) != value for key, value in action.payload.get("spam_settings", {}).items()):
+            action.state, action.error = "cancelled", "刷屏设置已变化，取消旧删除任务"
+            return
+        if "spam_fingerprint" in action.payload:
+            from purrai.models import Fingerprint
+            fingerprint = await session.get(Fingerprint, (group.id, action.user_id, action.payload["message_id"]))
+            if not fingerprint or fingerprint.digest != action.payload["spam_fingerprint"]:
+                action.state, action.error = "cancelled", "消息已编辑，取消旧刷屏删除任务"
+                return
         if await media_gate_exemption(session, action, group, member):
             action.state, action.error = "cancelled", "成员已免除新成员发图门槛"
             return

@@ -12,6 +12,7 @@ WINDOW = 7 * 86400
 MAX_COMMANDS = 200
 MAX_EVENTS = 100
 MIN_USERS = 3
+ADVERTISER_COOLDOWN = 30 * 60
 POINTS = re.compile(r"(?:发)?积分红包\s*\d+(?:\.\d+)?(?:\s+\d+)?")
 OTHER_BOT = re.compile(r"@([a-z0-9_]+bot)\s+(.+)", re.I)
 BOT_COMMAND = re.compile(r"/?([a-z][a-z0-9_]*)(?:\s+[a-z0-9_.:-]+)*", re.I)
@@ -64,6 +65,7 @@ async def load(session, group_id):
     data = json.loads(row.value) if row else {"commands": {}, "ads": {}}
     cutoff = now() - WINDOW
     data["ads"] = {key: at for key, at in data.get("ads", {}).items() if at >= cutoff}
+    data["advertisers"] = {key: until for key, until in data.get("advertisers", {}).items() if until > now()}
     commands = {}
     for phrase, events in data.get("commands", {}).items():
         events = [event for event in events if event[2] >= cutoff]
@@ -96,6 +98,7 @@ def learned(data, cfg):
 
 async def observe(session, group_id, message, cfg, *, eligible, edited=False, advertising=False):
     row, data = await load(session, group_id)
+    eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id")))
     phrase = candidate(message.get("text") or message.get("caption") or "")
     if advertising and phrase:
         data["commands"].pop(phrase, None)
@@ -117,7 +120,20 @@ async def observe(session, group_id, message, cfg, *, eligible, edited=False, ad
     return data
 
 
-async def remember_ad(session, group_id, message_id, text):
+def advertiser_blocked(data, sender_id):
+    return data.get("advertisers", {}).get(str(sender_id), 0) > now()
+
+
+async def remember_advertiser(session, group_id, sender_id):
+    if type(sender_id) is not int or sender_id <= 0:
+        return
+    row, data = await load(session, group_id)
+    data["advertisers"][str(sender_id)] = now() + ADVERTISER_COOLDOWN
+    data["advertisers"] = dict(sorted(data["advertisers"].items(), key=lambda item: item[1], reverse=True)[:MAX_COMMANDS])
+    save(session, row, group_id, data)
+
+
+async def remember_ad(session, group_id, message_id, text, sender_id=None, *, cooldown=False):
     row, data = await load(session, group_id)
     data["ads"][ad_key(text)] = now()
     phrase = candidate(text)
@@ -129,6 +145,8 @@ async def remember_ad(session, group_id, message_id, text):
         if not data["commands"][key]:
             del data["commands"][key]
     save(session, row, group_id, data)
+    if cooldown:
+        await remember_advertiser(session, group_id, sender_id)
 
 
 def status(data, cfg, rules=()):

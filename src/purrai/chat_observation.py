@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from purrai.shared_policy import effective_rules
 from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
+from purrai.chat_participation import assess as participation_reason
 from purrai.chat_retraction import RECEIPT_RETENTION
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import (
@@ -68,6 +69,10 @@ class ChatObservation:
             command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
             if chat_commands.known_ad(command_state, text):
                 reasons.append("聊天广告历史命中")
+            if cfg.chat_advertiser_cooldown and any(reason.startswith(("广告招揽：", "明确广告引流：", "聊天广告历史命中")) for reason in reasons):
+                await chat_commands.remember_advertiser(session, group_id, sender["id"])
+            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender["id"]):
+                reasons.append("广告账号聊天冷却中")
             image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE})
             eligible = human_message(
                 {**message, "text": text or UNREADABLE_IMAGE} if image else message, ignored,
@@ -76,6 +81,17 @@ class ChatObservation:
             if command:
                 image, eligible = False, False
                 logger.info("聊天口令已排除 group=%s message=%s", group_id, message_id)
+            if eligible and not reasons and allowed and not image:
+                topic_id = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
+                reason = await participation_reason(
+                    session, group_id, topic_id, message_id, sender["id"], text, cfg, self.tg,
+                    reply_to=(message.get("reply_to_message") or {}).get("message_id", 0),
+                    reference_text=(UNREADABLE_IMAGE if direct and has_image(message.get("reply_to_message") or {})
+                                    else message_content(message.get("reply_to_message") or {})[0]),
+                    remember=not row and not edited and now() - 120 <= message["date"] <= now() + 60,
+                )
+                if reason:
+                    reasons.append(reason)
             eligible = eligible and not reasons
             if eligible or image:
                 eligible, image = eligible and allowed, image and allowed

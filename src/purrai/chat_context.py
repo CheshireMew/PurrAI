@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, literal, or_, select, union_all
 from purrai.shared_policy import effective_rules
 from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
+from purrai.chat_participation import excluded_ids as participation_exclusions
 from purrai.chat_messages import recent_messages
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
@@ -25,6 +26,14 @@ def latest_payload():
         MessageRevision.event_at.desc(), MessageRevision.is_edit.desc(),
         MessageRevision.update_id.desc(), MessageRevision.id.desc(),
     ).limit(1).correlate(ArchivedMessage).scalar_subquery()
+
+
+def exclude_bot_replies(records, excluded):
+    while True:
+        replies = {row["id"] for row in records if row.get("bot") and row.get("reply_to") in excluded}
+        if replies <= excluded:
+            return
+        excluded.update(replies)
 
 
 class ChatContext:
@@ -95,9 +104,13 @@ class ChatContext:
             )):
                 excluded.update(row.message_id for row in burst)
         records = context + [
-            {"id": row.message_id, "text": row.text, "bot": row.is_bot, "reply_to": row.reply_to_id}
+            {"id": row.message_id, "speaker_id": row.sender_id, "text": row.text,
+             "bot": row.is_bot, "reply_to": row.reply_to_id}
             for row in sources
         ]
+        if cfg.chat_advertiser_cooldown:
+            excluded.update(row["id"] for row in records if not row.get("bot")
+                            and chat_commands.advertiser_blocked(command_state, row.get("speaker_id")))
         links.update(row["id"] for row in records if has_link(row["text"]))
         excluded.update(links)
         excluded.update(row["id"] for row in records if row.get("reply_to") in links)
@@ -108,11 +121,7 @@ class ChatContext:
             or not row.get("bot") and input_reasons(row["text"], rules, cfg.model_dump(), direct=direct and row["id"] == message_id)
         ))
         # Do not keep our old commentary on removed content as a fresh topic.
-        while True:
-            replies = {row["id"] for row in records if row.get("bot") and row.get("reply_to") in excluded}
-            if replies <= excluded:
-                break
-            excluded.update(replies)
+        exclude_bot_replies(records, excluded)
         result = []
         for row in context:
             if row["id"] in excluded:
@@ -124,7 +133,12 @@ class ChatContext:
                 row = {key: value for key, value in row.items()
                        if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
             result.append(row)
-        return result
+        excluded.update(await participation_exclusions(session, group_id, topic_id, result, cfg, self.tg))
+        exclude_bot_replies(result, excluded)
+        return [({key: value for key, value in row.items()
+                  if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
+                 if row.get("reply_to") in excluded else row)
+                for row in result if row["id"] not in excluded]
 
     def clean_conditions(self, group_id, topic_id, allowed_images=()):
         own_reply = (

@@ -315,7 +315,7 @@ async def test_late_original_does_not_replace_an_edit_and_quotes_survive_short_h
     chat, model = await configured(env, chat_proactive=False, chat_history=10)
     await chat.observe(message(900, "周末爬山的老话题", date=int(now()) - 60))
     for identifier in range(10, 20):
-        await chat.observe(message(identifier, "接着聊最近的话题", date=int(now()) - 30))
+        await chat.observe(message(identifier, f"接着聊最近的话题{identifier}", date=int(now()) - 30))
     original = message(1, "柴郡喵这事你怎么看", reply_to_message={"message_id": 900, "text": "周末爬山的老话题"})
     await chat.observe(original, update_id=1)
     await chat.observe({**original, "text": "柴郡喵我改问电影了", "edit_date": int(now()) + 1}, edited=True, update_id=2)

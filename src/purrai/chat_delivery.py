@@ -65,7 +65,8 @@ class ChatDelivery:
                     return True
                 current.state = "silent"
                 if result.is_advertisement:
-                    await remember_ad(session, turn.group_id, turn.message_id, original)
+                    await remember_ad(session, turn.group_id, turn.message_id, original, sender_id=sender_id,
+                                      cooldown=group.settings.get("chat_advertiser_cooldown", False))
                 current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
                     "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容")
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)

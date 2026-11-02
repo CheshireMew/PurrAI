@@ -75,6 +75,10 @@ class ConfigurationPanels:
         ]
         buttons += [
             button(
+                f"{'已开启' if cfg.chat_advertiser_cooldown else '已关闭'} · 疑似广告账号静默30分钟",
+                "chat_toggle", key="chat_advertiser_cooldown", value=not cfg.chat_advertiser_cooldown,
+            ),
+            button(
                 f"{'已开启' if cfg.chat_stickers else '已关闭'} · 聊天使用贴纸",
                 "chat_toggle",
                 key="chat_stickers",

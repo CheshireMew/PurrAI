@@ -116,7 +116,7 @@ async def test_unaddressed_checks_share_cooldown_across_topics_and_can_resume(en
 
 async def test_recent_user_replying_to_someone_else_does_not_force_followup(env):
     chat, model = await configured(env, chat_proactive=False)
-    await chat.observe(message(1, "柴郡喵你好"))
+    await chat.observe(message(1, "柴郡喵今天聊点什么好？"))
     await due(chat)
     await chat.run_one()
     await age_reply(chat)
@@ -146,7 +146,7 @@ async def test_sticker_retry_after_text_success_does_not_repeat_text_or_model(en
         return await original(kind, **kwargs)
 
     chat.tg.call = limited
-    await chat.observe(message(1, "柴郡喵你好呀" if direct else "这个周末活动的建议挺不错的",
+    await chat.observe(message(1, "柴郡喵今天聊点什么好？" if direct else "这个周末活动的建议挺不错的",
                                reply_to_message={"message_id": 50, "from": {"id": 43, "is_bot": False}}))
     await due(chat)
     await chat.run_one()
@@ -180,7 +180,7 @@ async def test_text_delivery_then_settings_change_suppresses_following_sticker(e
         return sent
 
     chat.tg.call = change
-    await chat.observe(message(1, "柴郡喵你好"))
+    await chat.observe(message(1, "柴郡喵今天聊点什么好？"))
     await due(chat)
     await chat.run_one()
     assert len([1 for kind, _ in chat.tg.calls if kind == "send_message"]) == 1

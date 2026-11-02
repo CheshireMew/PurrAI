@@ -718,6 +718,20 @@ test('发图文字门槛默认三条并可以逐群关闭', async ({ page }) => 
   expect((await saved).postDataJSON().settings.media_min_text_messages).toBe(0)
 })
 
+test('疑似广告账号静默默认关闭并可按群开启', async ({ page }) => {
+  await mock(page); await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: '群聊天', exact: true }).click()
+  const toggle = dialog.getByRole('switch', { name: '疑似广告账号静默30分钟', exact: true })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.press('Space')
+  const saved = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await saved).postDataJSON().settings.chat_advertiser_cooldown).toBe(true)
+})
+
 test('钱包地址拦截显示全员范围并可逐群关闭', async ({ page }) => {
   await mock(page); await page.goto('/')
   await page.getByRole('button', { name: '群管理', exact: true }).click()

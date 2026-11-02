@@ -55,6 +55,7 @@ class ActionRunner:
             "unmute": administration.restore,
             "manual_ban": administration.ban,
             "manual_mute": administration.mute,
+            "spam_mute": administration.spam_mute,
             "unban": administration.unban,
             "contact_kick": automatic.contact_kick,
             "contact_ban": automatic.contact_ban,

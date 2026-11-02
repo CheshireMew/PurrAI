@@ -54,6 +54,7 @@ OPERATIONS = {
     "advertisement_check": "核实 Telegram 外群链接",
     "advertisement_ban": "广告或外群引流永久封禁",
     "rule_mute": "正文广告规则永久禁言",
+    "spam_mute": "重复刷屏临时禁言30分钟",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
     "archive_export": "导出消息归档",
