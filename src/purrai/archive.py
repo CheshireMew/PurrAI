@@ -18,6 +18,7 @@ from purrai.models import (
 )
 from purrai.schemas import ArchiveFilter
 from purrai.serialization import row_dict as values
+from purrai.message_identity import message_sender
 
 MEDIA = (
     "photo",
@@ -134,7 +135,7 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
     latest = (row.edited_at or row.sent_at, bool(row.latest_is_edit), row.latest_update_id)
     incoming = (event_at, edited, update_id)
     if row.revision_count == 1 or incoming >= latest or row.source == "violation_excerpt":
-        sender = message.get("sender_chat") or message.get("from") or {}
+        sender = message_sender(message)
         row.sender_id = sender.get("id")
         row.sender_type = "chat" if message.get("sender_chat") else "bot" if sender.get("is_bot") else "user"
         row.sender_name = " ".join(

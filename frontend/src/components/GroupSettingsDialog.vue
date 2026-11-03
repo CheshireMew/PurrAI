@@ -178,11 +178,11 @@ async function save() {
 <el-form-item label="主动参与讨论">
 <el-switch v-model="form.chat_proactive" aria-label="主动参与讨论"/>
 </el-form-item>
-<el-form-item label="疑似广告账号静默30分钟">
-<el-switch v-model="form.chat_advertiser_cooldown" aria-label="疑似广告账号静默30分钟"/>
+<el-form-item label="AI广告识别与累计处罚">
+<el-switch v-model="form.chat_advertiser_cooldown" aria-label="AI广告识别与累计处罚"/>
 </el-form-item>
 </div>
-<p class="muted">此项默认关闭。开启后，识别到疑似广告会在本群静默该账号30分钟，不据此删帖或禁言。</p>
+<p class="muted">默认开启。AI判定广告后静默该账号30分钟；本群累计3次永久禁言，计数长期保留。同一条消息不重复计数。</p>
 <el-form-item label="聊天昵称">
 <el-input v-model="form.chat_name" :minlength="bounds('chat_name').minLength" :maxlength="bounds('chat_name').maxLength" placeholder="群友也可以叫这个昵称来唤醒机器人"/>
 </el-form-item>

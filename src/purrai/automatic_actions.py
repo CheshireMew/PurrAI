@@ -7,6 +7,8 @@ from purrai.advertising_patterns import advertising_reasons, is_ban_reason, sour
 from purrai.group_link_identity import own_channel_id, own_link_keys
 from purrai.rules import message_content, normalize
 from purrai.telegram_sources import channel_sources, external_channel_reasons
+from purrai.ai_advertising import advertisement_count, LIMIT
+from purrai.schemas import GroupSettings
 
 
 class AutomaticActions:
@@ -25,8 +27,9 @@ class AutomaticActions:
             return
         evidence = action.payload.get("ad_evidence") or {}
         message = evidence.get("message", {})
-        reasons = advertising_reasons(normalize(message_content(message)[0]),
-                                      [normalize(title) for title in source_titles(message)]) if group.settings.get("advertising_ban", True) else []
+        body, urls = message_content(message)
+        reasons = advertising_reasons(normalize(body), [normalize(title) for title in source_titles(message)],
+                                      urls=urls) if group.settings.get("advertising_ban", True) else []
         rules = await effective_rules(session, group.id)
         reasons += link_reasons(message, group, rules, await own_link_keys(session, group.id), evidence.get("links", []))
         if group.settings.get("external_group_ban", True):
@@ -61,3 +64,11 @@ class AutomaticActions:
             action.state = "cancelled"
             return
         await self.restrictions.permanent_profile_mute(session, group, member, action, "rule")
+
+    async def ai_ad_mute(self, session, action, group, verification, member):
+        if (not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown or not member
+                or not member.present or member.generation != action.payload.get("generation")
+                or await advertisement_count(session, group.id, member.user_id) < LIMIT):
+            action.state, action.error = "cancelled", "AI广告处理已关闭或计数、成员状态已变化"
+            return
+        await self.restrictions.permanent_profile_mute(session, group, member, action, "ai_ad")

@@ -133,7 +133,7 @@ def assess(
     source_titles: list[str] | None = None,
 ) -> dict:
     reasons, names, mute_reasons = [], [], []
-    ban_reasons = advertising_reasons(normalize(text), [normalize(title) for title in source_titles or []]) if settings.get("advertising_ban", True) else []
+    ban_reasons = advertising_reasons(normalize(text), [normalize(title) for title in source_titles or []], urls=urls) if settings.get("advertising_ban", True) else []
     reasons.extend(ban_reasons)
     active = [r for r in rules if r.get("enabled", True)]
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]

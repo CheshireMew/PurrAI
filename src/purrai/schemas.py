@@ -8,7 +8,7 @@ from purrai.pack_names import DEFAULT_ANTIFRAUD_PACKS, DEFAULT_CHAT_PACKS, stick
 class GroupSettings(BaseModel):
     chat_enabled: bool = False
     chat_proactive: bool = True
-    chat_advertiser_cooldown: bool = False
+    chat_advertiser_cooldown: bool = True
     chat_name: str = Field(default="柴郡喵", min_length=2, max_length=24)
     chat_persona: str = Field(
         default="随性、好奇，有一点幽默，跟群友相处熟络，用自然随意的群聊口吻说话。",

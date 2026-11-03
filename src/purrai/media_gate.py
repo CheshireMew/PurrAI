@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, select
 
 from purrai.models import ArchivedMessage, Inbox, MemberText, MessageRevision, Meta, Violation, now
 from purrai.rules import compact
+from purrai.message_identity import message_sender
 
 KEYCAP = re.compile(r"[0-9#*]\ufe0f?\u20e3")
 EMOJI = re.compile(
@@ -130,7 +131,7 @@ async def remember_text(session, message, edited=False):
 
 
 async def text_count_before(session, message, minimum):
-    group_id, user_id = message["chat"]["id"], message["from"]["id"]
+    group_id, user_id = message["chat"]["id"], message_sender(message)["id"]
 
     async def count():
         return await session.scalar(

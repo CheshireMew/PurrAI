@@ -3,7 +3,7 @@
     "defaults": {
       "chat_enabled": false,
       "chat_proactive": true,
-      "chat_advertiser_cooldown": false,
+      "chat_advertiser_cooldown": true,
       "chat_name": "柴郡喵",
       "chat_persona": "随性、好奇，有一点幽默，跟群友相处熟络，用自然随意的群聊口吻说话。",
       "chat_ignored_texts": [
@@ -100,7 +100,7 @@
         "type": "boolean"
       },
       "chat_advertiser_cooldown": {
-        "default": false,
+        "default": true,
         "title": "Chat Advertiser Cooldown",
         "type": "boolean"
       },
@@ -506,6 +506,7 @@
     "advertisement_ban": "广告或外群引流永久封禁",
     "rule_mute": "正文广告规则永久禁言",
     "spam_mute": "重复刷屏临时禁言30分钟",
+    "ai_ad_mute": "AI累计3次广告永久禁言",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
     "archive_export": "导出消息归档"

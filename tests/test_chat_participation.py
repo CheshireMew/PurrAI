@@ -70,18 +70,18 @@ async def test_advertiser_cooldown_is_opt_in_and_never_punishes(env, enabled):
         assert await chat.run_one() and len(model.calls) == 3
 
 
-async def test_advertiser_cooldown_can_be_enabled_from_telegram_and_defaults_off(env):
+async def test_ai_advertising_defaults_on_and_can_be_disabled_from_telegram(env):
     from purrai.runtime import Runtime
 
     _, db, tg, service = env
     runtime = Runtime(db, tg, service)
     await open_group(runtime, tg)
     await click(runtime, tg, "群聊天设置")
-    assert "已关闭 · 疑似广告账号静默30分钟" in str(markup(tg))
-    await click(runtime, tg, "疑似广告账号静默30分钟")
+    assert "已开启 · AI广告识别与累计处罚" in str(markup(tg))
+    await click(runtime, tg, "AI广告识别与累计处罚")
     async with db.sessions() as session:
         group = await session.get(Group, -1001)
-        assert group.settings["chat_advertiser_cooldown"] is True
+        assert group.settings["chat_advertiser_cooldown"] is False
 
 
 async def test_advertiser_quiet_period_expires_and_is_limited_to_its_group(env, monkeypatch):

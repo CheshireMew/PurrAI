@@ -1,10 +1,12 @@
 """Explicit administrator restrictions, restoration and ownership checks."""
 
 from purrai.action_queue import enqueue
+from purrai.message_identity import display_name
 from purrai.models import (
     Action,
     Fingerprint,
     Member,
+    Violation,
     now,
 )
 from purrai.restriction_state import restriction_matches, permission_state_matches, ban_matches
@@ -238,6 +240,10 @@ class RestrictionActions:
                 use_independent_chat_permissions=True,
                 until_date=until,
             )
+        name = display_name(current.get("user") or {}, fallback="")
+        if not name:
+            violation = await session.get(Violation, action.payload["violation_id"]) if action.payload.get("violation_id") else None
+            name = (violation.sender_name.split(" @", 1)[0].strip() if violation else "") or "未命名成员"
         await enqueue(
             session,
             "warn",
@@ -245,7 +251,7 @@ class RestrictionActions:
             group.id,
             action.user_id,
             {
-                "text": f"用户 {action.user_id}：{'重复刷屏' if action.kind == 'spam_mute' else '管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {duration // 60} 分钟。"
+                "text": f"用户{name}：{'重复刷屏' if action.kind == 'spam_mute' else '管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {duration // 60} 分钟。"
             },
         )
 

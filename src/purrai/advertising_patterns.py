@@ -17,6 +17,7 @@ OFFER = re.compile(r"带单|返佣|代刷|代充|跑分|水房|套利项目|投�
 PROMISE = re.compile(r"稳赚|包赚|零风险|保本收益|躺赚|日[入赚]\d+")
 WARNING = re.compile(r"(?:举报|曝光|防骗|诈骗|骗局|骗子|骗人|广告).{0,16}(?:提醒|识别|小心|警惕|别|不要|请管理员|处理|是真的吗|怎么看|是不是)|(?:怎么|如何)(?:识别|辨别|举报)|(?:这个|这种|有人|刚看到|看到有人|所谓).{0,36}(?:广告|诈骗|骗局|骗子|骗钱|别进|不要加)|请管理员.{0,12}(?:处理|看看|删)")
 AD_VARIANTS = str.maketrans({
+    "資": "资", "攝": "摄", "姦": "奸", "檢": "检",
     "賺": "赚", "錢": "钱", "著": "着", "頁": "页", "區": "区", "約": "约",
     "倉": "仓", "說": "说", "對": "对", "別": "别", "後": "后", "週": "周",
     "來": "来", "強": "强", "勝": "胜", "滿": "满", "莊": "庄", "點": "点",
@@ -28,6 +29,8 @@ AD_VARIANTS = str.maketrans({
     "樣": "样", "單": "单", "帶": "带", "隨": "随", "導": "导", "號": "号",
     "廣": "广", "種": "种", "嗎": "吗",
 })
+SEXUAL_RESOURCE = re.compile(r"偷拍|盗摄|强奸|福利姬|色情资源|成人(?:视频|影片|资源)|av资源")
+RESOURCE_ACCESS = re.compile(r"限时免费|免费观看|免费看|免费搜[索素]|免费(?:观看|资源)")
 PROFILE_DESTINATION = re.compile(
     r"(?:我(?:的)?|本人)(?:主页|简介|置顶|头像)(?:里面|里|上|中)?(?:的|推荐)?(?:社区|社群|群|频道)"
     r"|(?:看|点|戳|进|去|查看|打开)(?:我(?:的)?)?(?:主页|简介|头像)"
@@ -104,13 +107,15 @@ def discussion(text):
                 or WARNING.search(value) or re.search(r"是不是(?:骗子|诈骗|骗局|广告)|这算不算(?:广告|诈骗)", value))
 
 
-def advertising_reasons(text, source_titles=()):
+def advertising_reasons(text, source_titles=(), *, urls=()):
     """Shared evidence used at assessment and again before an actual ban."""
     text = ad_text(text)
     if discussion(text):
         return []
     authored = authored_text(text)
     value = compact(authored)
+    if SEXUAL_RESOURCE.search(value) and RESOURCE_ACCESS.search(value) and (urls or contact_audience(authored)):
+        return [AD_PREFIX + "色情资源推广并引导访问"]
     if profile_promotion(authored):
         return [AD_PREFIX + "主页社群引流并以跟随交易收益诱导"]
     if invites_audience(authored) and (TRADING.search(value) or PITCH.search(value)):

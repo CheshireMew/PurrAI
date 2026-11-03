@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from purrai.action_delivery import deliver_once
 from purrai.admin_labels import OPERATIONS, STATE
 from purrai.media_gate import media_gate_exemption
+from purrai.notice_cleanup import schedule_notice_cleanup
 from purrai.models import (
     Action,
     now,
@@ -101,3 +102,4 @@ class NotificationActions:
 
     async def warn(self, session, action, group, verification, member):
         await deliver_once(self.action_call, session, action, "send_message", chat_id=group.id, text=action.payload["text"])
+        await schedule_notice_cleanup(session, action)
