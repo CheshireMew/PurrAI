@@ -178,7 +178,7 @@ class MemberRestrictions:
             "pack": action.payload.get("pack", ""),
             **({"verification_id": active[0].id} if active else {}),
         }
-        violation_label = "AI累计3次广告" if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
+        violation_label = "AI最近3天累计3次广告" if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
         begin_penalty(active, violation_label, "permanent_mute")
         if not already_muted:
             await self.action_call(
@@ -196,7 +196,7 @@ class MemberRestrictions:
         if kind == "ai_ad":
             name = display_name(current.get("user") or {}, fallback=action.payload.get("user_name") or "未命名成员")
             await enqueue(session, "warn", f"ai-ad-notice:{action.id}", group.id, member.user_id,
-                {"text": f"用户{name}：AI累计3次判定广告，已永久禁言。"})
+                {"text": f"用户{name}：AI最近3天累计3次判定广告，已永久禁言。"})
         if kind != "emoji_status":
             return
         await self.record_emoji_violation(session, group, member, action, "永久禁言")

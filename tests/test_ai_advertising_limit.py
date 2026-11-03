@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from conftest import drain, message
 from purrai import chat_commands
+from purrai import ai_advertising
 from purrai.ai_advertising import advertisement_count, record_ai_advertisement
 from purrai.chat_model import ChatReply
 from purrai.models import Action, Group, Whitelist
@@ -10,7 +11,7 @@ from purrai.service import Service
 from test_chat import age_reply, configured
 
 
-async def test_three_actual_model_verdicts_persist_without_time_window_and_permanently_mute(env, monkeypatch):
+async def test_three_actual_model_verdicts_within_window_persist_and_permanently_mute(env, monkeypatch):
     chat, model = await configured(env)
     model.result = ChatReply(should_reply=False, is_advertisement=True)
     instant = [chat_commands.now()]
@@ -21,7 +22,7 @@ async def test_three_actual_model_verdicts_persist_without_time_window_and_perma
         async with chat.db.sessions() as session:
             assert await advertisement_count(session, -1001, 42) == identifier
         await age_reply(chat)
-        instant[0] += 200 * 86400
+        instant[0] += 1801
         if identifier < 3:
             assert not any(method == "restrict_chat_member" for method, _ in chat.tg.calls)
     assert len(model.calls) == 3
@@ -108,3 +109,42 @@ async def test_reenabling_after_cancelled_threshold_waits_for_a_new_actual_verdi
         await record_ai_advertisement(session, group, 42, 4, "新的广告内容", "成员")
     await drain(svc)
     assert tg.members[(-1001, 42)]["until_date"] == 0
+
+
+async def test_three_day_window_expires_each_old_judgment_individually(env, monkeypatch):
+    _, db, _, _ = env
+    instant = [ai_advertising.now()]
+    monkeypatch.setattr(ai_advertising, "now", lambda: instant[0])
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        await record_ai_advertisement(session, group, 42, 1, "广告甲", "成员")
+    instant[0] += 2 * 86400
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        await record_ai_advertisement(session, group, 42, 2, "广告乙", "成员")
+        assert await advertisement_count(session, -1001, 42) == 2
+    instant[0] += 86400
+    async with db.transaction() as session:
+        assert await advertisement_count(session, -1001, 42) == 1
+        group = await session.get(Group, -1001)
+        await record_ai_advertisement(session, group, 42, 3, "广告丙", "成员")
+        assert await advertisement_count(session, -1001, 42) == 2
+        assert await session.scalar(select(Action)) is None
+    instant[0] += ai_advertising.WINDOW
+    async with db.sessions() as session:
+        assert await advertisement_count(session, -1001, 42) == 0
+
+
+async def test_expired_threshold_cancels_penalty_waiting_in_queue(env, monkeypatch):
+    _, db, tg, svc = env
+    instant = [ai_advertising.now()]
+    monkeypatch.setattr(ai_advertising, "now", lambda: instant[0])
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        for identifier in (1, 2, 3):
+            await record_ai_advertisement(session, group, 42, identifier, "广告内容", "成员")
+    instant[0] += ai_advertising.WINDOW
+    await drain(svc)
+    assert not any(method == "restrict_chat_member" for method, _ in tg.calls)
+    async with db.sessions() as session:
+        assert (await session.scalar(select(Action).where(Action.kind == "ai_ad_mute"))).state == "cancelled"
