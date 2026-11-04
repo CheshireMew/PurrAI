@@ -15,7 +15,8 @@ from purrai.chat_state import (
     message_bursts, reply_snapshot,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, now
-from purrai.rules import message_content
+from purrai.rules import message_content, assess
+from purrai.message_identity import profile_name
 from purrai.schemas import GroupSettings
 from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -53,6 +54,7 @@ class ChatObservation:
             rules = await effective_rules(session, group_id)
             urls = message_content(message)[1]
             reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
+            reasons += assess("", [], rules, group.settings, sender_name=profile_name(sender))["name_reasons"]
             if has_link(*message_content(message.get("reply_to_message") or {})):
                 reasons.append(LINK_REASON)
             reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
@@ -67,11 +69,11 @@ class ChatObservation:
             )
             ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
             command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
-            if chat_commands.known_ad(command_state, text):
+            if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender)):
                 reasons.append("聊天广告历史命中")
             if cfg.chat_advertiser_cooldown and any(reason.startswith(("广告招揽：", "明确广告引流：", "聊天广告历史命中")) for reason in reasons):
-                await chat_commands.remember_advertiser(session, group_id, sender["id"])
-            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender["id"]):
+                await chat_commands.remember_advertiser(session, group_id, sender.get("id"))
+            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender.get("id")):
                 reasons.append("广告账号聊天冷却中")
             image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE})
             eligible = human_message(
@@ -102,6 +104,7 @@ class ChatObservation:
                 logger.info("聊天输入已拦截 group=%s message=%s reasons=%s", group_id, message_id, reasons)
             if row:
                 row.text, row.eligible = text[:1600], eligible
+                row.sender_name = profile_name(sender)
                 row.reply_text = reply_snapshot(message, direct=direct)
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
@@ -116,9 +119,7 @@ class ChatObservation:
                 topic_id=topic_id,
                 message_id=message_id,
                 sender_id=sender["id"],
-                sender_name=" ".join(filter(None, [sender.get("first_name"), sender.get("last_name")]))[
-                    :100
-                ],
+                sender_name=profile_name(sender),
                 text=text[:1600],
                 reply_to_id=reply.get("message_id", 0),
                 reply_text=reply_snapshot(message, direct=direct),

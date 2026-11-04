@@ -5,7 +5,7 @@ from collections import Counter
 from urllib.parse import urlsplit
 
 from purrai.wallet_addresses import contains_wallet_address
-from purrai.advertising_patterns import advertising_reasons
+from purrai.advertising_patterns import advertising_reasons, profile_advertising_reasons
 
 LEGACY_CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
 CONTACT_REASON = "分享联系人，删除消息并永久封禁"
@@ -133,6 +133,8 @@ def assess(
     source_titles: list[str] | None = None,
 ) -> dict:
     reasons, names, mute_reasons = [], [], []
+    if settings.get("advertising_ban", True):
+        names.extend(profile_advertising_reasons(sender_name))
     ban_reasons = advertising_reasons(normalize(text), [normalize(title) for title in source_titles or []], urls=urls) if settings.get("advertising_ban", True) else []
     reasons.extend(ban_reasons)
     active = [r for r in rules if r.get("enabled", True)]

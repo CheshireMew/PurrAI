@@ -7,6 +7,7 @@ import re
 from purrai.chat_input import input_reasons
 from purrai.models import Meta, now
 from purrai.rules import normalize
+from purrai.message_identity import profile_name
 
 WINDOW = 7 * 86400
 MAX_COMMANDS = 200
@@ -55,9 +56,11 @@ def ad_key(text):
     return hashlib.sha256(canonical(text).encode()).hexdigest()
 
 
-def known_ad(data, text):
+def known_ad(data, text, sender_id=None, sender_name=""):
     phrase = candidate(text)
-    return ad_key(text) in data["ads"] or bool(phrase and ad_key(phrase) in data["ads"])
+    keys = [ad_key(text)] + ([ad_key(phrase)] if phrase else [])
+    scoped = [f"member:{sender_id}:{ad_key(sender_name)}:{key}" for key in keys] if sender_id else []
+    return any(key in data["ads"] for key in keys + scoped)
 
 
 async def load(session, group_id):
@@ -99,6 +102,8 @@ def learned(data, cfg):
 async def observe(session, group_id, message, cfg, *, eligible, edited=False, advertising=False):
     row, data = await load(session, group_id)
     eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id")))
+    eligible = eligible and not known_ad(data, message.get("text") or message.get("caption") or "",
+        message.get("from", {}).get("id"), profile_name(message.get("from") or {}))
     phrase = candidate(message.get("text") or message.get("caption") or "")
     if advertising and phrase:
         data["commands"].pop(phrase, None)
@@ -133,13 +138,15 @@ async def remember_advertiser(session, group_id, sender_id):
     save(session, row, group_id, data)
 
 
-async def remember_ad(session, group_id, message_id, text, sender_id=None, *, cooldown=False):
+async def remember_ad(session, group_id, message_id, text, sender_id=None, *, sender_name="", cooldown=False):
     row, data = await load(session, group_id)
-    data["ads"][ad_key(text)] = now()
+    prefix = f"member:{sender_id}:{ad_key(sender_name)}:" if sender_id else ""
+    data["ads"][prefix + ad_key(text)] = now()
     phrase = candidate(text)
     if phrase:
-        data["ads"][ad_key(phrase)] = now()
-        data["commands"].pop(phrase, None)
+        data["ads"][prefix + ad_key(phrase)] = now()
+        if not sender_id:
+            data["commands"].pop(phrase, None)
     for key in list(data["commands"]):
         data["commands"][key] = [event for event in data["commands"][key] if event[0] != message_id]
         if not data["commands"][key]:

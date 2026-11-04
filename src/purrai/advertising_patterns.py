@@ -17,6 +17,7 @@ OFFER = re.compile(r"带单|返佣|代刷|代充|跑分|水房|套利项目|投�
 PROMISE = re.compile(r"稳赚|包赚|零风险|保本收益|躺赚|日[入赚]\d+")
 WARNING = re.compile(r"(?:举报|曝光|防骗|诈骗|骗局|骗子|骗人|广告).{0,16}(?:提醒|识别|小心|警惕|别|不要|请管理员|处理|是真的吗|怎么看|是不是)|(?:怎么|如何)(?:识别|辨别|举报)|(?:这个|这种|有人|刚看到|看到有人|所谓).{0,36}(?:广告|诈骗|骗局|骗子|骗钱|别进|不要加)|请管理员.{0,12}(?:处理|看看|删)")
 AD_VARIANTS = str.maketrans({
+    "碼": "码",
     "資": "资", "攝": "摄", "姦": "奸", "檢": "检",
     "賺": "赚", "錢": "钱", "著": "着", "頁": "页", "區": "区", "約": "约",
     "倉": "仓", "說": "说", "對": "对", "別": "别", "後": "后", "週": "周",
@@ -31,6 +32,9 @@ AD_VARIANTS = str.maketrans({
 })
 SEXUAL_RESOURCE = re.compile(r"偷拍|盗摄|强奸|福利姬|色情资源|成人(?:视频|影片|资源)|av资源")
 RESOURCE_ACCESS = re.compile(r"限时免费|免费观看|免费看|免费搜[索素]|免费(?:观看|资源)")
+PAYMENT_CODE_PITCH = re.compile(r"(?:有)?(?:收款|支付|收钱|收米)?码(?:来|能|可)?赚|收款码|代收|跑分")
+PROFILE_CONTACT = re.compile(r"简介|主页|头像|私聊|私信|联系|加我")
+DAILY_GAIN = re.compile(r"(?:一天|每天|每日|日[入赚挣]).{0,3}(?:[1-9][0-9o]{3,}|[1-9][0-9o]*(?:千|万|k)|[一二三四五六七八九十百]+[千万])")
 PROFILE_DESTINATION = re.compile(
     r"(?:我(?:的)?|本人)(?:主页|简介|置顶|头像)(?:里面|里|上|中)?(?:的|推荐)?(?:社区|社群|群|频道)"
     r"|(?:看|点|戳|进|去|查看|打开)(?:我(?:的)?)?(?:主页|简介|头像)"
@@ -131,6 +135,17 @@ def advertising_reasons(text, source_titles=(), *, urls=()):
 
 def is_ban_reason(reason):
     return reason.startswith((AD_PREFIX, GROUP_PREFIX, CHANNEL_PREFIX))
+
+
+def profile_advertising_reasons(name):
+    text = ad_text(name)
+    value = compact(authored_text(text))
+    if discussion(text) or PROFILE_REPORT.search(value):
+        return []
+    reasons = advertising_reasons(text)
+    if PAYMENT_CODE_PITCH.search(value) and PROFILE_CONTACT.search(value) and DAILY_GAIN.search(value):
+        reasons.append(AD_PREFIX + "收款码招揽、简介引流并承诺高额日收益")
+    return ["昵称广告引流：" + reason.removeprefix(AD_PREFIX) for reason in dict.fromkeys(reasons)]
 
 
 def source_titles(message):

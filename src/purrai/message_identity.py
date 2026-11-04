@@ -15,3 +15,8 @@ def message_sender(message):
 def display_name(user, fallback="未命名成员"):
     name = " ".join(str(user.get(key) or "").strip() for key in ("first_name", "last_name", "title")).strip()
     return name or ("@" + user["username"] if user.get("username") else fallback)
+
+
+def profile_name(user):
+    name = " ".join(str(user.get(key) or "").strip() for key in ("first_name", "last_name", "title")).strip()
+    return " ".join(filter(None, [name, "@" + user["username"] if user.get("username") else ""]))[:500]

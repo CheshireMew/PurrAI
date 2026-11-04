@@ -86,7 +86,9 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             f"profile-mute:{violation.id}",
             group.id,
             violation.user_id,
-            {"violation_id": violation.id, "generation": member.generation},
+            {"violation_id": violation.id, "generation": member.generation,
+             **({"profile_advertising": violation.sender_name}
+                if any(item.startswith("昵称广告引流：") for item in violation.reasons) else {})},
             1,
             actor_id,
             reason,

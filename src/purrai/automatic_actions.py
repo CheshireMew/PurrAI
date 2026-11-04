@@ -3,7 +3,7 @@
 
 from purrai.shared_policy import effective_rules
 from purrai.advertising_guard import link_reasons
-from purrai.advertising_patterns import advertising_reasons, is_ban_reason, source_titles
+from purrai.advertising_patterns import advertising_reasons, is_ban_reason, source_titles, profile_advertising_reasons
 from purrai.group_link_identity import own_channel_id, own_link_keys
 from purrai.rules import message_content, normalize
 from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -57,6 +57,10 @@ class AutomaticActions:
         await self.restrictions.mute_emoji_status(session, group, member, action)
 
     async def profile_mute(self, session, action, group, verification, member):
+        profile = action.payload.get("profile_advertising")
+        if profile and (not group.settings.get("advertising_ban", True) or not profile_advertising_reasons(profile)):
+            action.state, action.error = "cancelled", "昵称广告策略已变化，未执行永久禁言"
+            return
         await self.restrictions.permanent_profile_mute(session, group, member, action, "profile")
 
     async def rule_mute(self, session, action, group, verification, member):

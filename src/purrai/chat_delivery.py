@@ -67,9 +67,10 @@ class ChatDelivery:
                 current.state = "silent"
                 if result.is_advertisement:
                     cfg = GroupSettings.model_validate(group.settings)
-                    await remember_ad(session, turn.group_id, turn.message_id, original, sender_id=sender_id,
-                                      cooldown=cfg.chat_advertiser_cooldown)
                     target = next((row for row in generated.context if row["id"] == turn.message_id), {})
+                    await remember_ad(session, turn.group_id, turn.message_id, original, sender_id=sender_id,
+                                      sender_name=target.get("name", ""),
+                                      cooldown=cfg.chat_advertiser_cooldown)
                     await record_ai_advertisement(session, group, sender_id, turn.message_id, original,
                         target.get("name", ""), protected_ids=self.receipts.settings.superadmin_ids)
                 current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
