@@ -2,6 +2,7 @@
 export interface GroupSettings {
   chat_enabled: boolean
   chat_proactive: boolean
+  chat_advertiser_cooldown: boolean
   chat_name: string
   chat_persona: string
   chat_ignored_texts: string[]

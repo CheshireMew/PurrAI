@@ -7,11 +7,13 @@ import re
 from purrai.chat_input import input_reasons
 from purrai.models import Meta, now
 from purrai.rules import normalize
+from purrai.message_identity import profile_name
 
 WINDOW = 7 * 86400
 MAX_COMMANDS = 200
 MAX_EVENTS = 100
 MIN_USERS = 3
+ADVERTISER_COOLDOWN = 30 * 60
 POINTS = re.compile(r"(?:发)?积分红包\s*\d+(?:\.\d+)?(?:\s+\d+)?")
 OTHER_BOT = re.compile(r"@([a-z0-9_]+bot)\s+(.+)", re.I)
 BOT_COMMAND = re.compile(r"/?([a-z][a-z0-9_]*)(?:\s+[a-z0-9_.:-]+)*", re.I)
@@ -54,9 +56,11 @@ def ad_key(text):
     return hashlib.sha256(canonical(text).encode()).hexdigest()
 
 
-def known_ad(data, text):
+def known_ad(data, text, sender_id=None, sender_name=""):
     phrase = candidate(text)
-    return ad_key(text) in data["ads"] or bool(phrase and ad_key(phrase) in data["ads"])
+    keys = [ad_key(text)] + ([ad_key(phrase)] if phrase else [])
+    scoped = [f"member:{sender_id}:{ad_key(sender_name)}:{key}" for key in keys] if sender_id else []
+    return any(key in data["ads"] for key in keys + scoped)
 
 
 async def load(session, group_id):
@@ -64,6 +68,7 @@ async def load(session, group_id):
     data = json.loads(row.value) if row else {"commands": {}, "ads": {}}
     cutoff = now() - WINDOW
     data["ads"] = {key: at for key, at in data.get("ads", {}).items() if at >= cutoff}
+    data["advertisers"] = {key: until for key, until in data.get("advertisers", {}).items() if until > now()}
     commands = {}
     for phrase, events in data.get("commands", {}).items():
         events = [event for event in events if event[2] >= cutoff]
@@ -96,6 +101,9 @@ def learned(data, cfg):
 
 async def observe(session, group_id, message, cfg, *, eligible, edited=False, advertising=False):
     row, data = await load(session, group_id)
+    eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id")))
+    eligible = eligible and not known_ad(data, message.get("text") or message.get("caption") or "",
+        message.get("from", {}).get("id"), profile_name(message.get("from") or {}))
     phrase = candidate(message.get("text") or message.get("caption") or "")
     if advertising and phrase:
         data["commands"].pop(phrase, None)
@@ -117,18 +125,35 @@ async def observe(session, group_id, message, cfg, *, eligible, edited=False, ad
     return data
 
 
-async def remember_ad(session, group_id, message_id, text):
+def advertiser_blocked(data, sender_id):
+    return data.get("advertisers", {}).get(str(sender_id), 0) > now()
+
+
+async def remember_advertiser(session, group_id, sender_id):
+    if type(sender_id) is not int or sender_id <= 0:
+        return
     row, data = await load(session, group_id)
-    data["ads"][ad_key(text)] = now()
+    data["advertisers"][str(sender_id)] = now() + ADVERTISER_COOLDOWN
+    data["advertisers"] = dict(sorted(data["advertisers"].items(), key=lambda item: item[1], reverse=True)[:MAX_COMMANDS])
+    save(session, row, group_id, data)
+
+
+async def remember_ad(session, group_id, message_id, text, sender_id=None, *, sender_name="", cooldown=False):
+    row, data = await load(session, group_id)
+    prefix = f"member:{sender_id}:{ad_key(sender_name)}:" if sender_id else ""
+    data["ads"][prefix + ad_key(text)] = now()
     phrase = candidate(text)
     if phrase:
-        data["ads"][ad_key(phrase)] = now()
-        data["commands"].pop(phrase, None)
+        data["ads"][prefix + ad_key(phrase)] = now()
+        if not sender_id:
+            data["commands"].pop(phrase, None)
     for key in list(data["commands"]):
         data["commands"][key] = [event for event in data["commands"][key] if event[0] != message_id]
         if not data["commands"][key]:
             del data["commands"][key]
     save(session, row, group_id, data)
+    if cooldown:
+        await remember_advertiser(session, group_id, sender_id)
 
 
 def status(data, cfg, rules=()):

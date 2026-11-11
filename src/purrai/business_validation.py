@@ -64,12 +64,12 @@ def validate_document(document):
             label(item.get("title"))
         indexed[name] = {item["id"]: item for item in items}
         require(len(indexed[name]) == len(items), "同类规则的标识不能重复")
-    fields = {"text", "source_titles", "direct", "$item", "$match", "$prefix", "$start"} | indexed["views"].keys()
+    fields = {"text", "source_titles", "direct", "urls", "$item", "$match", "$prefix", "$start"} | indexed["views"].keys()
     def field(value, local=(), text_only=False):
         require(isinstance(value, str) and value in fields, "引用的文本字段不存在")
         require(not value.startswith("$") or value in local, "匹配片段和当前分句只能在对应的附加条件内使用")
         if text_only:
-            require(value not in ("source_titles", "direct", "$start"), "此条件需要文本字段")
+            require(value not in ("source_titles", "direct", "urls", "$start"), "此条件需要文本字段")
 
     refs = {name: {identifier: set() for identifier in indexed[name]} for name in indexed}
     for item in document["views"]:

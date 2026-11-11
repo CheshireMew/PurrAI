@@ -1,10 +1,13 @@
 """Explicit administrator restrictions, restoration and ownership checks."""
 
 from purrai.action_queue import enqueue
+from purrai.message_identity import display_name
 from purrai.models import (
     Action,
     Verification,
+    Fingerprint,
     Member,
+    Violation,
     now,
 )
 from purrai.restriction_state import restriction_matches, permission_state_matches, ban_matches, owns_verification_ban
@@ -175,6 +178,19 @@ class RestrictionActions:
             verification.updated_at = now()
             await cleanup(session, verification)
 
+    async def spam_mute(self, session, action, group, verification, member):
+        if member and (member.owned_restriction or {}).get("source_action") == action.id:
+            await self.mute(session, action, group, verification, member)
+            return
+        fingerprint = await session.get(Fingerprint, (group.id, action.user_id, action.payload["message_id"]))
+        settings = action.payload.get("spam_settings", {})
+        if (not member or not member.present or not settings or now() - action.created_at > 600
+                or not fingerprint or fingerprint.digest != action.payload.get("fingerprint")
+                or any(group.settings.get(key) != value for key, value in settings.items())):
+            action.state, action.error = "cancelled", "消息或刷屏设置已变化，取消旧处罚"
+            return
+        await self.mute(session, action, group, verification, member)
+
     async def mute(self, session, action, group, verification, member):
         current = await self.action_call(
             session, action, "get_chat_member", chat_id=group.id, user_id=action.user_id
@@ -185,6 +201,15 @@ class RestrictionActions:
         if member and member.owned_restriction and member.owned_restriction.get("kind") == "verification":
             action.state = "cancelled"
             return
+        duration = 1800 if action.kind == "spam_mute" else action.payload.get("duration_seconds", group.settings["mute_seconds"])
+        if action.kind == "spam_mute" and member and member.owned_restriction:
+            owned = member.owned_restriction
+            if owned.get("source_action") != action.id:
+                source = await session.get(Action, owned.get("source_action")) if owned.get("source_action") else None
+                if ((source and source.actor_id is not None) or not owned.get("until_date")
+                        or owned["until_date"] >= now() + duration):
+                    action.state, action.error = "cancelled", "保留管理员或已有更长期限制"
+                    return
         if member and (
             member.restriction_conflict
             or action.payload.get("generation")
@@ -222,7 +247,7 @@ class RestrictionActions:
             until = (
                 owned.get("until_date")
                 if owned.get("source_action") == action.id
-                else int(now() + action.payload.get("duration_seconds", group.settings["mute_seconds"]))
+                else int(now() + duration)
             )
             target = (
                 owned.get("permissions")
@@ -246,6 +271,10 @@ class RestrictionActions:
                 use_independent_chat_permissions=True,
                 until_date=until,
             )
+        name = display_name(current.get("user") or {}, fallback="")
+        if not name:
+            violation = await session.get(Violation, action.payload["violation_id"]) if action.payload.get("violation_id") else None
+            name = (violation.sender_name.split(" @", 1)[0].strip() if violation else "") or "未命名成员"
         await enqueue(
             session,
             "warn",
@@ -253,7 +282,7 @@ class RestrictionActions:
             group.id,
             action.user_id,
             {
-                "text": f"用户 {action.user_id}：{'管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {action.payload.get('duration_seconds', group.settings['mute_seconds']) // 60} 分钟。"
+                "text": f"用户{name}：{'重复刷屏' if action.kind == 'spam_mute' else '管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {duration // 60} 分钟。"
             },
         )
 

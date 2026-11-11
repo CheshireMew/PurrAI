@@ -51,6 +51,7 @@ async def test_profile_rule_permanently_mutes_and_deletes_message(env, mode, nam
 )
 async def test_body_rules_only_delete_even_after_many_violations(env, mode, body):
     _, database, telegram, service = env
+    await set_settings(database, repeat_enabled=False, similar_enabled=False, burst_enabled=False)
     await add_rule(database, value="同城", scope="message", mode=mode)
     for identifier in range(5):
         await service.message(named(identifier, body))
@@ -137,14 +138,17 @@ async def test_mention_allow_list_does_not_exempt_keywords_or_similar_email_text
     assert [data["message_id"] for method, data in telegram.calls if method == "delete_message"] == [3]
 
 
-async def test_similar_spam_ignores_emoji_variation_and_never_mutes_member(env):
+async def test_similar_spam_ignores_emoji_variation_and_mutes_thirty_minutes(env):
     _, database, telegram, service = env
     text = "欢迎了解今天的活动详情查看介绍获取更多信息参与我们正在举行的主题活动"
     for identifier, emoji in enumerate(("🎁", "🌟", "🎈", "✨")):
         await service.message(named(identifier, text + emoji))
     await drain(service)
     assert [data["message_id"] for method, data in telegram.calls if method == "delete_message"] == [3]
-    assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in telegram.calls)
+    restrictions = [data for method, data in telegram.calls if method == "restrict_chat_member"]
+    assert len(restrictions) == 1
+    assert time.time() + 1795 <= restrictions[0]["until_date"] <= time.time() + 1801
+    assert not any(method == "ban_chat_member" for method, _ in telegram.calls)
     async with database.sessions() as session:
         assert "近似内容刷屏" in (await session.scalar(select(Violation))).reasons
         assert all(

@@ -14,6 +14,7 @@ from purrai.restriction_state import ban_matches, restriction_matches, permissio
 from purrai.rule_evaluation import rule_penalty_applies
 from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions, permission_snapshot
 from purrai.verification_penalties import active_verifications, begin_penalty, finish_penalty
+from purrai.message_identity import display_name
 
 
 class MemberRestrictions:
@@ -152,7 +153,7 @@ class MemberRestrictions:
         owned = member.owned_restriction
         already_muted = bool(
             owned
-            and owned.get("kind") in ("profile", "emoji_status", "rule")
+            and owned.get("kind") in ("profile", "emoji_status", "rule", "ai_ad")
             and owned.get("until_date") == 0
             and current.get("status") == "restricted"
             and permission_state_matches(current, owned.get("permissions"), 0, tolerance=0)
@@ -182,7 +183,7 @@ class MemberRestrictions:
             "pack": action.payload.get("pack", ""),
             **({"verification_id": active[0].id} if active else {}),
         }
-        violation_label = "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
+        violation_label = "AI最近3天累计3次广告" if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
         begin_penalty(active, violation_label, "permanent_mute")
         if not already_muted:
             await self.action_call(
@@ -197,6 +198,10 @@ class MemberRestrictions:
             )
         # Report completion only after Telegram accepted the permanent restriction.
         await finish_penalty(session, active, violation_label, "permanent_mute")
+        if kind == "ai_ad":
+            name = display_name(current.get("user") or {}, fallback=action.payload.get("user_name") or "未命名成员")
+            await enqueue(session, "warn", f"ai-ad-notice:{action.id}", group.id, member.user_id,
+                {"text": f"用户{name}：AI最近3天累计3次判定广告，已永久禁言。"})
         if kind != "emoji_status":
             return
         await self.record_emoji_violation(session, group, member, action, "永久禁言")

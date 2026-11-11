@@ -8,6 +8,7 @@ from purrai.models import (
     now,
 )
 from purrai.state_retention import prune_expired_fingerprints, prune_temporary_state
+from purrai.notice_cleanup import NoticeCleanup
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class Maintenance:
     def __init__(self, db, telegram, settings, cleanup, run_one):
         self.db, self.tg, self.settings = db, telegram, settings
         self.cleanup, self.run_one = cleanup, run_one
+        self.notices = NoticeCleanup(db)
 
     async def cleanup_loop(self):
         next_reconcile = 0
@@ -35,6 +37,7 @@ class Maintenance:
                     continue
                 if now() >= next_reconcile:
                     await self.cleanup.reconcile_verification_cleanup()
+                    await self.notices.reconcile()
                     next_reconcile = now() + 30
                 if not await self.run_one():
                     await asyncio.sleep(0.3)

@@ -27,6 +27,7 @@ export function textFields(document: BusinessDocument) {
   return [
     { id: 'text', title: '原始文本' }, ...document.views.map(view => ({ id: view.id, title: view.title })),
     { id: 'source_titles', title: '转发来源标题列表' }, { id: 'direct', title: '用户直接提问' },
+    { id: 'urls', title: '消息包含链接' },
     { id: '$item', title: '当前分句或列表项' }, { id: '$match', title: '当前匹配片段' },
     { id: '$prefix', title: '匹配前的文字' }, { id: '$start', title: '匹配开始位置' },
   ]

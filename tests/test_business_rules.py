@@ -22,21 +22,28 @@ def test_installation_policy_is_valid_and_independently_copied():
 
 
 def test_all_recorded_legacy_business_behaviors_are_preserved():
+    # This fixture records the 28-rule policy before the independent remote
+    # commits. Keep that data version testable, while the merged installation
+    # policy additionally preserves remote profile/resource detection.
+    document = default_business_rules()
+    for stage in document["stages"]:
+        stage["rules"] = [rule for rule in stage["rules"] if not rule["id"].startswith("remote-")]
+    rules = RuleSet([], document)
     fixture = Path(__file__).parent / "fixtures/legacy_business_behaviors.json"
     for case in json.loads(fixture.read_text(encoding="utf-8")):
         text = case["text"]
         canonical = normalize(text)
         actual = {
-            "solicitation": solicitation.solicitation_reasons(text),
-            "short": solicitation.short_solicitation_reasons(text),
-            "profile": solicitation.profile_solicitation_reasons(text),
-            "advertising": advertising.advertising_reasons(canonical),
-            "advertising_source": advertising.advertising_reasons(canonical, ["免费跟单实时策略"]),
-            "communication": solicitation.communication_context(text),
-            "discussion": advertising.discussion(canonical),
-            "chat_solicitation": chat_input.solicitation(text),
-            "chat": chat_input.advertising(text),
-            "chat_direct": chat_input.advertising(text, direct=True),
+            "solicitation": solicitation.solicitation_reasons(text, rules),
+            "short": solicitation.short_solicitation_reasons(text, rules),
+            "profile": solicitation.profile_solicitation_reasons(text, rules),
+            "advertising": advertising.advertising_reasons(canonical, rules=rules),
+            "advertising_source": advertising.advertising_reasons(canonical, ["免费跟单实时策略"], rules),
+            "communication": solicitation.communication_context(text, rules),
+            "discussion": advertising.discussion(canonical, rules),
+            "chat_solicitation": chat_input.solicitation(text, rules),
+            "chat": chat_input.advertising(text, rules=rules),
+            "chat_direct": chat_input.advertising(text, direct=True, rules=rules),
         }
         assert actual == case["expected"], (text, actual, case["expected"])
 

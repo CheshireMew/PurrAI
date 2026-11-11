@@ -48,7 +48,7 @@ def assess(
     if settings.get("advertising_ban", True):
         hits = [(hit, True) for hit in engine.run("profile", sender_name)]
         hits += [(hit, False) for stage in ("short", "advertising")
-                 for hit in engine.run(stage, normalize(text), source_titles=[normalize(title) for title in source_titles or []])]
+                  for hit in engine.run(stage, normalize(text), source_titles=[normalize(title) for title in source_titles or []], urls=urls)]
         for hit, profile in hits:
             hit_ids.append(hit.id)
             if profile and hit.action == "mute":
@@ -144,10 +144,10 @@ def assess(
         reasons.append(CONTACT_REASON)
     if newcomer and forwarded and settings.get("newcomer_forwards", True):
         reasons.append("新成员观察期转发用户或频道消息")
-    if newcomer and settings.get("newcomer_wallets", True) and any(
+    if settings.get("newcomer_wallets", True) and any(
         contains_wallet_address(value) for value in [text, *urls]
     ):
-        reasons.append("新成员观察期发送加密货币地址")
+        reasons.append("发送加密货币或代币合约地址")
     reasons.extend(activity_reasons(settings, repeats, similar, burst))
     for rule in active:
         if not rule.get("id"):

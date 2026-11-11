@@ -9,6 +9,7 @@ from purrai.models import (
     now,
 )
 from purrai.rules import content_digest, is_similar, similarity_signature
+from purrai.message_identity import message_sender
 from purrai.state_retention import trim_member_fingerprints
 
 
@@ -22,7 +23,7 @@ class MessageActivity:
 
 async def observe_activity(session, group, member, message, text, edited, assessment=None):
     group_id = group.id
-    user_id = (message.get("sender_chat") or message["from"])["id"]
+    user_id = message_sender(message)["id"]
     generation = member.generation if member else ""
     existing = await session.get(Fingerprint, (group_id, user_id, message["message_id"]))
     batch_key = (

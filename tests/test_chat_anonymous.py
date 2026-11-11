@@ -114,8 +114,8 @@ async def test_anonymous_groups_do_not_share_placeholder_identity(env):
     async with db.transaction() as session:
         session.add(Group(id=-1002, title="另一个群", approved=True,
                           settings={**default_settings(), "chat_enabled": True}))
-    await chat.observe(anonymous(1, "@purrai_bot 你好", group_id=-1001))
-    await chat.observe(anonymous(2, "@purrai_bot 你好", group_id=-1002))
+    await chat.observe(anonymous(1, "@purrai_bot 今天聊点什么好？", group_id=-1001))
+    await chat.observe(anonymous(2, "@purrai_bot 今天聊点什么好？", group_id=-1002))
     assert await chat.run_one() and await chat.run_one()
     assert [call[1]["messages"][-1]["speaker_id"] for call in model.calls] == [-1001, -1002]
     async with db.sessions() as session:

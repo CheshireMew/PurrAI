@@ -29,7 +29,8 @@ def violation_operations(record, permanent_ban):
     result = ["revoke_warning"] if record["warning_active"] else []
     if permanent_ban:
         return result + ["unban"]
-    if record["profile_violation"] or record["rule_mute"] or record["warning_active"]:
+    if (record["profile_violation"] or record["rule_mute"] or record["warning_active"]
+            or any(action["kind"] == "spam_mute" for action in record.get("actions", []))):
         result.append("unmute")
     if record["warning_active"]:
         result.append("unban")

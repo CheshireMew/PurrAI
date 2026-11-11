@@ -7,13 +7,16 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
 from purrai.shared_policy import effective_rules
-from purrai.chat_input import input_reasons
+from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
+from purrai.chat_participation import excluded_ids as participation_exclusions
 from purrai.chat_messages import recent_messages
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import UNREADABLE_IMAGE, blocked_message, ignored_text, image_message_ids, message_bursts, permitted_images, session_state, store_state
 from purrai.models import ArchivedMessage, ChatMessage, ChatTurn, Group, MessageRevision, Meta, now
 from purrai.schemas import GroupSettings
+from purrai.rules import message_content, assess
+from purrai.message_identity import profile_name
 from purrai.telegram_sources import channel_sources, external_channel_reasons, stored_channel_sources
 
 
@@ -24,6 +27,14 @@ def latest_payload():
         MessageRevision.event_at.desc(), MessageRevision.is_edit.desc(),
         MessageRevision.update_id.desc(), MessageRevision.id.desc(),
     ).limit(1).correlate(ArchivedMessage).scalar_subquery()
+
+
+def exclude_bot_replies(records, excluded):
+    while True:
+        replies = {row["id"] for row in records if row.get("bot") and row.get("reply_to") in excluded}
+        if replies <= excluded:
+            return
+        excluded.update(replies)
 
 
 class ChatContext:
@@ -56,18 +67,26 @@ class ChatContext:
         sources = [row for row in recent if row.message_id in speakers]
         speakers.update({row.message_id: row.sender_id for row in sources})
         for row in sources:
-            if row.is_bot and row.reply_to_id:
+            if row.reply_to_id:
                 speakers.setdefault(row.reply_to_id, 0)
         source_metadata = {row["id"]: row.get("channel_sources", []) for row in context}
         source_metadata.update({row.message_id: stored_channel_sources(row.reply_text) for row in sources})
         # Older chat rows did not retain channel origins. Recover them from the
         # independent archive, including sources already absent from chat's window.
-        for identifier, sender, payload in await session.execute(select(
+        links = set()
+        names = {row.message_id: row.sender_name for row in sources}
+        for identifier, sender, payload, name, username in await session.execute(select(
             ArchivedMessage.message_id, ArchivedMessage.sender_id, latest_payload(),
+            ArchivedMessage.sender_name, ArchivedMessage.username,
         ).where(ArchivedMessage.group_id == group_id, ArchivedMessage.message_id.in_(speakers))):
             speakers[identifier] = sender or 0
+            if sender and sender > 0:
+                names[identifier] = profile_name({"first_name": name, "username": username})
             if payload:
                 source_metadata[identifier] = channel_sources(payload)
+                if has_link(*message_content(payload)):
+                    links.add(identifier)
+        context = [{**row, "name": names[row["id"]]} if row["id"] in names else row for row in context]
         linked_channel_id = await own_channel_id(session, group_id)
         # Include frozen entries whose small rolling ChatMessage row has aged out.
         # A single batch checks the existing moderation facts, without an LLM call.
@@ -77,6 +96,8 @@ class ChatContext:
         excluded = set(await session.scalars(select(candidates.c.message_id).where(
             blocked_message(group_id, candidates.c.message_id, candidates.c.sender_id),
         )))
+        excluded.update(identifier for identifier, name in names.items()
+                        if assess("", [], rules, cfg.model_dump(), sender_name=name)["name_reasons"])
         excluded.update(row.message_id for row in sources if not row.eligible and not (
             row.message_id in allowed_images and row.text.startswith(UNREADABLE_IMAGE)
         ))
@@ -85,25 +106,31 @@ class ChatContext:
             origins, group_id, cfg.model_dump(), rules, linked_channel_id=linked_channel_id,
         ))
         for burst in message_bursts(recent):
-            if not any(row.is_bot for row in burst) and input_reasons("\n".join(row.text for row in burst), rules, cfg.model_dump(),
-                             direct=direct and any(row.message_id == message_id for row in burst)):
+            if not any(row.is_bot for row in burst) and any(reason != LINK_REASON for reason in input_reasons(
+                "\n".join(row.text for row in burst), rules, cfg.model_dump(),
+                direct=direct and any(row.message_id == message_id for row in burst),
+            )):
                 excluded.update(row.message_id for row in burst)
         records = context + [
-            {"id": row.message_id, "text": row.text, "bot": row.is_bot, "reply_to": row.reply_to_id}
+            {"id": row.message_id, "speaker_id": row.sender_id, "name": row.sender_name, "text": row.text,
+             "bot": row.is_bot, "reply_to": row.reply_to_id}
             for row in sources
         ]
+        if cfg.chat_advertiser_cooldown:
+            excluded.update(row["id"] for row in records if not row.get("bot")
+                            and chat_commands.advertiser_blocked(command_state, row.get("speaker_id")))
+        links.update(row["id"] for row in records if has_link(row["text"]))
+        excluded.update(links)
+        excluded.update(row["id"] for row in records if row.get("reply_to") in links)
         excluded.update(row["id"] for row in records if (
             not row["text"].strip() or row["text"].lstrip().startswith("/")
             or ignored_text(row["text"], ignored, getattr(self.tg, "username", ""))
-            or not row.get("bot") and chat_commands.known_ad(command_state, row["text"])
+            or not row.get("bot") and chat_commands.known_ad(command_state, row["text"], row.get("speaker_id"), row.get("name", ""))
             or not row.get("bot") and input_reasons(row["text"], rules, cfg.model_dump(), direct=direct and row["id"] == message_id)
+            or not row.get("bot") and assess("", [], rules, cfg.model_dump(), sender_name=row.get("name", ""))["name_reasons"]
         ))
         # Do not keep our old commentary on removed content as a fresh topic.
-        while True:
-            replies = {row["id"] for row in records if row.get("bot") and row.get("reply_to") in excluded}
-            if replies <= excluded:
-                break
-            excluded.update(replies)
+        exclude_bot_replies(records, excluded)
         result = []
         for row in context:
             if row["id"] in excluded:
@@ -111,11 +138,17 @@ class ChatContext:
             quote = row.get("quote", "")
             if (row.get("reply_to") in excluded or input_reasons(quote, rules, cfg.model_dump())
                     or quote and (ignored_text(quote, ignored, getattr(self.tg, "username", ""))
-                                  or chat_commands.known_ad(command_state, quote))):
+                                  or chat_commands.known_ad(command_state, quote,
+                                      row.get("reply_to_speaker_id"), names.get(row.get("reply_to"), row.get("reply_to_name", ""))))):
                 row = {key: value for key, value in row.items()
                        if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
             result.append(row)
-        return result
+        excluded.update(await participation_exclusions(session, group_id, topic_id, result, cfg, self.tg))
+        exclude_bot_replies(result, excluded)
+        return [({key: value for key, value in row.items()
+                  if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
+                 if row.get("reply_to") in excluded else row)
+                for row in result if row["id"] not in excluded]
 
     def clean_conditions(self, group_id, topic_id, allowed_images=()):
         own_reply = (

@@ -16,6 +16,7 @@ from purrai.diagnostics import failure
 from purrai.models import Action, Group, Member, Whitelist, now, uid
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_violation
+from purrai.message_identity import message_sender
 from purrai.rules import message_content, normalize
 from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
@@ -57,7 +58,7 @@ class AdvertisingGuard:
     async def queue(self, session, group, member, message, update_id=0, edited=False):
         if not any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) or not message_links(message):
             return
-        user_id = message["from"]["id"]
+        user_id = message_sender(message)["id"]
         if member is None:
             member = Member(group_id=group.id, user_id=user_id, joined_at=0)
             session.add(member)
@@ -164,7 +165,7 @@ class AdvertisingGuard:
                         violation, changed = await record_violation(session, group_id=group_id, user_id=user_id,
                             message_id=incoming["message_id"], reasons=reasons,
                             excerpt=message_content(incoming)[0],
-                            sender_name=sender_name(incoming["from"], include_username=True), message_violation=True)
+                            sender_name=sender_name(message_sender(incoming), include_username=True), message_violation=True)
                         if changed:
                             await apply_penalty(session, group, violation, await session.get(Member, (group_id, user_id)),
                                                 evidence={"message": incoming, "links": evidence})

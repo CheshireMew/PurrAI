@@ -110,8 +110,8 @@ class BusinessEngine:
         self.conditions = {item["id"]: item for item in self.document["conditions"]}
         self.stages = {item["id"]: item for item in self.document["stages"]}
 
-    def context(self, text, *, source_titles=(), direct=False):
-        return Context(self, {"text": text, "source_titles": source_titles, "direct": direct})
+    def context(self, text, *, source_titles=(), direct=False, urls=()):
+        return Context(self, {"text": text, "source_titles": source_titles, "direct": direct, "urls": urls})
 
     def view(self, identifier, text):
         return self.context(text).field(identifier)
@@ -160,8 +160,8 @@ class BusinessEngine:
                 return True
         return False
 
-    def run(self, stage, text, *, source_titles=(), direct=False):
-        return self._run(stage, self.context(text, source_titles=source_titles, direct=direct))
+    def run(self, stage, text, *, source_titles=(), direct=False, urls=()):
+        return self._run(stage, self.context(text, source_titles=source_titles, direct=direct, urls=urls))
 
     def _run(self, identifier, context):
         stage = self.stages[identifier]

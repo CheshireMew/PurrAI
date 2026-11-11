@@ -53,6 +53,8 @@ class ActionRunner:
             "unmute": ActionHandler(administration.restore, administration.prepare),
             "manual_ban": ActionHandler(administration.ban, administration.prepare),
             "manual_mute": ActionHandler(administration.mute, administration.prepare),
+            "spam_mute": ActionHandler(administration.spam_mute, administration.prepare),
+            "ai_ad_mute": ActionHandler(automatic.ai_ad_mute, automatic.prepare),
             "unban": ActionHandler(administration.unban, administration.prepare),
             "contact_kick": ActionHandler(automatic.contact_kick, automatic.prepare),
             "contact_ban": ActionHandler(automatic.contact_ban, automatic.prepare),

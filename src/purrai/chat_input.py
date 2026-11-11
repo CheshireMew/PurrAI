@@ -5,6 +5,13 @@ from purrai.chat_safety import LINKS
 from purrai.rules import assess, normalize
 
 
+LINK_REASON = "链接消息不参与聊天"
+
+
+def has_link(text, urls=()):
+    return bool(any(urls) or LINKS.search(normalize(text)))
+
+
 def solicitation(text, rules=None):
     hits = BusinessEngine(rules).run("chat_solicitation", text)
     return hits[0].reason if hits else ""
@@ -18,7 +25,9 @@ def advertising(text, *, direct=False, rules=None):
 def input_reasons(text, rules, settings, *, direct=False, urls=()):
     canonical = normalize(text)
     found = [match.group().rstrip(".,，。!?！？);；:：]】}）\"'") for match in LINKS.finditer(canonical)]
-    reasons = assess(canonical, list(urls) + found, rules, settings)["reasons"]
+    reasons = assess(text, list(urls) + found, rules, settings)["reasons"]
+    if has_link(text, urls):
+        reasons.append(LINK_REASON)
     name = normalize(settings.get("chat_name", ""))
     body = canonical.removeprefix(name).lstrip(" ，,：:") if name else canonical
     reason = advertising(body, direct=direct, rules=rules)

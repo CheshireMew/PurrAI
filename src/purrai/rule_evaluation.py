@@ -9,6 +9,7 @@ from purrai.models import Group, Violation
 from purrai.rules import assess, content_digest, message_content, similarity_signature
 from purrai.shared_policy import effective_rules
 from purrai.sender_identity import sender_name
+from purrai.message_identity import message_sender
 from purrai.solicitation_rules import contact_should_block
 
 
@@ -28,7 +29,7 @@ class MessageAssessment:
 
 def evaluate_message(message, settings, rules):
     text, urls = message_content(message)
-    sender = message.get("sender_chat") or message.get("from") or {}
+    sender = message_sender(message)
     args = dict(sender_name=sender_name(sender, include_username=True),
                 contact=contact_should_block(message, settings, rules), source_titles=source_titles(message))
     profile = assess(text, urls, rules, settings, **args)

@@ -21,7 +21,7 @@ def receipt(turn):
 
 def finish_receipt(turn):
     value = receipt(turn)
-    turn.response = json.dumps({key: value[key] for key in ("sent_message_ids", "source_ids") if key in value})
+    turn.response = json.dumps({key: value[key] for key in ("sent_message_ids", "source_ids", "checkable_source_ids") if key in value})
 
 
 async def source_deleted(session, group_id, message_id):
@@ -117,9 +117,10 @@ async def retraction_result(session, turn_id):
         turn.state, turn.error = "retraction_failed", "原消息已删除，部分回复撤回失败；请检查对应删除任务"
 
 
-async def remember_receipt(session, turn, message_id, source_ids):
+async def remember_receipt(session, turn, message_id, source_ids, *, checkable_source_ids=()):
     saved = receipt(turn)
     saved["sent_message_ids"] = sorted(set(saved.get("sent_message_ids", [])) | {message_id})
     saved["source_ids"] = sorted(set(saved.get("source_ids", [])) | set(source_ids) | {turn.message_id})
+    saved["checkable_source_ids"] = sorted(set(saved.get("checkable_source_ids", [])) | set(checkable_source_ids))
     turn.response = json.dumps(saved)
     await retract_if_deleted(session, turn)

@@ -12,6 +12,7 @@ from purrai.archive import capture, mark_reasons
 from purrai.group_link_identity import own_channel_id, remember_linked_channel
 from purrai.media_gate import remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.message_activity import observe_activity
+from purrai.message_identity import message_sender
 from purrai.models import (
     Group,
     Member,
@@ -79,8 +80,7 @@ class Moderation:
         if message.get("new_chat_members") or message.get("left_chat_member"):
             return
         group_id = message["chat"]["id"]
-        sender_chat = message.get("sender_chat")
-        sender = sender_chat or message.get("from")
+        sender = message_sender(message)
         if not sender or sender.get("id") == self.tg.user_id:
             return
         needs_admin_check = await self.assess_message(message, edited, update_id)
@@ -116,7 +116,7 @@ class Moderation:
     async def moderate_message(self, session, message, edited, update_id, *, admin_checked=False, assessment):
         group_id = message["chat"]["id"]
         sender_chat = message.get("sender_chat")
-        sender = sender_chat or message["from"]
+        sender = message_sender(message)
         group = await session.get(Group, group_id)
         if not group or not group.approved or not group.enabled:
             return
@@ -264,7 +264,7 @@ class Moderation:
         violation, changed = await record_violation(
             session,
             group_id=group.id,
-            user_id=message["from"]["id"],
+            user_id=message_sender(message)["id"],
             message_id=message["message_id"],
             reasons=reasons,
             sender_name=display_name,
@@ -280,7 +280,7 @@ class Moderation:
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):
         reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片或表情整条消息"
         await mark_reasons(session, message, edited, update_id, [reason])
-        sender = message["from"]
+        sender = message_sender(message)
         violation, _ = await record_violation(
             session,
             group_id=group.id,
@@ -298,7 +298,7 @@ class Moderation:
             "delete",
             f"delete:{violation.id}",
             group.id,
-            message["from"]["id"],
+            sender["id"],
             {
                 "message_id": message["message_id"],
                 "violation_id": violation.id,

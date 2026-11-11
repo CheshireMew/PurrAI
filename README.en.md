@@ -111,7 +111,7 @@ Management access follows the current Telegram administrator identity. Group own
 | Text, link, or flooding violation | Deletes the message by default; individual keyword rules can also permanently mute the sender; rule lists start empty |
 | Clear solicitations and external group links | Deletes and permanently bans confirmed group links, external private invites and explicit trading solicitations; excludes known own-group and allowed links, with separate report handling |
 | Sharing a contact card | Deletes the message and permanently bans ordinary members regardless of membership age; rejoining is prohibited |
-| New-member observation | Three days and the first three messages; links, @accounts or groups, user/channel forwards and common cryptocurrency addresses are deleted |
+| New-member observation | Three days and the first three messages; links, @accounts or groups, user/channel forwards are deleted; wallet and token-contract addresses are blocked independently for all ordinary members |
 | New-member media gate | For members with a reliable join record: lifted after 3 distinct text-only messages or 15 days in the group; this gate alone only deletes the message |
 | Profile status emoji | The default list includes `bygbb666`, `GsHeChaba`, and `TGVIP_16`; a join match permanently bans, while a message match permanently mutes; each group can edit its list |
 | Manual unmute by an administrator | Adds the member to the group's whitelist, cancels queued penalties, and exempts future verification and automatic handling |

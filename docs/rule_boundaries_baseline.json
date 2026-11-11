@@ -3,11 +3,11 @@
   "created_at": "2026-11-11",
   "purpose": "Authorized migration of all three legacy business modules to editable SharedPolicy data; adapters contain no business patterns.",
   "adapter_ast": {
-    "src/purrai/advertising_patterns.py": "81412a9f62f6a918330c94052e8d9bcc74ba5b876e95eb253b1d88f961e9b3ce",
-    "src/purrai/chat_input.py": "0c53fea217951d5d445b934e7ed3b7fb7f9035050d0479e7e8b38b51a09bdbc8",
+    "src/purrai/advertising_patterns.py": "aaafba97f8a1a9f57aa1096ab74b44e0f80533413fc2063cf2a061f26cdd12c6",
+    "src/purrai/chat_input.py": "e8dbe4bf4b1cf41c851568c72c1f97f028626197788d7b38f44b86ca20f5ecb5",
     "src/purrai/solicitation_rules.py": "6d97d744ab13e14b302bb479ddde1074987f631e13bb50acc3a1558a210e02ea"
   },
-  "seed_sha256": "21c56a6c7419a94ec0e2fca390dcc6709782cf9650d1eff1cd26e169757fcb72",
+  "seed_sha256": "df26d9ad3ab704dbb3c5ee91ffbfec3aa39c3c13b14f37e8928b136a45e90165",
   "entries": [
     {
       "path": "src/purrai/bot_auto_reply_panels.py",
@@ -51,21 +51,6 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "38efd50fa2f2b6ba97a2cf755a1562a60c395affcf5c653aca099065ca64aa79",
-      "review": "2026-11-11: User-requested keyword auto-replies add two operation display labels only; no trigger words or matching decisions.",
-      "line": 24,
-      "examples": [
-        "临时封禁",
-        "临时应急保护",
-        "临时禁言",
-        "人工核实发送结果",
-        "修改归档额度"
-      ]
-    },
-    {
-      "path": "src/purrai/admin_labels.py",
-      "scope": "<module>",
-      "kind": "matching-data",
       "digest": "1aa863ba3ffc7a7ac2e16f81b5fecc872b223d922633336b47d5937bfef286f4",
       "line": 75,
       "examples": [
@@ -74,20 +59,6 @@
         "拒绝入群申请",
         "拒绝申请未完成，请核实申请与机器人权限",
         "拒绝申请结果未确认，请核实 Telegram 中的结果"
-      ]
-    },
-    {
-      "path": "src/purrai/admin_labels.py",
-      "scope": "<module>",
-      "kind": "matching-data",
-      "digest": "b3b2f75eb2da164a3c7c4edcf0dcb447a1ac42d933d929020a9494d8be4ee33b",
-      "line": 86,
-      "examples": [
-        "只拦截广告联系人名片",
-        "图片验证",
-        "外群链接、外部频道引用及转发永久封禁",
-        "外部私密邀请统一封禁",
-        "多账号重复刷屏检测"
       ]
     },
     {
@@ -1198,6 +1169,120 @@
       "line": 6,
       "examples": [
         "业务招揽短语，仅删除："
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "524eee2ce56c58556d48a89ef8516a595806ae7f8727a5122367b9a616028852",
+      "line": 24,
+      "examples": [
+        "AI最近3天累计3次广告永久禁言",
+        "临时封禁",
+        "临时应急保护",
+        "临时禁言",
+        "人工核实发送结果"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "39bfd25589f031447841d07257eec5edaded1dce163efc6e0a86de860302b892",
+      "line": 90,
+      "examples": [
+        "全员拦截钱包及代币合约地址",
+        "只拦截广告联系人名片",
+        "图片验证",
+        "外群链接、外部频道引用及转发永久封禁",
+        "外部私密邀请统一封禁"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_input.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "dc6790777e9e88e7c64e603eb04e794caa3646189c2e84b1d688d0d8ca236708",
+      "line": 8,
+      "examples": [
+        "链接消息不参与聊天"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_observation.py",
+      "scope": "ChatObservation.observe",
+      "kind": "string-match",
+      "digest": "b8a21281cc09867bb058a02b6d8ff791288d7a85ff6b0f2dc78c4d9c938ad41f",
+      "line": 75,
+      "examples": [
+        "广告招揽：",
+        "明确广告引流：",
+        "聊天广告历史命中"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_participation.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "d6faca9a33ef60bce272dba5696db967dc7a823341afaf11359aac785527b147",
+      "line": 16,
+      "examples": [
+        "独立开场过短或为纯数字"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_participation.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "0a25d9a29a04a9d872c220caf21486adbae84989a79e6b10e993c52875ccf207",
+      "line": 17,
+      "examples": [
+        "同一成员近期已发送相同内容"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_participation.py",
+      "scope": "low_information",
+      "kind": "string-match",
+      "digest": "f7ef6bd122837e7440dfcad23471878bc909ad424e86ce129a29f43425f12ae2",
+      "line": 34,
+      "examples": [
+        "[无法读取的图片]",
+        "[贴纸"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation_penalties.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "d19973ca8cedc5c3df59c5be2f223ed882c547bf6bdf3bf0b405333e5429e57b",
+      "line": 20,
+      "examples": [
+        "短时间连续发送",
+        "近似内容刷屏",
+        "重复刷屏"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation_penalties.py",
+      "scope": "apply_penalty",
+      "kind": "comparison",
+      "digest": "cf99ccaf486662232dda0ca8853252a4326f47f514ac021ad4f35d4418f3551c",
+      "line": 117,
+      "examples": [
+        "重复刷屏"
+      ]
+    },
+    {
+      "path": "src/purrai/telegram.py",
+      "scope": "TelegramGateway.register_commands",
+      "kind": "matching-data",
+      "digest": "c51e75f4dfcbad38a87e8290f05ae22eb9216e859753fee07a57aad8dc96fb36",
+      "line": 52,
+      "examples": [
+        "使用帮助",
+        "查看我的 Telegram 数字 ID"
       ]
     }
   ]

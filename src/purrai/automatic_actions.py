@@ -6,10 +6,13 @@ from purrai.advertising_guard import link_reasons
 from purrai.advertising_patterns import is_ban_reason, source_titles
 from purrai.business_rules import BusinessEngine
 from purrai.sender_identity import sender_name
+from purrai.message_identity import message_sender
 from purrai.group_link_identity import own_channel_id, own_link_keys
 from purrai.rules import message_content, normalize
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 from purrai.verification_state import matches_action
+from purrai.ai_advertising import advertisement_count, LIMIT
+from purrai.schemas import GroupSettings
 
 
 class AutomaticActions:
@@ -51,9 +54,9 @@ class AutomaticActions:
         if group.settings.get("advertising_ban", True):
             engine = BusinessEngine(rules)
             text = normalize(message_content(message)[0])
-            hits = engine.run("profile", sender_name(message.get("sender_chat") or message.get("from") or {}, include_username=True))
+            hits = engine.run("profile", sender_name(message_sender(message), include_username=True))
             hits += [hit for stage in ("short", "advertising") for hit in engine.run(
-                stage, text, source_titles=[normalize(title) for title in source_titles(message)])]
+                stage, text, source_titles=[normalize(title) for title in source_titles(message)], urls=message_content(message)[1])]
             reasons = [hit.reason for hit in hits if hit.action == "ban"]
         from purrai.promotion_targets import blacklist_reasons, independent_target_rules
         independent = await independent_target_rules(session, rules, group.id, message.get("message_id"))
@@ -91,3 +94,11 @@ class AutomaticActions:
             action.state = "cancelled"
             return
         await self.restrictions.permanent_profile_mute(session, group, member, action, "rule")
+
+    async def ai_ad_mute(self, session, action, group, verification, member):
+        if (not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown or not member
+                or not member.present or member.generation != action.payload.get("generation")
+                or await advertisement_count(session, group.id, member.user_id) < LIMIT):
+            action.state, action.error = "cancelled", "AI广告处理已关闭或计数、成员状态已变化"
+            return
+        await self.restrictions.permanent_profile_mute(session, group, member, action, "ai_ad")

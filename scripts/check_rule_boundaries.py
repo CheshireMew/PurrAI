@@ -10,7 +10,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "docs/rule_boundaries_baseline.json"
-BASELINE_SHA256 = "1ce063356cf83f4d1a448f2dfba75120a18b47b1acda3910d95be3c175ba3d79"
+BASELINE_SHA256 = "daadc360203f47f72d4b57874bc7f91c7f3fa84f317a15144ed9ffbf3c080145"
 ADAPTERS = (
     "src/purrai/solicitation_rules.py",
     "src/purrai/advertising_patterns.py",

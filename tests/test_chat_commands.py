@@ -204,12 +204,12 @@ async def test_hidden_links_forwarded_function_labels_and_stale_edits_do_not_add
 
 
 async def test_model_ad_verdict_is_remembered_as_ad_and_not_learned_as_command(env):
-    chat, model = await configured(env)
+    chat, model = await configured(env, chat_advertiser_cooldown=False)
     model.result = ChatReply(should_reply=False, is_advertisement=True)
     await chat.observe(message(1, "每日奖励"))
     assert await chat.run_one()
     assert not (await chat.status(-1001))["commands"]["items"]
-    await chat.observe(message(2, "每 日 奖 励", user_id=43))
+    await chat.observe(message(2, "每 日 奖 励"))
     await due(chat)
     assert not await chat.run_one()
     assert len(model.calls) == 1

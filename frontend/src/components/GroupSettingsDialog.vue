@@ -183,7 +183,7 @@ async function save() {
 <el-form-item label="允许的 Telegram 链接">
 <el-input v-model="allowedLinksText" type="textarea" :rows="3" placeholder="每行一个群组、频道或邀请链接"/>
 </el-form-item>
-<p class="muted">新成员观察期默认 3 天，并检查前 3 条消息；时限和条数都满足后结束。期间限制链接、@账号或群组、用户及频道转发、加密货币地址，命中删除消息。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
+<p class="muted">新成员观察期默认 3 天，并检查前 3 条消息；时限和条数都满足后结束。期间限制链接、@账号或群组、用户及频道转发，命中删除消息。钱包及代币合约地址拦截对所有普通成员生效，不限入群时间，命中只删消息。申请模式需要机器人邀请权限，并使用需要审核的入群链接；直进群仍会做群内验证。关闭验证不影响已开始的任务，可批量放行。</p>
 </section>
 <section v-show="activeTab === 'archive'" aria-label="归档说明"><p class="muted">保存机器人收到的群消息、编辑版本和处置结果。关闭记录不会清除已有数据；图片、视频原文件不会自动下载。已有消息可在“消息归档”中查询和导出。</p></section>
 <section v-show="activeTab === 'emoji'" aria-label="状态表情设置">
@@ -217,7 +217,11 @@ async function save() {
 <el-form-item label="主动参与讨论">
 <el-switch v-model="form.chat_proactive" aria-label="主动参与讨论"/>
 </el-form-item>
+<el-form-item label="AI广告识别与累计处罚">
+<el-switch v-model="form.chat_advertiser_cooldown" aria-label="AI广告识别与累计处罚"/>
+</el-form-item>
 </div>
+<p class="muted">默认开启。AI判定广告后静默该账号30分钟；本群最近3天累计3次永久禁言，更早的判定不再计入。同一条消息不重复计数。</p>
 <el-form-item label="聊天昵称">
 <el-input v-model="form.chat_name" :minlength="bounds('chat_name').minLength" :maxlength="bounds('chat_name').maxLength" placeholder="群友也可以叫这个昵称来唤醒机器人"/>
 </el-form-item>

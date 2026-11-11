@@ -26,8 +26,8 @@ def discussion(text, rules=None):
     return BusinessEngine(rules).condition("discussion", text)
 
 
-def advertising_reasons(text, source_titles=(), rules=None):
-    return [hit.reason for hit in BusinessEngine(rules).run("advertising", text, source_titles=source_titles)]
+def advertising_reasons(text, source_titles=(), rules=None, *, urls=()):
+    return [hit.reason for hit in BusinessEngine(rules).run("advertising", text, source_titles=source_titles, urls=urls)]
 
 
 def source_titles(message):

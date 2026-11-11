@@ -5,8 +5,9 @@ import logging
 from sqlalchemy import delete, select
 
 from purrai.shared_policy import effective_rules
-from purrai.chat_input import input_reasons
+from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
+from purrai.chat_participation import assess as participation_reason
 from purrai.chat_retraction import RECEIPT_RETENTION
 from purrai.group_link_identity import own_channel_id
 from purrai.chat_state import (
@@ -14,9 +15,9 @@ from purrai.chat_state import (
     message_bursts, reply_snapshot,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, now
-from purrai.rules import message_content
+from purrai.rules import message_content, assess
+from purrai.message_identity import profile_name
 from purrai.schemas import GroupSettings
-from purrai.sender_identity import sender_name
 from purrai.stickers import sticker_text
 from purrai.chat_telemetry import observation
 from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -54,6 +55,9 @@ class ChatObservation:
             rules = await effective_rules(session, group_id)
             urls = message_content(message)[1]
             reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
+            reasons += assess("", [], rules, group.settings, sender_name=profile_name(sender))["name_reasons"]
+            if has_link(*message_content(message.get("reply_to_message") or {})):
+                reasons.append(LINK_REASON)
             reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
                                                 linked_channel_id=await own_channel_id(session, group_id))
             allowed = bool(sender.get("id")) and await self.contexts.allowed(session, group_id, message_id, sender["id"])
@@ -66,8 +70,12 @@ class ChatObservation:
             )
             ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
             command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
-            if chat_commands.known_ad(command_state, text):
+            if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender)):
                 reasons.append("聊天广告历史命中")
+            if cfg.chat_advertiser_cooldown and any(reason.startswith(("广告招揽：", "明确广告引流：", "聊天广告历史命中")) for reason in reasons):
+                await chat_commands.remember_advertiser(session, group_id, sender.get("id"))
+            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender.get("id")):
+                reasons.append("广告账号聊天冷却中")
             image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE})
             eligible = human_message(
                 {**message, "text": text or UNREADABLE_IMAGE} if image else message, ignored,
@@ -76,6 +84,17 @@ class ChatObservation:
             if command:
                 image, eligible = False, False
                 logger.info("聊天口令已排除 group=%s message=%s", group_id, message_id)
+            if eligible and not reasons and allowed and not image:
+                topic_id = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
+                reason = await participation_reason(
+                    session, group_id, topic_id, message_id, sender["id"], text, cfg, self.tg,
+                    reply_to=(message.get("reply_to_message") or {}).get("message_id", 0),
+                    reference_text=(UNREADABLE_IMAGE if direct and has_image(message.get("reply_to_message") or {})
+                                    else message_content(message.get("reply_to_message") or {})[0]),
+                    remember=not row and not edited and now() - 120 <= message["date"] <= now() + 60,
+                )
+                if reason:
+                    reasons.append(reason)
             eligible = eligible and not reasons
             if eligible or image:
                 eligible, image = eligible and allowed, image and allowed
@@ -97,6 +116,7 @@ class ChatObservation:
                                   and not (image and not direct) and now() - message["date"] <= 120 else "filtered", explanation)
             if row:
                 row.text, row.eligible = text[:1600], eligible
+                row.sender_name = profile_name(sender)
                 row.reply_text = reply_snapshot(message, direct=direct)
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
@@ -111,7 +131,7 @@ class ChatObservation:
                 topic_id=topic_id,
                 message_id=message_id,
                 sender_id=sender["id"],
-                sender_name=sender_name(sender, limit=100),
+                sender_name=profile_name(sender),
                 text=text[:1600],
                 reply_to_id=reply.get("message_id", 0),
                 reply_text=reply_snapshot(message, direct=direct),
