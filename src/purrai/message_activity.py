@@ -20,7 +20,7 @@ class MessageActivity:
     burst: int
 
 
-async def observe_activity(session, group, member, message, text, edited):
+async def observe_activity(session, group, member, message, text, edited, assessment=None):
     group_id = group.id
     user_id = (message.get("sender_chat") or message["from"])["id"]
     generation = member.generation if member else ""
@@ -55,8 +55,8 @@ async def observe_activity(session, group, member, message, text, edited):
             created_at=message["date"],
         )
         session.add(existing)
-    existing.digest = content_digest(text) if text else ""
-    existing.similarity_hash, existing.similarity_length = similarity_signature(text)
+    existing.digest = assessment.digest if assessment else content_digest(text) if text else ""
+    existing.similarity_hash, existing.similarity_length = assessment.similarity if assessment else similarity_signature(text)
     await session.flush()
     await trim_member_fingerprints(session, group_id, user_id, generation)
     window = max(

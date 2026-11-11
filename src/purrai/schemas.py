@@ -60,11 +60,20 @@ class GroupSettings(BaseModel):
     burst_enabled: bool = True
     burst_window: int = Field(default=10, ge=2, le=300)
     burst_count: int = Field(default=8, ge=3, le=100)
+    coordinated_enabled: bool = False
+    coordinated_window: int = Field(default=60, ge=5, le=3600)
+    coordinated_count: int = Field(default=4, ge=2, le=100)
+    coordinated_min_length: int = Field(default=12, ge=8, le=200)
+    raid_enabled: bool = False
+    raid_window: int = Field(default=60, ge=5, le=3600)
+    raid_count: int = Field(default=10, ge=3, le=1000)
+    emergency_seconds: int = Field(default=1800, ge=60, le=86400)
     warning_window: int = Field(default=86400, ge=60, le=604800)
     warning_limit: int = Field(default=3, ge=1, le=100)
     mute_seconds: int = Field(default=259200, ge=30, le=2592000)
     block_invites: bool = False
     advertising_ban: bool = True
+    contact_ads_only: bool = False
     external_group_ban: bool = True
     external_invite_ban: bool = True
     telegram_allowed_links: list[str] = Field(default_factory=list, max_length=100)
@@ -116,6 +125,12 @@ class GroupSettings(BaseModel):
             name = sticker_pack_name(item)
             names.setdefault(name.lower(), name)
         return list(names.values())
+
+
+class EmergencyInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    active: bool
+    reason: str = Field(min_length=1, max_length=300)
 
 
 class SettingsPatch(BaseModel):
@@ -176,7 +191,7 @@ class GroupAccessInput(BaseModel):
 
 
 class RuleInput(BaseModel):
-    kind: Literal["keyword", "block_domain", "allow_domain", "block_mention", "allow_mention"]
+    kind: Literal["keyword", "block_domain", "allow_domain", "block_mention", "allow_mention", "block_target"]
     value: str = Field(min_length=1, max_length=250)
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
     scope: Literal["message", "name", "either", "name_and_message"] = "message"
@@ -210,7 +225,7 @@ class SharedRuleInput(RuleInput):
 
 class SharedPolicyPatch(BaseModel):
     settings: dict | None = None
-    rules: list[SharedRuleInput] | None = Field(default=None, max_length=1000)
+    rules: list[SharedRuleInput] | None = Field(default=None, max_length=10000)
     baseline: dict | None = None
     request_id: str = Field(min_length=8, max_length=80)
 
@@ -224,12 +239,21 @@ class PreviewInput(BaseModel):
     text: str = Field(max_length=10000)
     newcomer: bool = False
     contact: bool = False
+    contact_name: str = Field(default="", max_length=250)
     forwarded: bool = False
     repeats: int = Field(default=0, ge=0)
     similar: int = Field(default=0, ge=0)
     burst: int = Field(default=0, ge=0)
     sender_name: str = Field(default="", max_length=500)
     rules: list[RuleInput] | None = None
+    draft: SharedRuleInput | None = None
+
+
+class RuleBatchInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    versions: dict[str, str] = Field(min_length=1, max_length=100)
+    enabled: bool
+    scope: Literal["local", "global"] = "local"
 
 
 class WhitelistInput(BaseModel):
@@ -258,6 +282,54 @@ class ActionInput(BaseModel):
     ]
     reason: str = Field(min_length=1, max_length=300)
     request_id: str = Field(min_length=8, max_length=80)
+    duration_seconds: int | None = Field(default=None, ge=30, le=2592000)
+
+    @model_validator(mode="after")
+    def duration_for_penalty(self):
+        if self.duration_seconds is not None and self.action not in ("mute", "ban"):
+            raise ValueError("只有禁言或封禁可以设置本次时长")
+        return self
+
+
+class ViolationCorrectionInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    reason: str = Field(min_length=1, max_length=300)
+    action: Literal["", "unmute", "unban"] = ""
+    scope: Literal["local", "global"] = "local"
+    rule_versions: dict[str, str] = Field(default_factory=dict, max_length=100)
+
+    @field_validator("reason")
+    @classmethod
+    def meaningful_reason(cls, value):
+        if not value.strip():
+            raise ValueError("请填写纠正原因")
+        return value.strip()
+
+
+class ReleaseSelectionInput(BaseModel):
+    state: str = Field(default="", max_length=40)
+    verification_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
+    user_id: int | None = Field(default=None, gt=0)
+    after: float = Field(default=0, ge=0)
+    before: float = Field(default=0, ge=0)
+
+
+class ReleasePendingInput(ActionInput):
+    verification_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
+    snapshot: str = Field(default="", max_length=64)
+
+
+class DeliveryResolutionInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    outcome: Literal["completed", "not_completed"]
+    reason: str = Field(min_length=1, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("请填写实际核实情况")
+        return value.strip()
 
 
 class ArchiveFilter(BaseModel):
@@ -279,3 +351,39 @@ class ArchiveFilter(BaseModel):
 class ArchiveQuery(ArchiveFilter):
     page_number: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=100)
+
+
+class ArchiveQuotaInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    group_mb: int | None = Field(default=None, ge=1, le=1048576)
+    global_mb: int | None = Field(default=None, ge=16, le=1048576)
+
+
+class ArchivePurgeInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    export_id: str = Field(min_length=16, max_length=64)
+    confirm_count: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class BackupPlanInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    enabled: bool = False
+    hour_beijing: int = Field(default=3, ge=0, le=23)
+    interval_days: int = Field(default=1, ge=1, le=30)
+    retention_days: int = Field(default=30, ge=1, le=3650)
+    retention_count: int = Field(default=10, ge=1, le=1000)
+    max_total_mb: int = Field(default=2048, ge=16, le=1048576)
+    prune_enabled: bool = False
+    exercise_after_backup: bool = True
+
+
+class BackupExerciseInput(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80)
+    file: str = Field(min_length=1, max_length=150)
+
+
+class ArchivePreviewInput(BaseModel):
+    archive_ids: list[str] = Field(min_length=1, max_length=100)
+    draft: SharedRuleInput | None = None
+    newcomer: bool = False

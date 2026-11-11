@@ -28,10 +28,9 @@ class ArchiveAdministration:
         return result
 
     async def export_stream(self, actor, group_id, filters):
-        from purrai.archive import export_jsonl
-
-        await self.context.access.authorize(actor, group_id)
-        return export_jsonl(self.context.db, group_id, filters)
+        from purrai.archive_management import ArchiveManagement
+        _, stream = await ArchiveManagement(self.context).stream(actor, group_id, filters)
+        return stream
 
     async def archive_export(self, actor, group_id, filters, request_id):
         await self.context.access.authorize(actor, group_id)

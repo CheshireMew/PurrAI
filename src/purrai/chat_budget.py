@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from purrai.models import Meta, now
+from purrai.models import Meta, now, uid
+from purrai.chat_telemetry import timing, usage
 
 KEY = "private:chat-budget"
 
@@ -26,6 +27,9 @@ class Reservation:
     group: str
     user: str
     tokens: int
+    topic: int = 0
+    identifier: str = ""
+    turn_id: int | None = None
 
 
 class ChatBudget:
@@ -63,6 +67,7 @@ class ChatBudget:
             group = await session.get(Group, group_id)
             if not group or not group.approved or not group.settings.get("chat_enabled"):
                 raise BudgetExceeded("此群尚未获准使用聊天，或聊天已关闭")
+            topic_id = 0
             if turn_id is not None:
                 from purrai.models import ChatTurn
 
@@ -70,6 +75,7 @@ class ChatBudget:
                 reset = await session.get(Meta, f"chat_reset:{group_id}")
                 if not turn or turn.state != "generating" or reset and float(reset.value) > turn.created_at:
                     raise BudgetExceeded("聊天任务已取消，不再调用模型")
+                topic_id = turn.topic_id
             row, data = await self.load(session)
             counters = [data["global"], data["groups"].setdefault(group_key, {}),
                         data["users"].setdefault(user_key, {})]
@@ -89,12 +95,24 @@ class ChatBudget:
                 counter.update(calls=counter.get("calls", 0) + 1,
                                tokens=counter.get("tokens", 0) + tokens, last_attempt=now())
             self.save(session, row, data)
-            return Reservation(data["day"], group_key, user_key, tokens)
+            identifier = uid()
+            session.add(Meta(key="chat-reservation:" + identifier, value="reserved", expires_at=now() + 7 * 86400))
+            await usage(session, data["day"], group_id, topic_id, calls=1, tokens=tokens)
+            await timing(session, turn_id, request_started_at=now(), reserved_tokens=tokens, token_usage_confirmed=False)
+            return Reservation(data["day"], group_key, user_key, tokens, topic_id, identifier, turn_id)
 
     async def settle(self, reservation, actual_tokens):
         if type(actual_tokens) is not int or actual_tokens < 0:
             return  # Missing/uncertain usage stays reserved, including failures and crashes.
         async with self.db.transaction() as session:
+            receipt = await session.get(Meta, "chat-reservation:" + reservation.identifier) if reservation.identifier else None
+            if receipt and receipt.value == "settled":
+                return
+            if receipt:
+                receipt.value = "settled"
+            await usage(session, reservation.day, int(reservation.group), reservation.topic,
+                        tokens=actual_tokens - reservation.tokens)
+            await timing(session, reservation.turn_id, actual_tokens=actual_tokens, token_usage_confirmed=True)
             row, data = await self.load(session)
             if not row or data["day"] != reservation.day:
                 return

@@ -2,7 +2,7 @@
 
 from sqlalchemy import or_, select
 
-from purrai.models import Action, Violation, uid
+from purrai.models import Action, Meta, RuleHit, Violation, now, uid
 from purrai.rules import CONTACT_REASONS
 from purrai.advertising_patterns import is_ban_reason
 
@@ -49,6 +49,8 @@ async def record_violation(
         session.add(row)
         await session.flush()
         return row, True
+    if await session.get(Meta, f"violation-correction:{row.id}"):
+        return row, False
     changed = any(value and not getattr(row, key) for key, value in flags.items()) or (
         any(reason in reasons for reason in CONTACT_REASONS)
         and not any(reason in row.reasons for reason in CONTACT_REASONS)
@@ -75,3 +77,13 @@ async def violation_actions(session, group_id, violation_id):
             .order_by(Action.created_at, Action.id)
         )
     ).all()
+
+
+async def record_rule_hits(session, group_id, message_id, identifiers):
+    from sqlalchemy.dialects.sqlite import insert
+
+    if identifiers:
+        await session.execute(insert(RuleHit).values([
+            {"group_id": group_id, "message_id": message_id, "rule_id": identifier, "created_at": now()}
+            for identifier in set(identifiers)
+        ]).on_conflict_do_nothing())

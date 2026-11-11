@@ -1,6 +1,8 @@
 """Telegram panels for system panels."""
 
 from purrai.bot_common import button
+from purrai.action_delivery import uncertain_delivery
+from purrai.models import now
 
 
 class SystemPanels:
@@ -26,6 +28,7 @@ class SystemPanels:
                 button("查看失败任务", "failures", event=False),
                 button("查看失败事件", "failures", event=True),
                 button("生成一致性备份", "backup"),
+                button("备份计划、文件与演练", "ops_backups"),
                 button("刷新", "system"),
                 button("返回选群", "groups"),
             ],
@@ -47,6 +50,8 @@ class SystemPanels:
                     event=event,
                 )
             )
+            if not event and (uncertain_delivery(row.payload) or row.payload.get("challenge_delivery") in ("sending", "uncertain")):
+                buttons.append(button(f"核实 · {row.id[:8]}", "delivery_resolution", id=row.id))
         if not rows:
             text += "\n暂无失败记录。"
         if page:
@@ -61,3 +66,10 @@ class SystemPanels:
             message_id=message_id,
             resume={"action": "failures", "data": {"event": event, "page": page}},
         )
+
+    async def resolution_prompt(self, actor, identifier):
+        await self.management.principal(actor, root=True)
+        await self.remember(f"bot_prompt:{actor}", {"group_id": None,
+            "data": {"kind": "delivery_resolution", "id": identifier}, "expires": now() + 900})
+        await self.send(actor, "请先在 Telegram 核实，再发送：已完成 核实说明，或 未完成 核实说明。\n"
+            "仅登记人工结果并移出待处理失败列表，不自动重发、不改写原始错误或成员状态。发送 /cancel 取消。")

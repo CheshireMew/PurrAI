@@ -1,10 +1,12 @@
 """Message assessment, evidence recording and penalty decisions."""
 
+import copy
+
 from sqlalchemy import select
 
 from purrai.shared_policy import effective_rules
+from purrai.solicitation_rules import contact_should_block
 from purrai.action_queue import enqueue
-from purrai.advertising_patterns import source_titles
 from purrai.advertising_guard import message_links
 from purrai.archive import capture, mark_reasons
 from purrai.group_link_identity import own_channel_id, remember_linked_channel
@@ -20,8 +22,10 @@ from purrai.models import (
     uid,
 )
 from purrai.moderation_penalties import apply_penalty
-from purrai.moderation_records import record_violation
-from purrai.rules import assess, message_content
+from purrai.moderation_records import record_rule_hits, record_violation
+from purrai.rules import activity_reasons, message_content
+from purrai.rule_evaluation import prepare_message
+from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 from purrai.verification_state import ACTIVE
@@ -33,22 +37,17 @@ class Moderation:
         self.trust, self.emoji_status = trust, emoji_status
         self.advertising = advertising
 
-    async def profile_on_join(self, session, group, member, user):
+    async def profile_on_join(self, session, group, member, user, assessment):
         if user["id"] in self.settings.superadmin_ids:
             return False
         white = await session.get(Whitelist, (group.id, user["id"]))
         if white and white.moderation:
             return False
-        profile = " ".join(
-            [
-                str(user.get("first_name", "")),
-                str(user.get("last_name", "")),
-                "@" + user["username"] if user.get("username") else "",
-            ]
-        ).strip()[:500]
-        rules = await effective_rules(session, group.id)
-        result = assess("", [], rules, group.settings, sender_name=profile)
-        if not result["name_reasons"]:
+        profile = sender_name(user, include_username=True)
+        if assessment is None or not await assessment.current(session, group):
+            raise ConnectionError("群规则正在变化，稍后重新核实入群昵称")
+        result = assessment.profile
+        if not result["name_reasons"] and not result["ban_reasons"]:
             return False
         violation = Violation(
             id=uid(),
@@ -57,14 +56,16 @@ class Moderation:
             message_id=-int(member.generation[:15], 16),
             sender_name=profile,
             excerpt="入群昵称检查",
-            reasons=result["name_reasons"],
-            profile_violation=True,
+            reasons=list(dict.fromkeys(result["name_reasons"] + result["ban_reasons"])),
+            profile_violation=bool(result["name_reasons"]),
             message_violation=False,
             warning_active=False,
         )
         session.add(violation)
         await session.flush()
-        await apply_penalty(session, group, violation, member)
+        await record_rule_hits(session, group.id, violation.message_id, result.get("rule_ids", []))
+        await apply_penalty(session, group, violation, member, evidence={"message": {
+            "from": user, "chat": {"id": group.id, "type": group.type}, "text": ""}})
         return True
 
     async def message(self, message: dict, edited=False, update_id=0, archived_at_receipt=False):
@@ -82,8 +83,7 @@ class Moderation:
         sender = sender_chat or message.get("from")
         if not sender or sender.get("id") == self.tg.user_id:
             return
-        async with self.db.transaction() as session:
-            needs_admin_check = await self.moderate_message(session, message, edited, update_id)
+        needs_admin_check = await self.assess_message(message, edited, update_id)
         if not needs_admin_check:
             return
         # Check a potential violation outside the database writer. The second
@@ -94,11 +94,26 @@ class Moderation:
                 await self.trust.exempt_administrator(session, group_id, sender["id"])
             return
         own = await self.tg.call("get_chat", chat_id=group_id, request_timeout=3) if channel_sources(message) else {}
-        async with self.db.transaction() as session:
-            await remember_linked_channel(session, group_id, own)
-            await self.moderate_message(session, message, edited, update_id, admin_checked=True)
+        await self.assess_message(message, edited, update_id, admin_checked=True, own=own)
 
-    async def moderate_message(self, session, message, edited, update_id, *, admin_checked=False):
+    async def assess_message(self, message, edited, update_id, *, admin_checked=False, own=None):
+        # A configuration edit during CPU work invalidates the entire assessment,
+        # before fingerprints, evidence or penalties are written.
+        for _ in range(3):
+            assessment = await prepare_message(self.db, message)
+            if assessment is None:
+                return
+            async with self.db.transaction() as session:
+                group = await session.get(Group, message["chat"]["id"])
+                if not await assessment.current(session, group):
+                    continue
+                if own is not None:
+                    await remember_linked_channel(session, group.id, own)
+                return await self.moderate_message(session, message, edited, update_id,
+                                                   admin_checked=admin_checked, assessment=assessment)
+        raise ConnectionError("群规则正在变化，稍后重新审核消息")
+
+    async def moderate_message(self, session, message, edited, update_id, *, admin_checked=False, assessment):
         group_id = message["chat"]["id"]
         sender_chat = message.get("sender_chat")
         sender = sender_chat or message["from"]
@@ -143,19 +158,13 @@ class Moderation:
                 await self.advertising.queue(session, group, member, message, update_id, edited)
                 member = await session.get(Member, (group_id, user_id))
             text, urls = message_content(message)
-            display_name = " ".join(str(sender.get(key, "")) for key in ("first_name", "last_name")).strip()
-            if sender.get("username"):
-                display_name += " @" + sender["username"]
+            display_name = sender_name(sender, include_username=True)
             rules = await effective_rules(session, group_id)
-            profile = assess(
-                text,
-                urls,
-                rules,
-                group.settings,
-                sender_name=display_name,
-                contact=bool(message.get("contact")),
-                source_titles=source_titles(message),
-            )
+            profile = copy.deepcopy(assessment.profile)
+            from purrai.promotion_targets import blacklist_reasons
+            target_reasons = blacklist_reasons(message, rules, settings=group.settings)
+            profile["reasons"] += target_reasons
+            profile["ban_reasons"] += [reason for reason in target_reasons if reason.startswith("全局广告黑名单：")]
             if group.settings.get("external_group_ban", True):
                 channel_reasons = external_channel_reasons(
                     channel_sources(message), group_id, group.settings, rules,
@@ -163,7 +172,7 @@ class Moderation:
                 )
                 profile["reasons"] += channel_reasons
                 profile["ban_reasons"] += channel_reasons
-            if message.get("contact") or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
+            if contact_should_block(message, group.settings, rules) or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
                 if not admin_checked:
                     return True
                 await self.record_member_message(
@@ -208,32 +217,17 @@ class Moderation:
                     )
                     return
         text, urls = message_content(message)
-        activity = await observe_activity(session, group, member, message, text, edited)
+        activity = await observe_activity(session, group, member, message, text, edited, assessment)
         rules = await effective_rules(session, group_id)
-        display_name = " ".join(
-            str(sender.get(key, "")) for key in ("first_name", "last_name", "title")
-        ).strip()[:500]
-        if sender.get("username"):
-            display_name = (display_name + " @" + sender["username"])[:500]
-        result = assess(
-            text,
-            urls,
-            rules,
-            group.settings,
-            activity.newcomer,
-            bool(message.get("contact")),
-            activity.repeats,
-            activity.similar,
-            activity.burst,
-            display_name,
-            forwarded=bool(message.get("forward_origin") or message.get("forward_date")
-                           or message.get("forward_from") or message.get("forward_from_chat")
-                           or message.get("forward_sender_name")),
-            mentioned_users=[entity.get("user", {}) for entity in
-                             (message.get("entities") or message.get("caption_entities") or [])
-                             if entity.get("type") == "text_mention"],
-            source_titles=source_titles(message),
-        )
+        display_name = sender_name(sender, include_username=True)
+        result = copy.deepcopy(assessment.newcomer if activity.newcomer else assessment.ordinary)
+        from purrai.coordinated_protection import coordinated_reason, emergency_state
+        coordinated = await coordinated_reason(session, group, message, activity)
+        if coordinated:
+            result["reasons"].append(coordinated)
+        if activity.newcomer and (urls or message_links(message)) and (await emergency_state(session, group_id)).get("active"):
+            result["reasons"].append("临时应急保护：新人链接消息暂时拦截")
+        result["reasons"].extend(activity_reasons(group.settings, activity.repeats, activity.similar, activity.burst))
         reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
         if sender_chat and result["name_reasons"]:
             result["reasons"] += ["频道身份昵称命中，删除该消息"]
@@ -260,6 +254,7 @@ class Moderation:
         )
         if changed:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
+        await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def record_member_message(
         self, session, group, member, message, edited, update_id, display_name, result
@@ -280,6 +275,7 @@ class Moderation:
         )
         if changed:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
+        await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):
         reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片或表情整条消息"
@@ -292,7 +288,7 @@ class Moderation:
             message_id=message["message_id"],
             reasons=[reason],
             excerpt=message.get("text") or message.get("caption") or "",
-            sender_name=" ".join(sender.get(key, "") for key in ("first_name", "last_name")).strip(),
+            sender_name=sender_name(sender, include_username=True),
             message_violation=True,
         )
         # This gate always deletes the complete message, including its caption.

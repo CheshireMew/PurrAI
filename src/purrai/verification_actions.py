@@ -8,11 +8,14 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from purrai import captcha
 from purrai.action_queue import enqueue
 from purrai.action_execution import ActionPreflightError
+from purrai.action_delivery import deliver_once, uncertain_delivery
 from purrai.models import (
+    Verification,
     now,
 )
 from purrai.telegram import is_present
 from purrai.verification_cleanup import cleanup
+from purrai.verification_state import matches_action
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,44 @@ class VerificationActions:
     def __init__(self, transport, verification, restrictions, administration):
         self.action_call, self.verification = transport.call, verification
         self.restrictions, self.administration = restrictions, administration
+
+    async def prepare(self, session, action, group, verification, member):
+        if action.kind == "challenge":
+            started = now()
+            action.payload = {**action.payload, "timing": {
+                "attempt_started_at": started,
+                "queue_seconds": round(max(0, started - action.available_at), 3),
+            }}
+        if not matches_action(action, verification, member):
+            action.state = "cancelled"
+            return False
+        expected = {
+            "verify_mute": ("muting", "pending"), "challenge": ("muting", "pending"),
+            "release": ("releasing",), "ban": ("removing",), "verification_failure": ("failing",),
+        }
+        if verification and verification.state not in expected[action.kind]:
+            action.state = "cancelled"
+            return False
+        if verification and action.kind in ("verify_mute", "challenge") and verification.deadline <= now():
+            await self.verification.fail_verification(session, verification, "验证超时")
+            action.state = "cancelled"
+            return False
+        return True
+
+    @staticmethod
+    def requires_member_check(action, group, verification, member):
+        # These handlers check the member themselves. Join requests may refer
+        # to someone who has not entered the group yet.
+        return action.kind not in ("verify_mute", "verification_failure", "release") and not (
+            verification and verification.flow == "join_request" and member and not member.present
+        )
+
+    @staticmethod
+    async def record_error(session, action):
+        if action.payload.get("verification_id"):
+            verification = await session.get(Verification, action.payload["verification_id"])
+            if verification:
+                verification.error = action.error
 
     async def mute(self, session, action, group, verification, member):
         await self.restrictions.verification_mute(session, action, group, verification, member)
@@ -144,11 +185,27 @@ class VerificationActions:
         return await self.administration.ban(session, action, group, verification, member)
 
     async def decline(self, session, action, group, verification, member):
-        await self.action_call(
-            session, action, "decline_chat_join_request", chat_id=group.id, user_id=action.user_id
-        )
-        if not member.request_until or member.request_until <= now():
-            member.request_until = now() + group.settings["failure_ban_seconds"]
+        async def call(session, action, method, *, before_send, **kwargs):
+            def sending():
+                until = action.payload.get("decline_until") or max(
+                    member.request_until or 0, now() + group.settings["failure_ban_seconds"])
+                action.payload = {**action.payload, "decline_until": until}
+                member.request_until = until
+                before_send()
+            return await self.action_call(session, action, method, before_send=sending, **kwargs)
+
+        try:
+            await deliver_once(call, session, action, "decline_chat_join_request",
+                               chat_id=group.id, user_id=action.user_id)
+        except (TelegramBadRequest, TelegramForbiddenError, ValueError) as exc:
+            # The request may already be gone, but absence cannot prove who
+            # handled it. End this local generation with an explicit outcome.
+            verification.state, verification.updated_at = "failed", now()
+            verification.failure_action = "decline_uncertain" if uncertain_delivery(action.payload) else "decline_failed"
+            verification.error = str(exc)
+            action.state, action.error = "failed", str(exc)
+            await cleanup(session, verification)
+            return
         verification.state, verification.updated_at = "failed", now()
         verification.failure_action = "decline"
         await cleanup(session, verification)

@@ -1,28 +1,37 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { put } from '../api'
 import type { Whitelist } from '../types'
 import { useRecords } from '../composables/useRecords'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
+import { useTask } from '../composables/useTask'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
-const { rows, busy, error, safe, load } = useRecords<Whitelist>(() => props.groupId, 'whitelist')
+const { mutations } = useWorkspace()
+const records = useRecords<Whitelist>(() => props.groupId, 'whitelist')
+const { rows, load } = records
+const actions = useTask(), { safe } = actions
+const busy = computed(() => records.busy.value || actions.busy.value)
+const error = computed({ get: () => actions.error.value || records.error.value,
+  set: value => { actions.error.value = value; records.error.value = value } })
 const dialog = ref(false)
 const form = reactive<Omit<Whitelist, 'user_id'> & { user_id: string | number }>({ user_id: '', verification: true, moderation: true, note: '' })
-function edit(row?: Whitelist) { Object.assign(form, { user_id: '', verification: true, moderation: true, note: '' }, row); error.value = ''; dialog.value = true }
+function edit(row?: Whitelist) { Object.assign(form, { user_id: '', version: undefined, verification: true, moderation: true, note: '' }, row); error.value = ''; dialog.value = true }
 async function save() {
   if (await safe(async () => {
     if (!/^\d+$/.test(String(form.user_id))) throw new Error('请填写有效的 Telegram 用户 ID')
-    await put(`/api/groups/${props.groupId}/whitelist`, { ...form, user_id: Number(form.user_id) })
+    await mutations.submit(`/api/groups/${props.groupId}/whitelist`, 'PUT', { ...form, user_id: Number(form.user_id) }, form.version || 'missing', '保存白名单')
     ElMessage.success('已保存')
   })) { dialog.value = false; await load() }
 }
 async function removeWhite(row: Whitelist) {
   try { await ElMessageBox.confirm(`将 ${row.user_id} 移出白名单？`, '移出白名单', { confirmButtonText: '移出', cancelButtonText: '取消' }) } catch { return }
-  await safe(async () => { await api(`/api/groups/${props.groupId}/whitelist/${row.user_id}`, { method: 'DELETE' }) }); await load()
+  if (await safe(async () => {
+    await mutations.submit(`/api/groups/${props.groupId}/whitelist/${row.user_id}`, 'DELETE', {}, row.version, '移出白名单')
+    ElMessage.success('已移出白名单')
+  })) await load()
 }
 useRefresh(load, () => props.refreshKey)
 </script>

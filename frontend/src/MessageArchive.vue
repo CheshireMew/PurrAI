@@ -5,6 +5,9 @@ import { applyBeijingDates, type DateRange } from './query'
 import { useLatestRequest } from './composables/useLatestRequest'
 import { useRefresh } from './composables/useRefresh'
 import type { ArchivedDetail, ArchivedMessage, ArchivePage, ArchiveRecording } from './types'
+import ArchiveStorageDialog from './components/ArchiveStorageDialog.vue'
+import ArchiveRulePreviewDialog from './components/ArchiveRulePreviewDialog.vue'
+import { route, savedFilters, saveFilters } from './navigation'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const recording = ref<ArchiveRecording>({ state: 'unknown', reason: '' })
@@ -15,12 +18,27 @@ const { busy } = listing, { busy: detailBusy } = details
 const error = computed(() => listing.error.value || details.error.value)
 const rows = ref<ArchivedMessage[]>([]), total = ref(0), page = ref(1)
 const opened = ref(false), detail = ref<ArchivedDetail | null>(null)
+const storageOpen = ref(false)
+const sampleOpen = ref(false), sampleIds = ref<string[]>([])
 const filters = reactive({ query: '', sender_id: '', message_type: '', flagged: false, deletion: '', dates: null as DateRange })
 const applied = ref('')
+let written = route.value.params.get('filter') || ''
+function restoreQuery() {
+  const saved = savedFilters('messages')
+  applied.value = typeof saved.query === 'string' ? saved.query : ''
+  page.value = Number.isInteger(saved.page) && saved.page > 0 ? saved.page : 1
+  const query = new URLSearchParams(applied.value)
+  for (const key of ['query', 'sender_id', 'message_type', 'deletion'] as const) filters[key] = query.get(key) || ''
+  filters.flagged = query.get('flagged') === 'true'
+  const dateText = (value: string) => new Date(Number(value) * 1000 + 8 * 3600000).toISOString().slice(0, 19).replace('T', ' ')
+  const after = query.get('after'), before = query.get('before')
+  try { filters.dates = after && before ? [dateText(after), dateText(before)] : null } catch { filters.dates = null }
+}
+restoreQuery()
 const states: Record<string, string> = { not_requested: '未发起删除', pending: '等待删除', failed: '删除失败', deleted: 'PurrAI 已确认删除', already_absent: '删除时已不存在' }
 const types: Record<string, string> = { text: '文字', photo: '图片', video: '视频', document: '文件', animation: '动图', sticker: '贴纸', voice: '语音', audio: '音频', video_note: '视频留言', contact: '联系人', location: '位置', poll: '投票', service: '群事件', unknown: '历史摘录' }
 const exportUrl = computed(() => `/api/groups/${props.groupId}/messages/export?${applied.value}`)
-async function load(apply = false) {
+async function load(apply = false, change = false) {
   details.error.value = ''
   await listing.run(async () => {
     if (apply) {
@@ -31,6 +49,8 @@ async function load(apply = false) {
       applyBeijingDates(query, filters.dates)
       applied.value = query.toString(); page.value = 1
     }
+    const saved = {section: 'messages', query: applied.value, page: page.value}
+    written = JSON.stringify(saved); saveFilters(saved, !(apply || change))
     return api<ArchivePage>(`/api/groups/${props.groupId}/messages?${applied.value}&page_number=${page.value}`)
   }, result => {
     rows.value = result.items; total.value = result.total
@@ -42,13 +62,16 @@ async function show(row: ArchivedMessage) {
   await details.run(() => api<ArchivedDetail>(`/api/groups/${props.groupId}/messages/${row.id}`), result => { detail.value = result })
 }
 watch(opened, value => { if (!value) { details.cancel(); detail.value = null } }, { flush: 'sync' })
+watch(() => route.value.params.get('filter') || '', value => {
+  if (value !== written) { written = value; restoreQuery(); void load(false) }
+})
 watch(() => props.groupId, () => { opened.value = false; void load(true) })
 useRefresh(() => load(false), () => props.refreshKey)
 </script>
 
 <template>
   <section class="panel archive-panel" v-loading="busy">
-    <div class="panel-title"><h2>消息归档</h2><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag></div>
+    <div class="panel-title"><h2>消息归档</h2><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag><el-button @click="storageOpen = true">容量与整理</el-button></div>
     <el-alert v-if="recording.reason" :title="recording.reason" type="warning" :closable="false"/>
     <p class="muted">保存机器人收到的群消息、编辑版本和处置结果，关闭记录不会清除已有数据。发送者及媒体信息保存在详情和导出中，图片、视频原文件不会自动下载。</p>
     <form class="filterbar" aria-label="筛选归档消息" @submit.prevent="load(true)">
@@ -62,23 +85,27 @@ useRefresh(() => load(false), () => props.refreshKey)
       <a class="archive-download" :href="exportUrl">导出当前查询 JSONL</a>
     </form>
     <el-alert v-if="error" :title="error" type="error" :closable="false"/>
-    <el-table :data="rows" empty-text="暂无匹配的归档消息">
-      <el-table-column label="发送时间 / 编号" min-width="175"><template #default="{ row }">{{ time(row.sent_at) }}<div class="cell-sub">{{ row.message_id }}{{ row.source === 'violation_excerpt' ? '（旧摘录，时间为记录时间）' : '' }}</div></template></el-table-column>
+    <el-button v-if="sampleIds.length" @click="sampleOpen = true">试跑所选 {{ sampleIds.length }} 条归档</el-button>
+    <el-table :data="rows" row-key="id" empty-text="暂无匹配的归档消息" @selection-change="sampleIds = $event.map((row: ArchivedMessage) => row.id)">
+      <el-table-column type="selection" width="45"/>
+      <el-table-column label="发送时间 / 编号" min-width="175"><template #default="{ row }">{{ time(row.sent_at) }}<div class="cell-sub">{{ row.origin_message_id || row.message_id }}{{ row.origin_group_id ? `（原群 ${row.origin_group_id}）` : '' }}{{ row.source === 'violation_excerpt' ? '（旧摘录，时间为记录时间）' : '' }}</div></template></el-table-column>
       <el-table-column label="发送者" min-width="170"><template #default="{ row }">{{ row.sender_name || '未知' }}<div class="cell-sub">{{ row.sender_id }} <span v-if="row.username">@{{ row.username }}</span> {{ row.sender_type === 'chat' ? '（频道身份）' : '' }}</div></template></el-table-column>
       <el-table-column label="内容" min-width="250"><template #default="{ row }"><span class="archive-excerpt">{{ row.text || row.caption || `（${types[row.message_type] || row.message_type}）` }}</span><div class="cell-sub">{{ row.revision_count }} 个版本 <span v-if="!row.original_observed">· 未收到原始版本</span></div></template></el-table-column>
       <el-table-column label="命中原因" min-width="180"><template #default="{ row }">{{ row.violation?.reasons.join('；') || '未命中规则' }}</template></el-table-column>
       <el-table-column label="删除结果" min-width="170"><template #default="{ row }">{{ states[row.deletion_state] }}<div class="cell-sub">{{ row.deletion_error }}</div></template></el-table-column>
       <el-table-column label="操作" width="95" fixed="right"><template #default="{ row }"><el-button text @click="show(row)">查看详情</el-button></template></el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load(false)"/>
+    <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load(false, true)"/>
     <p class="muted">“未发起删除”仅表示 PurrAI 没有删除任务，不能证明消息仍在群中。其他人删除消息通常没有 Bot 通知；接入前的历史消息无法补抓。导出包含当前查询全部匹配消息及其收到的版本。</p>
   </section>
   <el-drawer v-model="opened" title="归档消息详情" size="min(760px, 96vw)">
     <div v-loading="detailBusy" class="archive-detail">
       <el-alert v-if="error" :title="error" type="error" :closable="false"/>
       <template v-if="detail">
-        <p>消息 {{ detail.message_id }} · {{ detail.sender_name }} <span v-if="detail.username">@{{ detail.username }}</span>（{{ detail.sender_id }}）</p>
+        <p>消息 {{ detail.origin_message_id || detail.message_id }} · {{ detail.sender_name }} <span v-if="detail.username">@{{ detail.username }}</span>（{{ detail.sender_id }}）</p>
+        <el-alert v-if="detail.origin_group_id" :title="`原普通群 ${detail.origin_group_id} 的历史消息，保留原始编号与内容，不用于新超级群的消息操作。`" type="info" :closable="false"/>
         <p>{{ states[detail.deletion_state] }} {{ detail.deletion_error }}</p>
+        <el-alert v-if="detail.recording_gap" :title="`归档不完整：${detail.recording_gap.reason}，至少 ${detail.recording_gap.omitted_at_least} 次更新未保存。最近一次：${time(detail.recording_gap.last_skipped_at)}。${detail.recording_gap.latest_not_recorded ? '当前展示内容不是最新收到的版本。' : '已恢复记录，期间遗漏的内容无法补齐。'}`" type="warning" :closable="false"/>
         <el-alert v-if="!detail.original_observed" title="未收到原始版本；历史违规摘录也无法还原完整原文。" type="info" :closable="false"/>
         <section v-for="revision in detail.revisions" :key="revision.id" class="archive-revision">
           <h3>{{ revision.is_edit ? '编辑版本' : '收到的版本' }} · {{ time(revision.event_at) }}</h3>
@@ -89,6 +116,8 @@ useRefresh(() => load(false), () => props.refreshKey)
       </template>
     </div>
   </el-drawer>
+  <ArchiveStorageDialog :open="storageOpen" :group-id="groupId" @close="storageOpen = false" @saved="load(false)"/>
+  <ArchiveRulePreviewDialog :open="sampleOpen" :group-id="groupId" :initial-ids="sampleIds" @close="sampleOpen = false"/>
 </template>
 
 <style scoped>

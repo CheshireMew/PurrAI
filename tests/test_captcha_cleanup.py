@@ -195,7 +195,8 @@ async def test_private_request_prompt_is_cleaned_even_when_decline_fails(env, mo
         "chat_id": verification.prompt_chat_id, "message_id": verification.message_id,
     } for name, data in telegram.calls)
     async with database.sessions() as session:
-        assert (await session.get(Verification, verification.id)).state == "failing"
+        current = await session.get(Verification, verification.id)
+        assert current.state == "failed" and current.failure_action == "decline_uncertain"
 
 
 async def test_cleanup_of_already_deleted_prompt_completes_without_requeue(env, monkeypatch):
@@ -237,12 +238,12 @@ async def test_runtime_starts_cleanup_worker_and_recovers_orphan(env, monkeypatc
         return result
 
     monkeypatch.setattr(service, "run_one_cleanup", observe_cleanup)
-    for owner, method in [(runtime, "poll_loop"), (runtime, "inbox_loop"), (service, "action_loop"),
+    for owner, method in [(runtime.receiver, "poll_loop"), (runtime.inbox, "inbox_loop"), (service, "action_loop"),
                           (service.progress, "loop"), (service.emoji_status, "loop"), (runtime.chat, "run")]:
         monkeypatch.setattr(owner, method, idle)
     runtime.start()
     try:
-        assert any(task.get_name() == "verification-cleanup" for task in runtime.tasks)
+        assert any(task.get_name() == "verification-cleanup" for task in runtime.workers.tasks)
         await asyncio.wait_for(cleaned.wait(), 3)
     finally:
         await runtime.stop()

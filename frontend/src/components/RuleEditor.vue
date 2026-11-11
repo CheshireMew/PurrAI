@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, post, put } from '../api'
+import { api } from '../api'
 import type { Rule, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
 import { usePreview } from '../composables/usePreview'
+import ArchiveRulePreviewDialog from './ArchiveRulePreviewDialog.vue'
 
 const props = defineProps<{ open: boolean; rule: Rule | null; rules: Rule[]; groupId: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
-const { me } = useWorkspace()
+const { me, mutations } = useWorkspace()
 const sharedBaseline = ref<SharedPolicy | null>(null)
+const samplesOpen = ref(false)
 let revision = 0
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
 const { busy, error, safe } = useTask()
@@ -20,7 +22,8 @@ watch(() => props.open, async open => {
   const current = ++revision
   sharedBaseline.value = null
   if (!open) return
-  Object.assign(form, { id: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true }, props.rule || {})
+  samplesOpen.value = false
+  Object.assign(form, { id: undefined, version: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true }, props.rule || {})
   previewReasons.value = null; previewInput.text = ''; previewInput.sender_name = ''; error.value = ''
   if (me.value?.root) {
     try {
@@ -30,13 +33,14 @@ watch(() => props.open, async open => {
   }
 })
 async function previewDraft() {
-  await safe(() => preview(props.rules.filter(rule => rule.id !== props.rule?.id).concat({ ...form })))
+  await safe(() => preview(undefined, { ...form }))
 }
 async function save() {
   if (await safe(async () => {
     if (!form.value.trim()) throw new Error('请填写规则内容')
     const path = `/api/groups/${props.groupId}/rules${props.rule?.id ? '/' + props.rule.id : ''}`
-    await (props.rule?.id ? put(path, form) : post(path, form)); ElMessage.success('已保存')
+    await mutations.submit(path, props.rule?.id ? 'PUT' : 'POST', { ...form }, props.rule?.version, '保存广告规则')
+    ElMessage.success('已保存')
   })) { emit('saved'); emit('close') }
 }
 async function saveShared() {
@@ -49,13 +53,13 @@ async function saveShared() {
     const draft = { ...form, id: index >= 0 ? props.rule?.id : '' }
     if (index >= 0) rules[index] = draft
     else rules.push(draft)
-    await api('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ rules, baseline, request_id: crypto.randomUUID() }) })
+    await mutations.submit('/api/settings/defaults', 'PATCH', { rules, baseline }, undefined, '保存通用规则')
     ElMessage.success('已保存通用规则')
   })) { emit('saved'); emit('close') }
 }
 async function inheritRule() {
   if (await safe(async () => {
-    await post(`/api/groups/${props.groupId}/rules/${props.rule!.id}/inherit`)
+    await mutations.submit(`/api/groups/${props.groupId}/rules/${props.rule!.id}/inherit`, 'POST', {}, props.rule?.version, '恢复通用规则')
     ElMessage.success('已恢复通用规则')
   })) { emit('saved'); emit('close') }
 }
@@ -72,10 +76,11 @@ async function inheritRule() {
 <el-option value="allow_domain" label="允许域名"/>
 <el-option value="block_mention" label="禁止引流账号"/>
 <el-option value="allow_mention" label="允许提及账号"/>
+<el-option value="block_target" label="推广目标黑名单"/>
 </el-select>
 </el-form-item>
 <el-form-item label="规则内容">
-<el-input v-model="form.value" :maxlength="250" placeholder="关键词，或 example.com 形式的域名"/>
+<el-input v-model="form.value" :maxlength="250" :placeholder="form.kind === 'block_target' ? '@推广账号、Telegram 链接、频道 ID、手机号、邮箱或网站域名' : '关键词，或 example.com 形式的域名'"/>
 </el-form-item>
 <el-form-item v-if="form.kind === 'keyword'" label="匹配方式">
 <el-radio-group v-model="form.mode">
@@ -102,10 +107,11 @@ async function inheritRule() {
 <el-form-item v-if="form.kind === 'keyword' && form.scope === 'name_and_message'" label="正文还需同时命中的关键词">
 <el-input v-model="form.context_value" maxlength="250"/>
 </el-form-item>
-<p class="muted">谐音与忽略分隔符仅对你配置的词组匹配。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
+<p class="muted">只匹配你配置的词。谐音匹配兼容简繁体、分隔符和汉字间夹入的字母数字。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
 <el-form-item label="启用">
 <el-switch v-model="form.enabled" aria-label="启用规则"/>
 </el-form-item>
+<el-alert v-if="form.kind === 'block_target'" title="推广目标命中会删除消息并永久封禁；明确举报引用仅删除消息。停用或修改通用规则会影响继承它的群。" type="warning" :closable="false"/>
 <el-form-item label="测试昵称及用户名">
 <el-input v-model="previewInput.sender_name" placeholder="例如：显示昵称 @username"/>
 </el-form-item>
@@ -113,6 +119,7 @@ async function inheritRule() {
 <el-input v-model="previewInput.text" type="textarea" :rows="2" placeholder="输入消息，测试这次修改后的规则"/>
 </el-form-item>
 <el-button :loading="busy" @click="previewDraft">预览当前草稿</el-button>
+<el-button @click="samplesOpen = true">用归档样本比较草稿</el-button>
 <el-alert v-if="previewReasons !== null" :type="previewReasons.length ? 'warning' : 'success'" :title="previewReasons.length ? previewReasons.join('；') : '未命中规则'" :closable="false" style="margin-top:12px"/>
 
 </el-form>
@@ -124,4 +131,5 @@ async function inheritRule() {
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>
 </template>
 </el-dialog>
+<ArchiveRulePreviewDialog :open="samplesOpen && open" :group-id="groupId" :draft="form" @close="samplesOpen = false"/>
 </template>

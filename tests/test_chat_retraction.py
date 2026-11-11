@@ -202,6 +202,7 @@ async def test_failed_retraction_is_recorded_and_never_reported_as_success(env):
     await cleanup(env[3])
     async with chat.db.sessions() as session:
         assert (await session.scalar(select(ChatTurn))).state == "retraction_failed"
+    assert "部分回复撤回失败" in (await chat.status(-1001))["error"]
 
 
 async def test_pending_or_cancelled_deletion_does_not_retract_a_completed_answer(env):

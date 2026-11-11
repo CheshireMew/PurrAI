@@ -6,17 +6,29 @@ import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 import { statusTone } from '../presentation'
+import BatchReleaseDialog from '../components/BatchReleaseDialog.vue'
+import { applyBeijingDates } from '../query'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
 const { catalog, confirmAction: submitAction } = useWorkspace()
 const operationNames = computed(() => catalog.value!.operations)
-const { rows, total, pagination, statusFilter, userFilter, dates, busy, error, safe, load: loadRecords, filters } = useRecords<Verification>(() => props.groupId, 'verifications')
+const { rows, total, pagination, statusFilter, userFilter, dates, busy, error, safe, load: loadRecords, filters, appliedFilters } = useRecords<Verification>(() => props.groupId, 'verifications')
 const history = ref<Operation[]>([])
+const chosen = ref<Verification[]>([]), batchSelection = ref<Record<string, unknown> | null>(null)
+function previewBatch(mode: string) {
+  if (mode === 'selected') batchSelection.value = { verification_ids: chosen.value.map(item => item.id) }
+  else if (mode === 'filtered') {
+    const applied = appliedFilters()
+    const query = applyBeijingDates(new URLSearchParams(), applied.dates)
+    batchSelection.value = { state: applied.state, ...(applied.user.trim() ? { user_id: Number(applied.user) } : {}),
+      after: Number(query.get('after') || 0), before: Number(query.get('before') || 0) }
+  } else batchSelection.value = {}
+}
 let version = 0
-async function load() {
+async function load(change: boolean | number = false) {
   const current = ++version
-  await Promise.all([loadRecords(), safe(async () => {
+  await Promise.all([loadRecords(change), safe(async () => {
     const result = await api<Page<Operation>>(`/api/groups/${props.groupId}/actions`)
     if (current === version) history.value = result.items
   })])
@@ -30,7 +42,9 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <section class="panel" v-loading="busy">
 <div class="panel-title">
 <h2>验证记录</h2>
-<el-button @click="confirmAction(`/api/groups/${selected}/release-pending`, 'release', '批量放行待验证成员')">批量放行</el-button>
+<el-button @click="previewBatch('all')">批量放行</el-button>
+<el-button @click="previewBatch('filtered')">预览筛选中的待验证成员</el-button>
+<el-button v-if="chosen.length" @click="previewBatch('selected')">放行所选 {{ chosen.length }} 人</el-button>
 </div>
 <form class="filterbar" aria-label="筛选验证记录" @submit.prevent="filters">
 <el-input v-model="userFilter" placeholder="Telegram 用户 ID" aria-label="筛选用户 ID" clearable/>
@@ -40,7 +54,8 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
 <el-button type="primary" native-type="submit">查询</el-button>
 </form>
-<el-table :data="rows" empty-text="暂无验证记录">
+<el-table :data="rows" empty-text="暂无验证记录" row-key="id" @selection-change="chosen = $event">
+<el-table-column type="selection" width="45" :selectable="(row: Verification) => catalog!.active_verifications.includes(row.state)"/>
 <el-table-column label="成员" min-width="160">
 <template #default="{ row }">{{ row.user_name }}<div class="cell-sub">{{ row.user_id }}</div>
 </template>
@@ -90,4 +105,5 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-table-column prop="error" label="处理说明" min-width="180"/>
 </el-table>
 </section>
+<BatchReleaseDialog :group-id="groupId" :selection="batchSelection" @close="batchSelection = null" @saved="load"/>
 </template>

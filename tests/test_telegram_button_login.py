@@ -50,7 +50,7 @@ async def test_signed_button_enters_admin_without_oidc_or_external_requests(env,
         assert me["id"] == user_id and me["root"] is (user_id == 1)
 
 
-@pytest.mark.parametrize("mode", ["tampered", "expired", "future", "other_bot", "not_admin", "duplicate", "missing", "malformed"])
+@pytest.mark.parametrize("mode", ["tampered", "expired", "future", "other_bot", "duplicate", "missing", "malformed"])
 async def test_invalid_button_authorization_does_not_create_a_session(env, mode):
     settings, database, telegram, _ = env
     settings.bot_token, settings.session_secret = "999:OFFLINE_BUTTON_LOGIN_TEST", "s" * 40
@@ -59,8 +59,6 @@ async def test_invalid_button_authorization_does_not_create_a_session(env, mode)
         fields["auth_date"] -= 301
     elif mode == "future":
         fields["auth_date"] += 40
-    elif mode == "not_admin":
-        fields["id"] = 700
     elif mode == "malformed":
         fields["id"] = "not-a-user"
     parameters = signed(fields, "888:ANOTHER_BOT" if mode == "other_bot" else settings.bot_token)

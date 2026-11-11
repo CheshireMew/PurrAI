@@ -422,7 +422,7 @@ async def test_pa06_worker_exit_is_not_ready_and_keeps_diagnostic(env, monkeypat
     async def broken():
         raise ValueError("audit startup recovery failed")
 
-    for owner, name in ((runtime, "poll_loop"), (runtime, "inbox_loop"),
+    for owner, name in ((runtime.receiver, "poll_loop"), (runtime.inbox, "inbox_loop"),
                         (runtime.service, "action_loop"), (runtime.service.progress, "loop"),
                         (runtime.service.emoji_status, "loop")):
         monkeypatch.setattr(owner, name, idle)
@@ -430,12 +430,13 @@ async def test_pa06_worker_exit_is_not_ready_and_keeps_diagnostic(env, monkeypat
     try:
         with caplog.at_level(logging.ERROR):
             runtime.start()
-            await asyncio.wait(runtime.tasks, timeout=1, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(runtime.workers.tasks, timeout=1, return_when=asyncio.FIRST_COMPLETED)
             await asyncio.sleep(0)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://audit") as client:
             result = await client.get("/health/ready")
             assert result.status_code == 503 and result.json()["runtime_ready"] is False
-        assert "worker=chat" in caplog.text and "audit startup recovery failed" in runtime.last_error
+        assert "worker=chat" in caplog.text and "audit startup recovery failed" in runtime.status()["last_error"]
+        assert runtime.workers.states["chat"]["state"] == "retrying"
     finally:
         await runtime.stop()
 

@@ -7,25 +7,21 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from sqlalchemy import and_, literal_column, select
 
 from purrai.action_execution import ActionExecution, ActionSuperseded
-from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy, administrator_protected_action
+from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy
+from purrai.action_preparation import ActionHandler, ActionPreparation
 from purrai.action_transport import ActionTransport
 from purrai.deletion_effects import deletion_result
 from purrai.automatic_actions import AutomaticActions
 from purrai.diagnostics import failure
 from purrai.member_restrictions import MemberRestrictions
-from purrai.member_decisions import current_decision
 from purrai.models import (
     Action,
     Group,
-    Member,
-    Verification,
     now,
 )
 from purrai.notification_actions import NotificationActions
 from purrai.restriction_actions import RestrictionActions
-from purrai.restriction_state import owns_verification_ban, restriction_identity
 from purrai.verification_actions import VerificationActions
-from purrai.verification_state import ACTIVE
 from purrai.work_claims import WorkClaims
 
 logger = logging.getLogger(__name__)
@@ -46,29 +42,33 @@ class ActionRunner:
         verification_actions = VerificationActions(transport, verification, restrictions, administration)
         automatic = AutomaticActions(restrictions)
         self.notifications = NotificationActions(db, transport)
+        self.preparation = ActionPreparation(transport, self.policy)
+        self.report_error = verification_actions.record_error
         self.handlers = {
-            "verify_mute": verification_actions.mute,
-            "challenge": verification_actions.challenge,
-            "release": verification_actions.release,
-            "ban": verification_actions.fail,
-            "verification_failure": verification_actions.fail,
-            "unmute": administration.restore,
-            "manual_ban": administration.ban,
-            "manual_mute": administration.mute,
-            "unban": administration.unban,
-            "contact_kick": automatic.contact_kick,
-            "contact_ban": automatic.contact_ban,
-            "advertisement_ban": automatic.advertisement_ban,
-            "moderation_mute": automatic.legacy_mute,
-            "emoji_status_mute": automatic.emoji_mute,
-            "emoji_status_ban": automatic.emoji_ban,
-            "profile_mute": automatic.profile_mute,
-            "rule_mute": automatic.rule_mute,
-            "delete": self.notifications.delete,
-            "admin_notify": self.notifications.notify,
-            "join_link": self.notifications.join_link,
-            "archive_export": self.notifications.export_archive,
-            "warn": self.notifications.warn,
+            "verify_mute": ActionHandler(verification_actions.mute, verification_actions.prepare, verification_actions.requires_member_check),
+            "challenge": ActionHandler(verification_actions.challenge, verification_actions.prepare, verification_actions.requires_member_check),
+            "release": ActionHandler(verification_actions.release, verification_actions.prepare, verification_actions.requires_member_check),
+            "ban": ActionHandler(verification_actions.fail, verification_actions.prepare, verification_actions.requires_member_check),
+            "verification_failure": ActionHandler(verification_actions.fail, verification_actions.prepare, verification_actions.requires_member_check),
+            "unmute": ActionHandler(administration.restore, administration.prepare),
+            "manual_ban": ActionHandler(administration.ban, administration.prepare),
+            "manual_mute": ActionHandler(administration.mute, administration.prepare),
+            "unban": ActionHandler(administration.unban, administration.prepare),
+            "contact_kick": ActionHandler(automatic.contact_kick, automatic.prepare),
+            "contact_ban": ActionHandler(automatic.contact_ban, automatic.prepare),
+            "advertisement_ban": ActionHandler(automatic.advertisement_ban, automatic.prepare),
+            "moderation_mute": ActionHandler(automatic.legacy_mute, automatic.prepare),
+            "emoji_status_mute": ActionHandler(automatic.emoji_mute, automatic.prepare),
+            "emoji_status_ban": ActionHandler(automatic.emoji_ban, automatic.prepare),
+            "profile_mute": ActionHandler(automatic.profile_mute, automatic.prepare),
+            "rule_mute": ActionHandler(automatic.rule_mute, automatic.prepare),
+            "delete": ActionHandler(self.notifications.delete, self.notifications.prepare),
+            "admin_notify": ActionHandler(self.notifications.notify, self.notifications.prepare),
+            "join_link": ActionHandler(self.notifications.join_link, self.notifications.prepare),
+            "archive_export": ActionHandler(self.notifications.export_archive, self.notifications.prepare),
+            "warn": ActionHandler(self.notifications.warn, self.notifications.prepare),
+            "auto_reply": ActionHandler(self.notifications.auto_reply, self.notifications.prepare, False),
+            "owner_alert": ActionHandler(self.notifications.owner_alert, self.notifications.prepare, False),
         }
 
     async def run_one_action(self, *, include_progress=True, include_cleanup=True, lane=None) -> bool:
@@ -151,15 +151,6 @@ class ActionRunner:
             if not action or action.state != "pending" or action.available_at > now():
                 return False
             action.attempts += 1
-            if action.kind == "challenge":
-                started = now()
-                action.payload = {
-                    **action.payload,
-                    "timing": {
-                        "attempt_started_at": started,
-                        "queue_seconds": round(max(0, started - action.available_at), 3),
-                    },
-                }
             try:
                 finished = await self.execute(session, action)
                 if action.state == "pending" and finished is not False:
@@ -193,7 +184,7 @@ class ActionRunner:
                 group = await session.get(Group, action.group_id) if action.group_id else None
                 if group and isinstance(exc, TelegramForbiddenError):
                     group.status = "error"
-                await self.mark_error(session, action)
+                await self.report_error(session, action)
             except Exception as exc:
                 action.available_at = now() + min(300, 2 ** min(action.attempts, 8))
                 action.error = failure(
@@ -206,16 +197,10 @@ class ActionRunner:
                 )
                 if action.attempts >= 8:
                     action.state = "failed"
-                await self.mark_error(session, action)
+                await self.report_error(session, action)
             action.updated_at = now()
             await deletion_result(session, action)
             return True
-
-    async def mark_error(self, session, action):
-        if action.payload.get("verification_id"):
-            verification = await session.get(Verification, action.payload["verification_id"])
-            if verification:
-                verification.error = action.error
 
     async def action_loop(self, lane=None):
         while True:
@@ -233,110 +218,15 @@ class ActionRunner:
                 failure(logger, self.settings, exc, "任务循环异常", terminal=True)
                 await asyncio.sleep(2)
 
-    async def prepare(self, session, action):
-        group = await session.get(Group, action.group_id) if action.group_id else None
-        if group and not group.approved and not action.dedupe_key.startswith("cleanup:"):
-            action.state, action.error = "cancelled", "此群未获准接入"
-            return
-        verification = (
-            await session.get(Verification, action.payload["verification_id"])
-            if (action.payload.get("verification_id"))
-            else None
-        )
-        member = await session.get(Member, (action.group_id, action.user_id)) if action.user_id else None
-        if not await current_decision(session, action):
-            action.state, action.error = "cancelled", "管理员已作出新的成员处理决定"
-            return
-        if action.kind == "profile_mute" and not action.payload.get("generation"):
-            action.state, action.error = "cancelled", "旧昵称处罚缺少入群批次，已停止执行；请重新核实成员"
-            return
-        if await self.policy.moderation_paused(session, action):
-            action.state, action.error = "cancelled", "群保护已暂停，已停止自动处置"
-            return
-        if await self.policy.automatic_exemption(session, action):
-            action.state = "cancelled"
-            await deletion_result(session, action)
-            return
-        if action.payload.get("generation") and (
-            not member or member.generation != action.payload["generation"]
-        ):
-            action.state = "cancelled"
-            return
-        if "restriction" in action.payload and restriction_identity(member) != action.payload["restriction"]:
-            action.state, action.error = "cancelled", "原限制已被替换，已停止旧解除任务"
-            return
-        if action.kind == "unban" and action.payload.get("source_verification_id"):
-            source = await session.get(Verification, action.payload["source_verification_id"])
-            current_generation = bool(
-                source and source.state == "failed" and member and member.generation == source.generation
-            )
-            owns_ban = current_generation and (
-                source.flow == "join_request"
-                and action.payload.get("request_cooldown")
-                or await owns_verification_ban(session, member, source)
-            )
-            if not owns_ban:
-                action.state, action.error = "cancelled", "该验证对应的入群批次或封禁已变化，已停止旧解除任务"
-                return
-        if action.kind in ("unmute", "unban") and action.payload.get("violation_id"):
-            owned = member.owned_restriction if member else None
-            source = (
-                await session.get(Action, owned["source_action"])
-                if owned and owned.get("source_action")
-                else None
-            )
-            if not source or source.payload.get("violation_id") != action.payload["violation_id"]:
-                action.state, action.error = "cancelled", "该违规对应的限制已被替换，已停止旧解除任务"
-                return
-        if verification and (
-            verification.state not in ACTIVE or not member or member.generation != verification.generation
-        ):
-            action.state = "cancelled"
-            return
-        if verification and action.payload.get("expected_nonce") not in (None, verification.nonce):
-            action.state = "cancelled"
-            return
-        if (
-            verification
-            and action.kind in ("verify_mute", "challenge", "progress")
-            and (verification.state not in ("muting", "pending"))
-        ):
-            action.state = "cancelled"
-            return
-        if verification and (
-            action.kind == "release"
-            and verification.state != "releasing"
-            or action.kind == "ban"
-            and verification.state != "removing"
-            or action.kind == "verification_failure"
-            and verification.state != "failing"
-        ):
-            action.state = "cancelled"
-            return
-        if verification and action.kind in ("verify_mute", "challenge") and verification.deadline <= now():
-            await self.verification.fail_verification(session, verification, "验证超时")
-            action.state = "cancelled"
-            return
-        await self.transport.authorize_actor(session, action)
-        # These handlers perform their own checked member lookup before any
-        # mutation. Repeating it here adds a Telegram round trip to every join.
-        if administrator_protected_action(action) and action.kind not in (
-            "verify_mute", "verification_failure", "release",
-        ) and not (
-            verification and verification.flow == "join_request" and member and not member.present
-        ):
-            await self.action_call(
-                session, action, "get_chat_member", chat_id=action.group_id, user_id=action.user_id
-            )
-        return group, verification, member
-
     async def execute(self, session, action):
         if action.kind == "delete" and action.dedupe_key.startswith("cleanup:"):
             return await self.notifications.delete_action_message(session, action)
-        prepared = await self.prepare(session, action)
-        if prepared is None:
-            return
         handler = self.handlers.get(action.kind)
         if handler is None:
             raise ValueError(f"未知任务类型：{action.kind}")
-        return await handler(session, action, *prepared)
+        prepared = await self.preparation.load(session, action)
+        if prepared is None or not await handler.prepare(session, action, *prepared):
+            return
+        check_member = handler.check_member(action, *prepared) if callable(handler.check_member) else handler.check_member
+        await self.preparation.authorize(session, action, check_member)
+        return await handler.execute(session, action, *prepared)

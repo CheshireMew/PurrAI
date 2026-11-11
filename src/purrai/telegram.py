@@ -3,6 +3,8 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.types import BufferedInputFile
 from pydantic import BaseModel
 
+from purrai.sender_identity import sender_name
+
 
 def telegram_data(value):
     """Keep API field names and only fields actually received from Telegram.
@@ -43,7 +45,7 @@ class TelegramGateway:
         me = await self.call("get_me")
         self.user_id = me["id"]
         self.username = me.get("username", "")
-        self.display_name = " ".join(filter(None, [me.get("first_name"), me.get("last_name")])).strip()
+        self.display_name = sender_name(me)
         self.connected = True
 
     async def register_commands(self):

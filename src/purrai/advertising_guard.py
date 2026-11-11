@@ -17,6 +17,7 @@ from purrai.models import Action, Group, Member, Whitelist, now, uid
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_violation
 from purrai.rules import message_content, normalize
+from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
 from purrai.telegram_links import TelegramLink, allowed_link, extract_links, parse_link
 
@@ -28,9 +29,10 @@ def message_links(message):
 
 
 def link_reasons(message, group, rules, own_keys, evidence):
+    from purrai.promotion_targets import blacklist_reasons
     text = message_content(message)[0]
-    reporting = discussion(normalize(text))
-    reasons = []
+    reporting = discussion(normalize(text), rules)
+    reasons = blacklist_reasons(message, rules, settings=group.settings, evidence=evidence)
     for proof in evidence:
         link = TelegramLink(**proof["link"])
         if allowed_link(link, group.settings, rules, own_keys, group.id, message.get("chat", {}).get("username", "")):
@@ -162,7 +164,7 @@ class AdvertisingGuard:
                         violation, changed = await record_violation(session, group_id=group_id, user_id=user_id,
                             message_id=incoming["message_id"], reasons=reasons,
                             excerpt=message_content(incoming)[0],
-                            sender_name=" ".join(incoming["from"].get(key, "") for key in ("first_name", "last_name", "username")), message_violation=True)
+                            sender_name=sender_name(incoming["from"], include_username=True), message_violation=True)
                         if changed:
                             await apply_penalty(session, group, violation, await session.get(Member, (group_id, user_id)),
                                                 evidence={"message": incoming, "links": evidence})

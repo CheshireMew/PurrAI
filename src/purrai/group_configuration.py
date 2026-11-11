@@ -11,7 +11,7 @@ from purrai.schemas import (
     SettingsPatch,
 )
 from purrai.serialization import row_dict
-from purrai.shared_policy import policy, update_shared
+from purrai.shared_policy import merge_shared_changes, policy, update_shared
 
 
 class GroupConfiguration:
@@ -20,6 +20,11 @@ class GroupConfiguration:
 
     async def settings_patch(self, actor, group_id, body: SettingsPatch, request_id=""):
         return await self.update(actor, group_id, body, request_id, "修改群配置")
+
+    async def inheritance(self, actor, group_id):
+        group = await self.context.access.authorize(actor, group_id)
+        return {"defaults": await self.read_defaults(), "settings": group.settings,
+                "overrides": group.setting_overrides or []}
 
     async def setting(self, actor, group_id, key, value, request_id):
         if key not in GroupSettings.model_fields:
@@ -52,11 +57,13 @@ class GroupConfiguration:
             if previous is not None:
                 return previous
             group = await session.get(Group, group_id)
-            if changes and body.baseline is not None:
+            if (changes or body.reset) and body.baseline is not None:
                 current_values = GroupSettings.model_validate(group.settings).model_dump()
+                defaults = (await policy(session)).settings
+                intended = {**changes, **{key: defaults[key] for key in body.reset}}
                 conflicts = [
                     key
-                    for key, value in changes.items()
+                    for key, value in intended.items()
                     if key not in body.baseline or current_values[key] not in (body.baseline[key], value)
                 ]
                 if conflicts:
@@ -168,14 +175,14 @@ class GroupConfiguration:
             for rule in body.rules:
                 RuleAdministration.validate(rule)
         async with self.context.db.transaction() as session:
-            previous = await self.context.previous(session, actor, body.request_id)
+            intent = {"operation": "shared_policy", "body": body.model_dump(exclude={"request_id"})}
+            previous = await self.context.previous(session, actor, body.request_id, intent)
             if previous is not None:
                 return previous
             current = await policy(session)
-            if body.baseline is not None and body.baseline != {"settings": current.settings, "rules": current.rules}:
-                raise ManagementError(409, "通用设置已被修改，请刷新后重试")
+            rules = merge_shared_changes(current, body)
             try:
-                result = await update_shared(session, body.settings, [rule.model_dump() for rule in body.rules] if body.rules is not None else None)
+                result = await update_shared(session, body.settings, rules)
             except ValueError as exc:
                 raise ManagementError(422, str(exc)) from exc
-            return await self.context.record(session, actor, None, "settings", "修改通用配置", result, body.request_id)
+            return await self.context.record(session, actor, None, "settings", "修改通用配置", result, body.request_id, intent)

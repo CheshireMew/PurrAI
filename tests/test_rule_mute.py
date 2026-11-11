@@ -154,7 +154,7 @@ async def test_contact_rule_still_kicks_and_channel_identity_only_deletes(env):
 async def test_http_penalty_setting_and_preview(env, client):
     response = await client.post("/api/groups/-1001/rules", json={
         "kind": "keyword", "value": "微信代收日入上万", "mode": "compact", "penalty": "permanent_mute",
-    })
+    }, headers={"Idempotency-Key": "body-mute-create-rule"})
     assert response.status_code == 200 and response.json()["penalty"] == "permanent_mute"
     response = await client.post("/api/groups/-1001/rules/preview", json={"text": "微信代收 日入上万"})
     assert response.json()["mute_member"] and response.json()["delete_message"]
@@ -173,6 +173,6 @@ async def test_bot_can_set_and_display_rule_penalty(env):
     await click(runtime, tg, "微信代收日入上万")
     assert "正文处置改为删消息并永久禁言" in str(markup(tg))
     await click(runtime, tg, "正文处置改为删消息并永久禁言")
-    assert "正文违规删消息并永久禁言" in markup(tg)["text"]
+    assert "正文命中删除消息并永久禁言" in markup(tg)["text"]
     async with db.sessions() as session:
         assert (await session.get(Rule, "ad-rule")).penalty == "permanent_mute"

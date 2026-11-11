@@ -2,17 +2,49 @@
 
 from purrai.action_queue import enqueue
 from purrai.models import (
+    Action,
+    Verification,
     Member,
     now,
 )
-from purrai.restriction_state import restriction_matches, permission_state_matches, ban_matches
+from purrai.restriction_state import restriction_matches, permission_state_matches, ban_matches, owns_verification_ban
 from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions
 from purrai.verification_cleanup import cleanup
+from purrai.verification_state import matches_action
 
 
 class RestrictionActions:
     def __init__(self, transport, trust):
         self.action_call, self.trust = transport.call, trust
+
+    async def prepare(self, session, action, group, verification, member):
+        if action.kind == "unban" and action.payload.get("source_verification_id"):
+            source = await session.get(Verification, action.payload["source_verification_id"])
+            current_generation = bool(
+                source and source.state == "failed" and member and member.generation == source.generation
+            )
+            owns_ban = current_generation and (
+                source.flow == "join_request"
+                and action.payload.get("request_cooldown")
+                or await owns_verification_ban(session, member, source)
+            )
+            if not owns_ban:
+                action.state, action.error = "cancelled", "该验证对应的入群批次或封禁已变化，已停止旧解除任务"
+                return False
+        if action.kind in ("unmute", "unban") and action.payload.get("violation_id"):
+            owned = member.owned_restriction if member else None
+            source = (
+                await session.get(Action, owned["source_action"])
+                if owned and owned.get("source_action")
+                else None
+            )
+            if not source or source.payload.get("violation_id") != action.payload["violation_id"]:
+                action.state, action.error = "cancelled", "该违规对应的限制已被替换，已停止旧解除任务"
+                return False
+        if not matches_action(action, verification, member):
+            action.state = "cancelled"
+            return False
+        return True
 
     async def restore(self, session, action, group, verification, member):
         if (
@@ -121,7 +153,7 @@ class RestrictionActions:
             until = (
                 owned["until_date"]
                 if owned and owned.get("source_action") == action.id
-                else int(now() + group.settings["failure_ban_seconds"])
+                else int(now() + action.payload.get("duration_seconds", group.settings["failure_ban_seconds"]))
             )
             if owned and owned.get("source_action") == action.id and until <= now():
                 member.owned_restriction = None
@@ -190,7 +222,7 @@ class RestrictionActions:
             until = (
                 owned.get("until_date")
                 if owned.get("source_action") == action.id
-                else int(now() + group.settings["mute_seconds"])
+                else int(now() + action.payload.get("duration_seconds", group.settings["mute_seconds"]))
             )
             target = (
                 owned.get("permissions")
@@ -221,7 +253,7 @@ class RestrictionActions:
             group.id,
             action.user_id,
             {
-                "text": f"用户 {action.user_id}：{'管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {group.settings['mute_seconds'] // 60} 分钟。"
+                "text": f"用户 {action.user_id}：{'管理员处置' if action.kind == 'manual_mute' else '累计违规'}，已临时禁言 {action.payload.get('duration_seconds', group.settings['mute_seconds']) // 60} 分钟。"
             },
         )
 

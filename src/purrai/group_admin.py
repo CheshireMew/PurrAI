@@ -67,6 +67,8 @@ class GroupAdministration:
                 await session.flush()
             if not group:
                 raise ManagementError(404, "群不存在，请先将机器人加入该群")
+            if group.status == "migrated":
+                raise ManagementError(409, "该普通群已升级，请使用新的超级群 ID；原配置与历史已接续")
             if chat:
                 group.title, group.type = chat.get("title", str(group_id))[:128], chat["type"]
             group.approved = allow

@@ -44,7 +44,7 @@ class VerificationService:
             key = f"join-request:{group.id}:{user['id']}:{epoch}"
             if await session.get(Meta, key):
                 return
-            session.add(Meta(key=key, value="received"))
+            session.add(Meta(key=key, value="received", expires_at=now() + 7 * 86400))
             member = await session.get(Member, (group.id, user["id"]))
             if member and event_id and member.last_event_id >= event_id:
                 return
@@ -114,7 +114,7 @@ class VerificationService:
                     answer = receipt.value
                 else:
                     answer = await self.apply_callback(session, query, identifier, nonce, key)
-                    session.add(Meta(key=f"callback:{query['id']}", value=answer))
+                    session.add(Meta(key=f"callback:{query['id']}", value=answer, expires_at=now() + 7 * 86400))
         if acknowledge:
             await self.acknowledge(query["id"], answer)
         return answer

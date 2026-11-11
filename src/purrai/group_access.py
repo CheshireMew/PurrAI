@@ -1,13 +1,16 @@
 """Current group access and Telegram role checks shared by commands and workers."""
 
 import asyncio
+import time
+import json
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from purrai.errors import ManagementError
-from purrai.models import Group, now
+from purrai.models import Group, Meta, now
 from purrai.serialization import row_dict
 from purrai.telegram import is_admin
 
@@ -16,6 +19,10 @@ class GroupAccess:
     def __init__(self, db, telegram, settings):
         self.db, self.tg, self.settings = db, telegram, settings
         self._operation_roles = ContextVar(f"purrai_admin_roles_{id(self)}", default=None)
+        self.discovery_seconds = 5
+        self._known_groups = OrderedDict()
+        self._discovery_status = OrderedDict()
+        self._discovery_slots = asyncio.Semaphore(32)
 
     def operation_roles(self):
         scope = self._operation_roles.get()
@@ -51,6 +58,11 @@ class GroupAccess:
         group = await session.get(Group, group_id, populate_existing=True)
         if not group:
             raise ManagementError(404, "群不存在，请先将机器人加入群")
+        if group.status == "migrated":
+            marker = await session.scalar(select(Meta).where(Meta.key.startswith("group-migration:"),
+                func.json_extract(Meta.value, "$.old_id") == group_id))
+            new_id = json.loads(marker.value)["new_id"] if marker else "新群"
+            raise ManagementError(409, f"该普通群已升级，请选择超级群 {new_id}；配置与历史已接续")
         if not group.approved:
             raise ManagementError(403, "此群尚未获准接入，请联系机器人所有者批准")
         return group
@@ -90,10 +102,16 @@ class GroupAccess:
 
     async def groups(self, actor):
         async with self.db.sessions() as session:
-            rows = (await session.scalars(select(Group).order_by(Group.title, Group.id))).all()
+            rows = (await session.scalars(select(Group).where(Group.status != "migrated").order_by(Group.title, Group.id))).all()
+            migrations = {}
+            for row in await session.scalars(select(Meta).where(Meta.key.startswith("group-migration:"))):
+                data = json.loads(row.value)
+                migrations[data["new_id"]] = data["old_id"]
+        def present(row):
+            return {**row_dict(row), "previous_ids": [migrations[row.id]] if row.id in migrations else []}
         if actor in self.settings.superadmin_ids:
-            return [row_dict(row) for row in rows]
-        semaphore = asyncio.Semaphore(4)
+            return [present(row) for row in rows]
+        semaphore = self._discovery_slots
         cached = self.operation_roles()
 
         async def check(row):
@@ -101,22 +119,54 @@ class GroupAccess:
                 return cached[(actor, row.id)]
             try:
                 async with semaphore:
-                    member = await self.tg.call(
-                        "get_chat_member", chat_id=row.id, user_id=actor, request_timeout=3
-                    )
+                    async with asyncio.timeout(3):
+                        member = await self.tg.call(
+                            "get_chat_member", chat_id=row.id, user_id=actor, request_timeout=3
+                        )
             except Exception:
                 return None
             return is_admin(member)
 
-        approved_rows = [row for row in rows if row.approved]
-        roles = await asyncio.gather(*(check(row) for row in approved_rows))
+        known = self._known_groups.get(actor, set())
+        confirmed = [row for row in rows if row.approved and row.id in known]
+        unknown = [row for row in rows if row.approved and row.id not in known]
+        cursor = self._discovery_status.get(actor, {}).get("cursor", 0) % max(1, len(unknown))
+        approved_rows = confirmed + unknown[cursor:] + unknown[:cursor]
+        tasks = [asyncio.create_task(check(row)) for row in approved_rows]
+        try:
+            done, pending = await asyncio.wait(tasks, timeout=self.discovery_seconds) if tasks else (set(), set())
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            roles = [task.result() if task in done and not task.cancelled() else None for task in tasks]
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         if cached is not None:
             cached.update({(actor, row.id): role for row, role in zip(approved_rows, roles) if role is not None})
-        result = [row_dict(row) for row, administrator in zip(approved_rows, roles) if administrator]
+        result = [present(row) for row, administrator in zip(approved_rows, roles) if administrator]
         unavailable = any(role is None for role in roles)
+        self._known_groups[actor] = {row["id"] for row in result}
+        self._known_groups.move_to_end(actor)
+        checked_unknown = sum(role is not None for row, role in zip(approved_rows, roles) if row.id not in known)
+        # Completed timeouts also advance the scan; a slow prefix must not hide
+        # groups beyond the total discovery deadline on every refresh.
+        attempted_unknown = sum(task in done for row, task in zip(approved_rows, tasks) if row.id not in known)
+        self._discovery_status[actor] = {"partial": unavailable, "checked_at": time.time(),
+                                         "cursor": cursor + max(checked_unknown, attempted_unknown)}
+        self._discovery_status.move_to_end(actor)
+        while len(self._known_groups) > 1024:
+            self._known_groups.popitem(last=False)
+        while len(self._discovery_status) > 1024:
+            self._discovery_status.popitem(last=False)
         if not result and unavailable:
             raise ManagementError(503, "暂时无法核实 Telegram 群管理员身份，请稍后重试")
         return result
+
+    def discovery_status(self, actor):
+        return self._discovery_status.get(actor, {"partial": False})
 
     async def check_permissions(self, group_id: int, join_requests=False) -> dict:
         member = await self.tg.call("get_chat_member", chat_id=group_id, user_id=self.tg.user_id)

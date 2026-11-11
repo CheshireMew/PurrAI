@@ -40,6 +40,7 @@ class RecordPanels:
             lines.append("暂无记录。")
         if kind == "rule":
             buttons += [
+                button("搜索规则与命中次数", "review_search_prompt"),
                 button("添加关键词", "prompt", kind="rule", rule_kind="keyword"),
                 button("添加禁止域名", "prompt", kind="rule", rule_kind="block_domain"),
                 button("添加允许域名", "prompt", kind="rule", rule_kind="allow_domain"),
@@ -51,6 +52,7 @@ class RecordPanels:
             buttons.append(button("添加白名单成员", "prompt", kind="whitelist"))
         if kind == "pending" and rows:
             buttons.append(button("批量放行所有待验证成员", "confirm", kind="batch"))
+            buttons.append(button("选择并预览批量放行名单", "batch_review"))
         if page:
             buttons.append(button("上一页", "list", kind=kind, page=page - 1))
         if count > page * 5 + 5:
@@ -90,8 +92,7 @@ class RecordPanels:
         elif kind == "rule":
             if row.get("inherited_from"):
                 buttons.append(button("恢复通用规则", "rule_inherit", id=row['id']))
-            body_penalty = "删消息并永久禁言" if row['penalty'] == "permanent_mute" else "只删消息"
-            text = f"{KINDS[row['kind']]}：{row['value']}\n状态：{'启用' if row['enabled'] else '停用'}\n匹配：{MODES[row['mode']]}\n范围：{SCOPES[row['scope']]}\n处置：昵称违规删消息并永久禁言；正文违规{body_penalty}"
+            text = f"{row['kind_label']}：{row['value']}\n状态：{'启用' if row['enabled'] else '停用'}\n匹配：{row['matching_label']}\n处置：{row['consequence']}"
             if row['scope'] == "name_and_message":
                 text += f"\n正文还需命中：{row['context_value']}"
             buttons += [
@@ -123,6 +124,7 @@ class RecordPanels:
                     button("设置昵称＋正文组合", "prompt", kind="rule_context", id=row['id']),
                 ]
         elif kind == "violation":
+            buttons.append(button("纠正误判与关联黑名单", "review_correction", id=row["id"]))
             actions = row["actions"]
             permanent_ban = row["permanent_ban"]
             scope = "踢出并禁止重新加入 " if permanent_ban else (
@@ -130,6 +132,8 @@ class RecordPanels:
                 + ("正文广告永久禁言 " if row['rule_mute'] else "")
             )
             text = f"用户 {row['user_id']} · {clock(row['created_at'])}\n昵称：{row['sender_name']}\n{row['excerpt'][:600]}\n原因：{'；'.join(row['reasons'])}\n处置范围：{scope}{'删除消息' if row['message_violation'] else ''}\n已删除的 Telegram 消息无法原地恢复。"
+            if row.get("correction"):
+                text += "\n已登记纠正：" + row["correction"]["reason"]
             for operation in actions:
                 text += (
                     f"\n{OPERATIONS.get(operation['kind'], operation['kind'])}：{STATE.get(operation['state'], operation['state'])}"
@@ -176,6 +180,8 @@ class RecordPanels:
                 text += f"\n目标成员：{result.get('user_id', '—')}"
             elif row['kind'] in ("retry", "retry_event"):
                 text += f"\n目标记录：{result.get('event_id', result.get('action_id', '—'))}"
+        if kind in ("rule", "whitelist"):
+            buttons = [(label, action, {**data, "version": row["version"]}) for label, action, data in buttons]
         buttons.append(button("返回列表", "list", kind=kind))
         await self.panel(
             actor,

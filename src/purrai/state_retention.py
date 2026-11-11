@@ -2,7 +2,7 @@
 
 from sqlalchemy import and_, delete, exists, select
 
-from purrai.models import Fingerprint, Member, now
+from purrai.models import Fingerprint, Inbox, LoginAttempt, Member, Meta, Session, now
 
 # Match the largest supported rule windows and the moderation query limit.
 FINGERPRINT_SECONDS = 3600
@@ -59,3 +59,20 @@ async def prune_expired_fingerprints(session):
         )
         .execution_options(synchronize_session=False)
     )
+
+
+async def prune_temporary_state(session, limit=250):
+    """Small writer batches; pending/failed inputs and audit actions are retained."""
+    cutoff = now()
+    removed = 0
+    for model, key, condition in (
+        (Meta, Meta.key, and_(Meta.expires_at > 0, Meta.expires_at <= cutoff)),
+        (Session, Session.id, Session.expires_at <= cutoff),
+        (LoginAttempt, LoginAttempt.state, LoginAttempt.expires_at <= cutoff),
+        (Inbox, Inbox.id, and_(Inbox.state == "done", Inbox.completed_at > 0,
+                              Inbox.completed_at <= cutoff - 7 * 86400)),
+    ):
+        identifiers = select(key).where(condition).order_by(key).limit(limit)
+        result = await session.execute(delete(model).where(key.in_(identifiers)).execution_options(synchronize_session=False))
+        removed += max(0, result.rowcount)
+    return removed

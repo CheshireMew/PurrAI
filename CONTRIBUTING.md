@@ -12,6 +12,8 @@ PurrAI 面向自用和朋友群，由服务器上的单个 Python 服务运行�
 
 ## 本地检查
 
+关键词和业务规则的内容通过现有 Rule / SharedPolicy 管理，不逐词修改程序；项目内 Agent 还须遵守 [AGENTS.md](AGENTS.md)。涉及规则或匹配的改动，在仓库根运行 `python scripts/check_rule_boundaries.py`。同一检查已进入 pytest：`python -m pytest tests/test_rule_boundaries.py -q`。发现新增匹配字面量时先使用配置数据，不通过刷新冻结清单来放行当前样例。检查范围、历史硬编码及限制见[规则边界说明](docs/RULE_BOUNDARIES.md)。
+
 环境准备和命令见[运维与开发说明](docs/OPERATIONS.md)。按改动运行相关后端测试、前端测试或构建，并在提交说明中列出实际命令和结果。模拟 Telegram、OIDC 或后台接口的测试只证明模拟环境行为；真实群验收请使用专门测试群。
 
 仅修改 README 时，检查三种语言的命令与功能边界一致、相对链接可达。项目标志由网页组件生成，修改 `CatMark.vue` 或主色后运行：

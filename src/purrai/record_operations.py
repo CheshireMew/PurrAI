@@ -14,7 +14,7 @@ def verification_operations(record):
         return ["release", "reissue", "ban"]
     if retryable_verification(record["state"], record["failure_action"]):
         return ["release", "reissue"]
-    if record["state"] == "failed" and record["failure_action"] in ("decline", "legacy_ban", "permanent_ban"):
+    if record["state"] == "failed" and record["failure_action"] in ("decline", "decline_uncertain", "decline_failed", "legacy_ban", "permanent_ban"):
         return ["unban"]
     return []
 

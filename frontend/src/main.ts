@@ -1,6 +1,6 @@
 import { createApp, h } from 'vue'
 import {
-  ElAlert, ElButton, ElCheckbox, ElConfigProvider, ElDatePicker, ElDialog, ElDrawer,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElConfigProvider, ElDatePicker, ElDialog, ElDrawer,
   ElEmpty, ElForm, ElFormItem, ElIcon, ElInput, ElInputNumber, ElLoading, ElOption,
   ElPagination, ElRadio, ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn,
   ElTabPane, ElTabs, ElTag, ElTooltip,
@@ -38,7 +38,7 @@ import './style.css'
 
 const app = createApp({ render: () => h(ElConfigProvider, { locale: zhCn }, () => h(App)) })
 for (const component of [
-  ElAlert, ElButton, ElCheckbox, ElDatePicker, ElDialog, ElDrawer, ElEmpty, ElForm,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElDatePicker, ElDialog, ElDrawer, ElEmpty, ElForm,
   ElFormItem, ElIcon, ElInput, ElInputNumber, ElOption, ElPagination, ElRadio,
   ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTabPane, ElTabs, ElTag, ElTooltip,
 ]) app.use(component)

@@ -7,12 +7,14 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from time import perf_counter
 
 from purrai.chat_expression import separate_emoji
 from purrai.chat_model import ChatReply
 from purrai.models import now
 from purrai.stickers import emoji_key
 from purrai.telegram import bot_display_name
+from purrai.chat_telemetry import timing
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,9 @@ class GeneratedReply:
 
 
 class ChatGeneration:
-    def __init__(self, model, budget, telegram=None):
+    def __init__(self, model, budget, telegram=None, db=None):
         self.model, self.budget, self.tg = model, budget, telegram
+        self.db = db
 
     def prompt(self, cfg):
         name = bot_display_name(self.tg, cfg.chat_name)
@@ -99,8 +102,14 @@ class ChatGeneration:
                 "聊天请求模型 turn=%s group=%s topic=%s message=%s",
                 turn.id, turn.group_id, turn.topic_id, turn.message_id,
             )
-            result = await self.model.reply(system, payload)
-            await self.budget.settle(reservation, result.total_tokens)
+            started = perf_counter()
+            try:
+                result = await self.model.reply(system, payload)
+                await self.budget.settle(reservation, result.total_tokens)
+            finally:
+                if self.db is not None:
+                    async with self.db.transaction() as session:
+                        await timing(session, turn.id, model_seconds=round(perf_counter() - started, 3), request_finished_at=now())
         should_reply = result.should_reply and not result.is_advertisement
         text, expressions = separate_emoji(result.text) if should_reply else (None, [])
         expression = result.sticker if should_reply else None

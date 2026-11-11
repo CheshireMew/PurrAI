@@ -12,6 +12,128 @@ from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, M
 from purrai.db import schema_head
 
 
+def test_keyword_auto_reply_migration_keeps_existing_data(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "auto-replies.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+
+    def upgrade(target):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    upgrade("0026")
+    with sqlite3.connect(database) as connection:
+        before = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
+    upgrade("head")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone() == before
+        assert connection.execute("SELECT count(*) FROM auto_replies").fetchone()[0] == 0
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(auto_replies)")}
+        assert columns == {"id", "group_id", "keyword", "reply", "mode", "enabled", "priority", "cooldown_seconds",
+                           "last_triggered_at", "created_at"}
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_business_policy_migration_preserves_existing_rules_and_does_not_reseed_edits(tmp_path):
+    from purrai.business_rules import default_business_rules
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "business-policy.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+
+    def upgrade(target):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    upgrade("0025")
+    original_rules = [{"id": "existing-rule", "kind": "keyword", "value": "原词库", "enabled": False}]
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE shared_policy SET rules=? WHERE id=1", (json.dumps(original_rules),))
+        original_settings = connection.execute("SELECT settings FROM shared_policy WHERE id=1").fetchone()[0]
+    upgrade("head")
+    with sqlite3.connect(database) as connection:
+        settings, rules, business = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
+        assert settings == original_settings
+        assert json.loads(rules) == original_rules
+        assert json.loads(business) == default_business_rules()
+        document = json.loads(business)
+        for stage in document["stages"]:
+            stage["rules"] = []
+        connection.execute("UPDATE shared_policy SET business_rules=? WHERE id=1", (json.dumps(document),))
+    upgrade("head")
+    with sqlite3.connect(database) as connection:
+        assert json.loads(connection.execute("SELECT business_rules FROM shared_policy WHERE id=1").fetchone()[0]) == document
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_coordinated_settings_upgrade_is_opt_in_and_keeps_existing_policy(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "coordinated-upgrade.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+
+    def upgrade(target):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    upgrade("0024")
+    legacy = {key: value for key, value in default_settings().items()
+              if not key.startswith(("coordinated_", "raid_", "emergency_"))}
+    legacy.update(chat_enabled=True, verification_enabled=False, chat_name="升级前群昵称")
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(insert(Group).values(id=-1001, approved=True, enabled=True,
+                settings=legacy, setting_overrides=["chat_name", "verification_enabled"]))
+        with sqlite3.connect(database) as connection:
+            connection.execute("UPDATE shared_policy SET settings=? WHERE id=1", (json.dumps(legacy),))
+        upgrade("head")
+        with sqlite3.connect(database) as connection:
+            for table in ("groups", "shared_policy"):
+                settings = json.loads(connection.execute(f"SELECT settings FROM {table}").fetchone()[0])
+                assert not settings['coordinated_enabled'] and not settings['raid_enabled']
+                assert settings['emergency_seconds'] == 1800
+                assert settings['chat_enabled'] and not settings['verification_enabled']
+                assert settings['chat_name'] == '升级前群昵称'
+            assert json.loads(connection.execute("SELECT setting_overrides FROM groups").fetchone()[0]) == ["chat_name", "verification_enabled"]
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        engine.dispose()
+
+
+def test_rule_evidence_upgrade_recovers_legacy_sources_and_preserves_disabled_targets(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "rule-evidence.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}",
+                   "PURRAI_BACKUP_DIR": str(tmp_path / "backups")}
+
+    def upgrade(target):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    upgrade("0023")
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE shared_policy SET settings=?,rules=? WHERE id=1", (
+            json.dumps(default_settings()), json.dumps([{"id": "learned-rule", "kind": "block_target",
+                "value": "account:legacy_target", "enabled": False}])))
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(insert(Action).values(id="old-learning", kind="rule", group_id=-1001,
+            dedupe_key="learn-ad-targets:-1001:55", state="succeeded", created_at=10,
+            payload={"result": {"targets": ["account:legacy_target"], "source_message_id": 55}}))
+    engine.dispose()
+    upgrade("head")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT rule_id,group_id,message_id,withdrawn_at FROM promotion_sources").fetchall() == [
+            ("learned-rule", -1001, 55, 0)]
+        assert not json.loads(connection.execute("SELECT rules FROM shared_policy").fetchone()[0])[0]["enabled"]
+        assert connection.execute("SELECT state FROM actions WHERE id='old-learning'").fetchone()[0] == "succeeded"
+        assert connection.execute("SELECT count(*) FROM rule_hits").fetchone()[0] == 0
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
 def test_member_decision_migration_preserves_receipts_and_fences_obsolete_work(tmp_path):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "decisions.sqlite3"

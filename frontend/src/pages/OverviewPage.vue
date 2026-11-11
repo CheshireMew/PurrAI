@@ -17,13 +17,15 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <section v-loading="busy" aria-label="群管理总览">
 <div class="stat-grid" aria-label="管理统计">
-<article v-for="(title, key) in { active_groups: '保护中的群', pending: '等待完成验证', passed_today: '24 小时验证通过', violations_today: '24 小时广告记录' }" :key="key" class="stat-card">
+<article v-for="(title, key) in { active_groups: '保护正常的群', pending: '等待完成验证', passed_today: '24 小时验证通过', violations_today: '24 小时违规记录' }" :key="key" class="stat-card">
 <span>{{ title }}</span>
 <strong>{{ stats[key] ?? '—' }}</strong>
 <small v-if="key === 'pending'">含等待处理的任务</small>
 </article>
 </div>
 <p class="stats-caption">按你有权限管理的群统计</p>
+<p v-if="stats.advertising_today !== undefined" class="stats-caption">近 24 小时：广告相关 {{ stats.advertising_today }} 条，刷屏 {{ stats.spam_today }} 条，其他限制 {{ stats.other_policy_today }} 条。同一消息可同时命中广告和刷屏；包含已纠正记录。</p>
+<el-alert v-if="stats.abnormal_groups" :title="`${stats.abnormal_groups} 个群已开启保护但状态异常，请检查机器人权限和运行状态。`" type="warning" :closable="false"/>
 <div class="overview-grid">
 <section class="panel protection-card">
 <div class="panel-title">

@@ -48,6 +48,8 @@ class ArchivePanels:
                      "capacity_paused": "容量不足，已暂停记录"}[status["state"]]
         if status["reason"]:
             recording += f"\n{status['reason']}"
+        if "group_bytes" in status:
+            recording += f"\n本群归档 {status['group_bytes'] / 1048576:.2f} MB，全局 {status['bytes'] / 1048576:.2f} / {status['limit_bytes'] / 1048576:.0f} MB"
         await self.panel(
             actor,
             f"{group.title} · 消息归档\n第 {page + 1} 页 · 共 {result['total']} 条\n"
@@ -69,7 +71,7 @@ class ArchivePanels:
             "already_absent": "执行删除时已不存在",
         }
         text = (
-            f"归档消息 {row['message_id']} · {clock(row['sent_at'])}\n"
+            f"归档消息 {row.get('origin_message_id', row['message_id'])} · {clock(row['sent_at'])}\n"
             f"发送者：{row['sender_name']} @{row['username']} ({row['sender_id']})\n"
             f"类型：{row['message_type']} · 版本数：{row['revision_count']}\n"
             f"删除：{states[row['deletion_state']]}\n{row['deletion_error']}\n"
@@ -78,6 +80,11 @@ class ArchivePanels:
             text += "旧版本仅有违规摘录，原始发送时间未知。\n"
         elif not row["original_observed"]:
             text += "首次收到时已经编辑，未收到原始版本。\n"
+        if row.get("origin_group_id"):
+            text += f"原普通群 {row['origin_group_id']} 的历史消息，不用于新群消息操作。\n"
+        if row.get("recording_gap"):
+            gap = row["recording_gap"]
+            text += f"归档不完整：{gap['reason']}，至少 {gap['omitted_at_least']} 次更新未保存；展示内容可能不是最新版本。\n"
         for revision in row["revisions"][-3:]:
             body = (
                 revision["payload"].get("text")

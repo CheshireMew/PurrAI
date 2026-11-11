@@ -1,12 +1,23 @@
 """Pure Telegram presentation and validation helpers."""
 
 import unicodedata
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from purrai.admin_labels import BOOLEANS, NUMBERS
+
+
+def duration_reason(text, operation):
+    if operation not in ("mute", "ban"):
+        return None, text
+    match = re.match(r"^(\d+)(s|m|h|d|秒|分|分钟|小时|天)(?:\s+|$)", text, re.I)
+    if not match:
+        return None, text
+    multiplier = {"s": 1, "秒": 1, "m": 60, "分": 60, "分钟": 60, "h": 3600, "小时": 3600, "d": 86400, "天": 86400}
+    return int(match[1]) * multiplier[match[2].lower()], text[match.end():].strip()
 
 
 def keyboard_rows(buttons):

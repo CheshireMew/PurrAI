@@ -38,6 +38,8 @@ ACTION_POLICIES = {
     "admin_notify": ActionPolicySpec(notification=True),
     "archive_export": ActionPolicySpec(notification=True),
     "join_link": ActionPolicySpec(notification=True),
+    "owner_alert": ActionPolicySpec(notification=True),
+    "auto_reply": ActionPolicySpec(notification=True),
 }
 DEFAULT_POLICY = ActionPolicySpec()
 AUTOMATIC_MEMBER_ACTIONS = tuple(

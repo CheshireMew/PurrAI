@@ -15,6 +15,7 @@ from purrai.models import (
     now,
 )
 from purrai.record_operations import retryable_verification
+from purrai.release_selection import selected_verifications, selection_snapshot
 from purrai.restriction_state import owns_verification_ban, restriction_identity
 from purrai.schemas import (
     ActionInput,
@@ -41,7 +42,7 @@ class MemberAdministration:
                 expected = ("challenge", "verify_mute") if body.action == "reissue" else (body.action,)
                 if (
                     existing.payload.get("verification_id") or existing.payload.get("source_verification_id")
-                ) != identifier or existing.kind not in expected:
+                ) != identifier or existing.kind not in expected or existing.payload.get("duration_seconds") != body.duration_seconds:
                     raise ManagementError(409, "请求标识已用于其他操作")
                 return row_dict(existing)
             row = await session.get(Verification, identifier)
@@ -92,7 +93,7 @@ class MemberAdministration:
                 f"manual:{actor}:{body.request_id}",
                 row.group_id,
                 row.user_id,
-                {"verification_id": identifier}
+                {"verification_id": identifier, **({"duration_seconds": body.duration_seconds} if body.duration_seconds else {})}
                 if kind != "unban"
                 else {
                     "source_verification_id": identifier,
@@ -106,6 +107,15 @@ class MemberAdministration:
             )
             return row_dict(action)
 
+    async def release_preview(self, actor, group_id, selection):
+        await self.context.access.authorize(actor, group_id)
+        async with self.context.db.sessions() as session:
+            rows = await selected_verifications(session, group_id, selection.verification_ids,
+                user_id=selection.user_id, after=selection.after, before=selection.before, state=selection.state)
+            return {"items": [{"id": row.id, "user_id": row.user_id, "user_name": row.user_name,
+                    "state": row.state, "generation": row.generation, "nonce": row.nonce} for row in rows],
+                    "total": len(rows), "snapshot": selection_snapshot(rows)}
+
     async def release_pending(self, actor, group_id, body: ActionInput):
         await self.context.access.authorize(actor, group_id, write=True)
         if body.action != "release":
@@ -114,9 +124,15 @@ class MemberAdministration:
             key = f"batch:{actor}:{body.request_id}"
             existing = await session.scalar(select(Action).where(Action.dedupe_key == key))
             if existing:
-                if existing.group_id != group_id:
+                if (existing.group_id != group_id or existing.payload.get("selection") != getattr(body, "verification_ids", None)
+                        or existing.payload.get("snapshot", "") != getattr(body, "snapshot", "")):
                     raise ManagementError(409, "请求标识已用于其他群")
                 return {"action_ids": existing.payload["action_ids"], "batch_id": existing.id}
+            identifiers_requested = getattr(body, "verification_ids", None)
+            rows = await selected_verifications(session, group_id, identifiers_requested)
+            snapshot = getattr(body, "snapshot", "")
+            if snapshot and snapshot != selection_snapshot(rows):
+                raise ManagementError(409, "待放行名单已变化，请重新预览后提交")
             batch = await enqueue(
                 session,
                 "batch_release",
@@ -124,15 +140,8 @@ class MemberAdministration:
                 group_id,
                 actor_id=actor,
                 reason=body.reason,
-                payload={"action_ids": []},
+                payload={"action_ids": [], "selection": identifiers_requested, "snapshot": snapshot},
             )
-            rows = (
-                await session.scalars(
-                    select(Verification).where(
-                        Verification.group_id == group_id, Verification.state.in_(ACTIVE)
-                    )
-                )
-            ).all()
             identifiers = []
             for row in rows:
                 row.state, row.nonce = "releasing", secrets.token_hex(4)
@@ -149,7 +158,7 @@ class MemberAdministration:
                     batch_id=batch.id,
                 )
                 identifiers.append(action.id)
-            batch.payload = {"action_ids": identifiers}
+            batch.payload = {**batch.payload, "action_ids": identifiers}
             batch.state = "succeeded"
             return {"action_ids": identifiers, "batch_id": batch.id}
 
@@ -195,7 +204,10 @@ class MemberAdministration:
                 row.warning_active, action.state = False, "succeeded"
             return row_dict(action)
 
-    async def member_action(self, actor, group_id, user_id, action, request_id, reason="Telegram 管理员操作"):
+    async def member_action(self, actor, group_id, user_id, action, request_id, reason="Telegram 管理员操作", duration_seconds=None):
+        if duration_seconds is not None and (type(duration_seconds) is not int or not 30 <= duration_seconds <= 2592000
+                                             or action not in ("mute", "ban")):
+            raise ManagementError(422, "本次禁言或封禁时长须在 30 秒到 30 天之间")
         await self.context.access.authorize(actor, group_id, write=True)
         if user_id <= 0 or action not in ("mute", "ban", "unmute", "unban", "release", "reissue"):
             raise ManagementError(422, "请选择有效的成员和操作")
@@ -218,6 +230,7 @@ class MemberAdministration:
                     existing.group_id != group_id
                     or existing.user_id != user_id
                     or existing.kind not in kinds[action]
+                    or existing.payload.get("duration_seconds") != duration_seconds
                 ):
                     raise ManagementError(409, "请求标识已用于其他操作")
                 return row_dict(existing)
@@ -242,7 +255,8 @@ class MemberAdministration:
                 actor,
                 verification.id,
                 ActionInput(
-                    action="release" if action == "unmute" else action, reason=reason, request_id=request_id
+                    action="release" if action == "unmute" else action, reason=reason, request_id=request_id,
+                    duration_seconds=duration_seconds,
                 ),
             )
         if action in ("release", "reissue"):
@@ -252,7 +266,8 @@ class MemberAdministration:
             existing = await session.scalar(select(Action).where(Action.dedupe_key == key))
             kind = {"mute": "manual_mute", "ban": "manual_ban"}.get(action, action)
             if existing:
-                if existing.group_id != group_id or existing.user_id != user_id or existing.kind != kind:
+                if (existing.group_id != group_id or existing.user_id != user_id or existing.kind != kind
+                        or existing.payload.get("duration_seconds") != duration_seconds):
                     raise ManagementError(409, "请求标识已用于其他操作")
                 return row_dict(existing)
             member = await session.get(Member, (group_id, user_id))
@@ -261,6 +276,8 @@ class MemberAdministration:
                 session.add(member)
                 await session.flush()
             payload = {"generation": member.generation}
+            if duration_seconds:
+                payload["duration_seconds"] = duration_seconds
             if kind in ("unmute", "unban"):
                 payload["restriction"] = restriction_identity(member)
             row = await enqueue(session, kind, key, group_id, user_id, payload, 0, actor, reason)

@@ -2,6 +2,8 @@
 
 from purrai.admin_context import AdminContext
 from purrai.archive_admin import ArchiveAdministration
+from purrai.archive_management import ArchiveManagement
+from purrai.archive_preview import ArchivePreview
 from purrai.chat_admin import ChatAdministration
 from purrai.errors import ManagementError as ManagementError
 from purrai.group_access import GroupAccess
@@ -9,8 +11,15 @@ from purrai.group_admin import GroupAdministration
 from purrai.group_configuration import GroupConfiguration
 from purrai.management_queries import ManagementQueries
 from purrai.member_admin import MemberAdministration
+from purrai.member_queries import MemberQueries
 from purrai.rule_admin import RuleAdministration
+from purrai.rule_queries import RuleQueries
 from purrai.system_admin import SystemAdministration
+from purrai.backup_management import BackupManagement
+from purrai.violation_correction import ViolationCorrection
+from purrai.coordinated_protection import CoordinatedProtection
+from purrai.business_admin import BusinessAdministration
+from purrai.auto_reply_admin import AutoReplyAdministration
 
 
 class Management:
@@ -24,10 +33,19 @@ class Management:
         self.configuration = GroupConfiguration(context)
         self.members = MemberAdministration(context)
         self.rules = RuleAdministration(context)
+        self.auto_replies = AutoReplyAdministration(context)
+        self.business_rules = BusinessAdministration(context)
+        self.rule_queries = RuleQueries(context)
         self.archives = ArchiveAdministration(context)
-        self.system_admin = SystemAdministration(context)
+        self.archive_management = ArchiveManagement(context)
+        self.archive_preview = ArchivePreview(context)
+        self.backups = BackupManagement(context)
+        self.system_admin = SystemAdministration(context, self.backups)
         self.queries = ManagementQueries(context)
+        self.member_queries = MemberQueries(context, self.queries)
         self.chat_admin = ChatAdministration(context, chat)
+        self.corrections = ViolationCorrection(context)
+        self.protection = CoordinatedProtection(context)
 
     @property
     def chat(self):
@@ -96,17 +114,17 @@ class Management:
     async def violation_action(self, actor, group_id, identifier, body):
         return await self.members.violation_action(actor, group_id, identifier, body)
 
-    async def member_action(self, actor, group_id, user_id, action, request_id, reason="Telegram 管理员操作"):
-        return await self.members.member_action(actor, group_id, user_id, action, request_id, reason)
+    async def member_action(self, actor, group_id, user_id, action, request_id, reason="Telegram 管理员操作", duration_seconds=None):
+        return await self.members.member_action(actor, group_id, user_id, action, request_id, reason, duration_seconds)
 
-    async def rule(self, actor, group_id, body, identifier="", request_id=""):
-        return await self.rules.rule(actor, group_id, body, identifier, request_id)
+    async def rule(self, actor, group_id, body, identifier="", request_id="", expected_version=None):
+        return await self.rules.rule(actor, group_id, body, identifier, request_id, expected_version)
 
     async def preview(self, actor, group_id, body):
         return await self.rules.preview(actor, group_id, body)
 
-    async def whitelist(self, actor, group_id, body, request_id="", remove=False):
-        return await self.rules.whitelist(actor, group_id, body, request_id, remove)
+    async def whitelist(self, actor, group_id, body, request_id="", remove=False, expected_version=None):
+        return await self.rules.whitelist(actor, group_id, body, request_id, remove, expected_version)
 
     async def admin(self, actor, body, request_id=""):
         return await self.rules.admin(actor, body, request_id)

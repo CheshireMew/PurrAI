@@ -6,11 +6,8 @@ from purrai.errors import ManagementError
 from purrai.schemas import (
     ArchiveFilter,
     EmojiPackChange,
-    RuleInput,
     SettingsPatch,
-    WhitelistInput,
 )
-from purrai.serialization import row_dict
 
 
 class BotRoutes:
@@ -21,6 +18,18 @@ class BotRoutes:
     async def route(self, actor, token, record, message_id):
         action, group_id, data = record["action"], record["group_id"], record["data"]
         request_id = f"tg-button:{token}"
+        if action.startswith("autoreply_"):
+            return await self.panels.auto_replies.route(actor, group_id, action, data, request_id, message_id)
+        if action.startswith("ops_"):
+            return await self.panels.operations.route(actor, group_id, action, data, request_id, message_id)
+        if action.startswith("batch_"):
+            return await self.panels.batch.route(actor, group_id, action, data, request_id, message_id)
+        if action.startswith("review_"):
+            await self.remember(f"bot_prompt:{actor}", None)
+            return await self.panels.review.route(actor, action, group_id, data, request_id, message_id)
+        if action.startswith("policy_"):
+            await self.remember(f"bot_prompt:{actor}", None)
+            return await self.panels.policy.route(actor, action, group_id, data, request_id, message_id)
         if group_id is not None:
             await self.management.authorize(actor, group_id)
         if action not in ("prompt", "admin_add"):
@@ -109,6 +118,8 @@ class BotRoutes:
                 group_id,
                 message_id,
             )
+        elif action == "member_detail":
+            await self.panels.members.detail(actor, group_id, data["user_id"], message_id)
         elif action == "emoji_packs":
             await self.panels.emoji_packs_panel(actor, group_id, data.get("page", 0), message_id)
         elif action == "emoji_pack_remove":
@@ -146,29 +157,26 @@ class BotRoutes:
             await self.management.settings_patch(actor, group_id, SettingsPatch(reset=list(GroupSettings.model_fields)), request_id)
             await self.panels.group_panel(actor, group_id, message_id)
         elif action == "rule_inherit":
-            await self.management.rules.inherit(actor, group_id, data["id"])
+            await self.management.rules.inherit(actor, group_id, data["id"], data.get("version"), request_id)
             await self.panels.detail(actor, group_id, "rule", data["id"], message_id)
         elif action in ("rule_toggle", "rule_mode", "rule_scope", "rule_penalty"):
-            row = await self.management.queries.single(actor, group_id, "rule", data["id"])
-            if not row or row.group_id != group_id:
-                raise ManagementError(404, "规则不存在")
             key = {
                 "rule_toggle": "enabled",
                 "rule_mode": "mode",
                 "rule_scope": "scope",
                 "rule_penalty": "penalty",
             }[action]
-            values = {**row_dict(row), key: data[key]}
-            await self.management.rule(actor, group_id, RuleInput(**values), row.id, request_id)
-            await self.panels.detail(actor, group_id, "rule", row.id, message_id)
-        elif action == "white_toggle":
-            row = await self.management.queries.single(actor, group_id, "whitelist", data["id"])
-            if not row or data["key"] not in ("verification", "moderation"):
-                raise ManagementError(404, "白名单记录不存在")
-            await self.management.whitelist(
-                actor, group_id, WhitelistInput(**{**row_dict(row), data["key"]: data["value"]}), request_id
+            await self.management.rules.patch_rule(
+                actor, group_id, data["id"], {key: data[key]}, request_id, data.get("version"),
             )
-            await self.panels.detail(actor, group_id, "whitelist", row.user_id, message_id)
+            await self.panels.detail(actor, group_id, "rule", data["id"], message_id)
+        elif action == "white_toggle":
+            if data["key"] not in ("verification", "moderation"):
+                raise ManagementError(404, "白名单记录不存在")
+            await self.management.rules.patch_whitelist(
+                actor, group_id, int(data["id"]), {data["key"]: data["value"]}, request_id, data.get("version"),
+            )
+            await self.panels.detail(actor, group_id, "whitelist", data["id"], message_id)
         elif action == "admins":
             await self.panels.admins(actor, message_id, data.get("page", 0))
         elif action in ("admin_add", "admin_detail", "admin_grant", "admin_active"):
@@ -187,6 +195,8 @@ class BotRoutes:
                     await self.management.track(actor, row["group_id"], actor, [row["id"]], request_id)
             await self.send(actor, "重试已受理。可返回系统状态查看实际处理结果。")
             await self.panels.failures(actor, event, message_id=message_id)
+        elif action == "delivery_resolution":
+            await self.panels.system_views.resolution_prompt(actor, data["id"])
         elif action == "backup":
             result = await self.management.backup(actor, request_id)
             await self.send(actor, f"一致性备份已保存：{result['file']}")

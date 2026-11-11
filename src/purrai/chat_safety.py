@@ -4,6 +4,7 @@ import re
 from urllib.parse import urlsplit
 
 from purrai.rules import assess, domain, domain_matches, mentions, normalize
+from purrai.business_rules import with_rules
 
 # Include bare domains and email addresses: Telegram can linkify them even when
 # the model omits https://. Normalize full-width and zero-width characters first.
@@ -29,7 +30,7 @@ def output_reasons(text: str | None, rules: list[dict], settings: dict, bot_user
         return []
     canonical = normalize(text).replace("[.]", ".").replace("(.)", ".")
     urls = [match.group().rstrip(".,，。!?！？);；:：]】}）\"'") for match in LINKS.finditer(canonical)]
-    active = [rule for rule in rules if rule.get("enabled", True)]
+    active = with_rules(rules, [rule for rule in rules if rule.get("enabled", True)])
     allowed_domains = [rule["value"] for rule in active if rule["kind"] == "allow_domain"]
     allowed_mentions = {
         normalize(rule["value"]).lstrip("@") for rule in active if rule["kind"] == "allow_mention"

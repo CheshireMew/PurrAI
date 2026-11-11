@@ -13,8 +13,8 @@ from purrai.models import (
 
 
 class SystemAdministration:
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, context, backups=None):
+        self.context, self.backups = context, backups
 
     async def track(self, actor, group_id, chat_id, action_ids, request_id):
         await self.context.access.authorize(actor, group_id)
@@ -31,6 +31,8 @@ class SystemAdministration:
             )
 
     async def backup(self, actor, request_id=""):
+        if self.backups is not None:
+            return await self.backups.create(actor, request_id)
         await self.context.access.principal(actor, root=True)
         async with self.context.db.sessions() as session:
             previous = await self.context.previous(session, actor, request_id)
@@ -78,3 +80,23 @@ class SystemAdministration:
                 {"ok": True, "event_id" if event else "action_id": identifier},
                 request_id,
             )
+
+    async def resolve_delivery(self, actor, identifier, body):
+        await self.context.access.principal(actor, root=True)
+        intent = {"operation": "resolve_delivery", "action_id": identifier,
+                  "body": body.model_dump(exclude={"request_id"})}
+        async with self.context.db.transaction() as session:
+            previous = await self.context.previous(session, actor, body.request_id, intent)
+            if previous is not None:
+                return previous
+            row = await session.get(Action, identifier)
+            if not row or row.state != "failed":
+                raise ManagementError(409, "此任务当前不能登记核实结果，请刷新查看")
+            if not (uncertain_delivery(row.payload) or row.payload.get("challenge_delivery") in ("sending", "uncertain")):
+                raise ManagementError(422, "此任务不属于发送结果未确认，请使用对应业务处理入口")
+            review = {"outcome": body.outcome, "reason": body.reason, "actor_id": actor, "reviewed_at": now(),
+                      "previous_state": row.state, "previous_error": row.error}
+            row.payload = {**row.payload, "manual_review": review}
+            row.state, row.updated_at = "reviewed", now()
+            return await self.context.record(session, actor, row.group_id, "delivery_review", "人工核实发送结果",
+                {"action_id": identifier, "state": row.state, "review": review}, body.request_id, intent)

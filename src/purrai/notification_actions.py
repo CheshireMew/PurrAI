@@ -9,11 +9,22 @@ from purrai.models import (
     Action,
     now,
 )
+from purrai.verification_state import matches_action
 
 
 class NotificationActions:
     def __init__(self, db, transport):
         self.db, self.action_call = db, transport.call
+
+    async def prepare(self, session, action, group, verification, member):
+        if not matches_action(action, verification, member):
+            action.state = "cancelled"
+            return False
+        return True
+
+    async def owner_alert(self, session, action, group, verification, member):
+        await deliver_once(self.action_call, session, action, "send_message",
+                           chat_id=action.payload["chat_id"], text=action.payload["text"][:4000])
 
     async def delete_action_message(self, session, action):
         try:
@@ -92,3 +103,7 @@ class NotificationActions:
 
     async def warn(self, session, action, group, verification, member):
         await deliver_once(self.action_call, session, action, "send_message", chat_id=group.id, text=action.payload["text"])
+
+    async def auto_reply(self, session, action, group, verification, member):
+        from purrai.auto_replies import send_reply
+        return await send_reply(self.action_call, session, action, group)

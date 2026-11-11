@@ -3,7 +3,7 @@
 from pydantic import ValidationError
 
 from purrai.admin_labels import STATE
-from purrai.bot_common import explain
+from purrai.bot_common import duration_reason, explain
 from purrai.errors import ManagementError
 from purrai.models import now
 
@@ -42,7 +42,7 @@ class BotCommands:
             return False
         addressed = text.split(maxsplit=1)[0] if text else ""
         if (
-            "@" in addressed
+            command and "@" in addressed
             and addressed.split("@", 1)[1].lower() != getattr(self.tg, "username", "").lower()
         ):
             return False
@@ -109,11 +109,13 @@ class BotCommands:
                             422, f"用法：{command} 用户数字ID 原因。群内也可以回复成员消息后发送命令。"
                         )
                     target, reason = int(parts[0]), parts[1] if len(parts) > 1 else ""
+                seconds, reason = duration_reason(reason, command[1:])
                 await self.inputs.submit(
                     actor,
                     group_id,
                     chat_id,
-                    {"kind": "member", "user_id": target, "operation": command[1:], "reason": reason},
+                    {"kind": "member", "user_id": target, "operation": command[1:], "reason": reason,
+                     "duration_seconds": seconds},
                     request_id,
                 )
                 return True

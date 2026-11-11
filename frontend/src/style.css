@@ -146,7 +146,7 @@ input, textarea { caret-color: var(--accent); }
 .el-dialog__title, .el-drawer__title { font-size: 19px; font-weight: 600; color: var(--ink); }
 .el-dialog__footer { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 22px; }
 .el-dialog__body { overflow-wrap: anywhere; }
-.el-message-box { max-width: calc(100vw - 32px); border-radius: 10px; padding: 22px; }
+.el-message-box { max-width: min(520px, calc(100vw - 32px)); border-radius: 10px; padding: 22px; }
 .el-drawer__body { padding: 24px; }
 .el-drawer__header { margin-bottom: 0; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .settings-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); margin: 24px auto; padding: 24px 28px; }

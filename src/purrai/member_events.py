@@ -19,6 +19,7 @@ from purrai.models import (
 from purrai.telegram import is_admin, is_present, permission_snapshot
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
+from purrai.rule_evaluation import prepare_message
 
 
 class MemberEvents:
@@ -61,6 +62,7 @@ class MemberEvents:
             manual_unmute = is_admin(
                 await self.tg.call("get_chat_member", chat_id=chat["id"], user_id=actor["id"])
             )
+        profile = await prepare_message(self.db, {"chat": chat, "from": new["user"], "text": ""}) if not bot_event else None
         async with self.db.transaction() as session:
             group = await session.get(Group, chat["id"])
             if not group:
@@ -106,7 +108,7 @@ class MemberEvents:
                 )
             if is_present(old) or not is_present(new):
                 return
-            return await self.joined(session, group, member, user, new, event, event_id)
+            return await self.joined(session, group, member, user, new, event, event_id, profile)
 
     async def depart(self, session, group, member, user, new, event):
         if member:
@@ -168,7 +170,7 @@ class MemberEvents:
             member.restriction_conflict = True
         return
 
-    async def joined(self, session, group, member, user, new, event, event_id):
+    async def joined(self, session, group, member, user, new, event, event_id, profile):
         if not group.enabled or event["date"] + 1 <= group.activated_at:
             return
         if member:
@@ -200,7 +202,7 @@ class MemberEvents:
                 for action in pending:
                     action.state = "succeeded"
                 await self.emoji_status.queue(session, group, user)
-                await self.moderation.profile_on_join(session, group, member, user)
+                await self.moderation.profile_on_join(session, group, member, user, profile)
                 return
         if member and member.present and member.joined_at == event["date"]:
             return
@@ -237,6 +239,9 @@ class MemberEvents:
         member.observed_messages = 0
         member.owned_restriction = None
         member.restriction_conflict = False
+        from purrai.coordinated_protection import emergency_state, observe_join
+        await observe_join(session, group, event["date"], self.settings.superadmin_ids)
+        emergency = await emergency_state(session, group.id)
         # Invalidate any earlier join's captcha without touching current membership permissions.
         for prior in (
             await session.scalars(
@@ -255,9 +260,9 @@ class MemberEvents:
             return
         if not white or not white.moderation:
             await self.emoji_status.queue(session, group, user)
-        if await self.moderation.profile_on_join(session, group, member, user):
+        if await self.moderation.profile_on_join(session, group, member, user, profile):
             return
-        if (white and white.verification) or not group.settings["verification_enabled"]:
+        if (white and white.verification) or not (group.settings["verification_enabled"] or emergency.get("active")):
             member.passed_at = now()
             return
         verification = Verification(

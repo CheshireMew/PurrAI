@@ -78,11 +78,20 @@
       "burst_enabled": true,
       "burst_window": 10,
       "burst_count": 8,
+      "coordinated_enabled": false,
+      "coordinated_window": 60,
+      "coordinated_count": 4,
+      "coordinated_min_length": 12,
+      "raid_enabled": false,
+      "raid_window": 60,
+      "raid_count": 10,
+      "emergency_seconds": 1800,
       "warning_window": 86400,
       "warning_limit": 3,
       "mute_seconds": 259200,
       "block_invites": false,
       "advertising_ban": true,
+      "contact_ads_only": false,
       "external_group_ban": true,
       "external_invite_ban": true,
       "telegram_allowed_links": []
@@ -363,6 +372,58 @@
         "title": "Burst Count",
         "type": "integer"
       },
+      "coordinated_enabled": {
+        "default": false,
+        "title": "Coordinated Enabled",
+        "type": "boolean"
+      },
+      "coordinated_window": {
+        "default": 60,
+        "maximum": 3600,
+        "minimum": 5,
+        "title": "Coordinated Window",
+        "type": "integer"
+      },
+      "coordinated_count": {
+        "default": 4,
+        "maximum": 100,
+        "minimum": 2,
+        "title": "Coordinated Count",
+        "type": "integer"
+      },
+      "coordinated_min_length": {
+        "default": 12,
+        "maximum": 200,
+        "minimum": 8,
+        "title": "Coordinated Min Length",
+        "type": "integer"
+      },
+      "raid_enabled": {
+        "default": false,
+        "title": "Raid Enabled",
+        "type": "boolean"
+      },
+      "raid_window": {
+        "default": 60,
+        "maximum": 3600,
+        "minimum": 5,
+        "title": "Raid Window",
+        "type": "integer"
+      },
+      "raid_count": {
+        "default": 10,
+        "maximum": 1000,
+        "minimum": 3,
+        "title": "Raid Count",
+        "type": "integer"
+      },
+      "emergency_seconds": {
+        "default": 1800,
+        "maximum": 86400,
+        "minimum": 60,
+        "title": "Emergency Seconds",
+        "type": "integer"
+      },
       "warning_window": {
         "default": 86400,
         "maximum": 604800,
@@ -394,6 +455,11 @@
         "title": "Advertising Ban",
         "type": "boolean"
       },
+      "contact_ads_only": {
+        "default": false,
+        "title": "Contact Ads Only",
+        "type": "boolean"
+      },
       "external_group_ban": {
         "default": true,
         "title": "External Group Ban",
@@ -414,6 +480,12 @@
       }
     },
     "numbers": {
+      "coordinated_window": "多账号刷屏统计窗口（秒）",
+      "coordinated_count": "相同内容的不同账号数",
+      "coordinated_min_length": "多账号刷屏最短内容长度",
+      "raid_window": "集中入群统计窗口（秒）",
+      "raid_count": "触发应急的不同入群账号数",
+      "emergency_seconds": "临时应急保护持续时间（秒）",
       "verification_timeout": "验证时限（秒）",
       "max_attempts": "最多错误次数",
       "failure_ban_seconds": "手动封禁及申请重试间隔（秒）",
@@ -431,6 +503,8 @@
       "mute_seconds": "手动禁言（秒）"
     },
     "booleans": {
+      "coordinated_enabled": "多账号重复刷屏检测",
+      "raid_enabled": "集中入群时自动应急保护",
       "archive_enabled": "记录群消息归档",
       "join_requests": "申请入群先验证",
       "verification_enabled": "图片验证",
@@ -443,11 +517,75 @@
       "similar_enabled": "近似内容刷屏检测",
       "burst_enabled": "连续发送检测",
       "advertising_ban": "明确广告招揽永久封禁",
+      "contact_ads_only": "只拦截广告联系人名片",
       "external_group_ban": "外群链接、外部频道引用及转发永久封禁",
       "external_invite_ban": "外部私密邀请统一封禁"
+    },
+    "labels": {
+      "chat_enabled": "群聊天",
+      "chat_proactive": "主动参与讨论",
+      "chat_name": "聊天昵称",
+      "chat_persona": "性格与说话习惯",
+      "chat_ignored_texts": "聊天忽略口令（每行一条，完整匹配，- 清空）",
+      "chat_command_learning": "自动识别口令",
+      "chat_command_threshold": "口令识别次数（7 天内，至少 3 位群友）",
+      "chat_command_exceptions": "口令识别例外（每行一条，- 清空）",
+      "chat_history": "最近消息条数",
+      "chat_interval": "主动接话检查间隔（秒）",
+      "chat_stickers": "聊天贴纸",
+      "chat_sticker_packs": "聊天贴纸包（addstickers 链接或短名称，多个用空格或换行分隔，- 清空）",
+      "chat_sticker_interval": "聊天贴纸最短间隔（秒）",
+      "chat_antifraud": "防诈贴纸提醒",
+      "chat_antifraud_packs": "防诈贴纸包（addstickers 链接或短名称，多个用空格或换行分隔，- 清空）",
+      "chat_antifraud_interval": "防诈提醒最短间隔（秒）",
+      "archive_enabled": "记录群消息归档",
+      "join_requests": "申请入群先验证",
+      "verification_enabled": "图片验证",
+      "verification_timeout": "验证时限（秒）",
+      "max_attempts": "最多错误次数",
+      "verification_failure_action": "验证失败处理",
+      "failure_ban_seconds": "手动封禁及申请重试间隔（秒）",
+      "newcomer_seconds": "新成员限制期（秒）",
+      "newcomer_links": "新成员限制链接",
+      "newcomer_contacts": "旧版联系人开关（已不使用）",
+      "newcomer_messages": "前几条消息继续观察（0 关闭）",
+      "media_min_text_messages": "发图及表情前独立文字条数（0 关闭）",
+      "emoji_status_blocked_packs": "状态表情包黑名单",
+      "newcomer_mentions": "新成员限制 @账号及群组",
+      "newcomer_forwards": "新成员限制用户及频道转发",
+      "newcomer_wallets": "新成员限制加密货币地址",
+      "repeat_enabled": "重复刷屏检测",
+      "repeat_window": "重复检测窗口（秒）",
+      "repeat_count": "重复消息触发条数",
+      "similar_enabled": "近似内容刷屏检测",
+      "similar_window": "近似内容窗口（秒）",
+      "similar_count": "近似内容触发条数",
+      "similar_threshold": "近似程度（百分比）",
+      "similar_min_length": "近似检测最短长度",
+      "burst_enabled": "连续发送检测",
+      "burst_window": "连续发送窗口（秒）",
+      "burst_count": "连续发送触发条数",
+      "coordinated_enabled": "多账号重复刷屏检测",
+      "coordinated_window": "多账号刷屏统计窗口（秒）",
+      "coordinated_count": "相同内容的不同账号数",
+      "coordinated_min_length": "多账号刷屏最短内容长度",
+      "raid_enabled": "集中入群时自动应急保护",
+      "raid_window": "集中入群统计窗口（秒）",
+      "raid_count": "触发应急的不同入群账号数",
+      "emergency_seconds": "临时应急保护持续时间（秒）",
+      "warning_window": "旧版警告统计窗口（已不使用）",
+      "warning_limit": "旧版警告次数（已不使用）",
+      "mute_seconds": "手动禁言（秒）",
+      "block_invites": "群邀请链接拦截",
+      "advertising_ban": "明确广告招揽永久封禁",
+      "contact_ads_only": "只拦截广告联系人名片",
+      "external_group_ban": "外群链接、外部频道引用及转发永久封禁",
+      "external_invite_ban": "外部私密邀请统一封禁",
+      "telegram_allowed_links": "允许的 Telegram 链接"
     }
   },
   "states": {
+    "migrated": "已升级为超级群",
     "unapproved": "等待所有者批准",
     "pending": "等待处理",
     "active": "保护中",
@@ -460,11 +598,14 @@
     "passed": "已通过",
     "failed": "失败",
     "succeeded": "已完成",
+    "reviewed": "已人工核实",
     "cancelled": "已取消",
     "left": "已退群",
     "superseded": "已换新验证"
   },
   "operations": {
+    "group_migration": "群升级数据接续",
+    "emergency": "临时应急保护",
     "release": "放行",
     "reissue": "重新出题",
     "ban": "临时封禁",
@@ -472,6 +613,14 @@
     "unmute": "解除 PurrAI 禁言",
     "unban": "解除 PurrAI 封禁",
     "revoke_warning": "撤销警告",
+    "violation_correction": "误判纠正",
+    "delivery_review": "人工核实发送结果",
+    "owner_alert": "运行异常通知",
+    "archive_quota": "修改归档额度",
+    "archive_purge": "整理已导出归档",
+    "backup_plan": "设置备份计划",
+    "backup_exercise": "备份恢复演练",
+    "backup_retention": "整理自有备份",
     "manual_mute": "手动禁言",
     "manual_ban": "手动封禁",
     "challenge": "重新出题",
@@ -504,6 +653,8 @@
     "archive_export": "导出消息归档"
   },
   "failure_actions": {
+    "decline_uncertain": "拒绝申请结果未确认，请核实 Telegram 中的结果",
+    "decline_failed": "拒绝申请未完成，请核实申请与机器人权限",
     "permanent_mute": "永久禁言，留在群里",
     "permanent_ban": "已踢出并禁止重新加入",
     "kick": "已踢出，可重新加入",
@@ -516,5 +667,27 @@
     "releasing",
     "removing",
     "failing"
-  ]
+  ],
+  "rules": {
+    "kinds": {
+      "keyword": "关键词",
+      "block_domain": "禁止域名",
+      "allow_domain": "允许域名",
+      "block_mention": "禁止引流账号",
+      "allow_mention": "允许提及账号",
+      "block_target": "推广目标黑名单"
+    },
+    "modes": {
+      "contains": "包含",
+      "exact": "完整",
+      "compact": "忽略表情和分隔符",
+      "pinyin": "谐音"
+    },
+    "scopes": {
+      "message": "正文",
+      "name": "昵称及用户名",
+      "either": "昵称或正文",
+      "name_and_message": "昵称＋正文组合"
+    }
+  }
 }

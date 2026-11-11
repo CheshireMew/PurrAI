@@ -8,6 +8,10 @@ from purrai.serialization import row_dict
 
 async def action_result(session, action):
     result = row_dict(action)
+    from purrai.action_delivery import uncertain_delivery
+    result["can_review_delivery"] = action.state == "failed" and (uncertain_delivery(action.payload)
+        or action.payload.get("challenge_delivery") in ("sending", "uncertain"))
+    result["manual_review"] = action.payload.get("manual_review")
     if action.kind != "batch_release":
         return result
     counts = dict(

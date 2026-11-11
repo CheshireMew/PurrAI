@@ -4,6 +4,6 @@ export function useRefresh(load: () => Promise<unknown>, refreshKey: () => numbe
                            enabled?: () => boolean) {
   onMounted(load)
   watch(refreshKey, load)
-  const timer = enabled ? setInterval(() => { if (enabled()) void load() }, 5000) : undefined
+  const timer = enabled ? setInterval(() => { if (document.visibilityState !== 'hidden' && enabled()) void load() }, 5000) : undefined
   onUnmounted(() => clearInterval(timer))
 }

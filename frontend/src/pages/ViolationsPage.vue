@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import ViolationCorrectionDialog from '../components/ViolationCorrectionDialog.vue'
 import type { Violation } from '../types'
 import { useRecords } from '../composables/useRecords'
 import { api, label, time } from '../api'
@@ -8,6 +9,7 @@ import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
+const correcting = ref<Violation | null>(null)
 const { catalog, confirmAction: submitAction } = useWorkspace()
 const operationNames = computed(() => catalog.value!.operations)
 const { rows, total, pagination, userFilter, dates, busy, error, load, filters } = useRecords<Violation>(() => props.groupId, 'violations')
@@ -39,12 +41,14 @@ useRefresh(load, () => props.refreshKey)
 </el-table-column>
 <el-table-column label="执行结果" min-width="180">
 <template #default="{ row }">
+<p v-if="row.correction">已纠正：{{ row.correction.reason }}</p>
 <div v-for="a in row.actions" :key="a.id">{{ operationNames[a.kind] || a.kind }}：{{ label(a.state) }}<small v-if="a.error">{{ a.error }}</small>
 </div>
 </template>
 </el-table-column>
 <el-table-column label="纠正操作" width="120" fixed="right">
 <template #default="{ row }">
+<el-button size="small" @click="correcting = row">{{ row.correction ? '查看纠正' : '纠正误判' }}</el-button>
 <el-button v-if="row.allowed_operations.includes('revoke_warning')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'revoke_warning', '撤销警告')">撤销警告</el-button>
 <el-button v-if="row.allowed_operations.includes('unmute')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>
 <el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unban', '解除 PurrAI 封禁')">解封禁</el-button>
@@ -53,4 +57,5 @@ useRefresh(load, () => props.refreshKey)
 </el-table>
 <el-pagination v-model:current-page="pagination" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load"/>
 </section>
+<ViolationCorrectionDialog :group-id="groupId" :violation="correcting" @close="correcting = null" @saved="load"/>
 </template>

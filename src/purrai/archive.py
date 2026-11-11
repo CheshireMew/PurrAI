@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from pathlib import Path
 
 from sqlalchemy import and_, func, or_, select
 
@@ -18,6 +17,29 @@ from purrai.models import (
 )
 from purrai.schemas import ArchiveFilter
 from purrai.serialization import row_dict as values
+from purrai.sender_identity import sender_name
+from purrai.archive_capacity import group_bytes, increment, limits
+
+ARCHIVE_BYTES = "archive:stored-bytes"
+
+
+def visible_bytes(row):
+    return sum(len((getattr(row, field, "") or "").encode("utf-8"))
+               for field in ("text", "caption", "sender_name", "username", "deletion_error")) + 512
+
+
+async def archive_bytes(session):
+    row = await session.get(Meta, ARCHIVE_BYTES)
+    if row:
+        return row, int(row.value)
+    from sqlalchemy import text
+    revisions = await session.scalar(text(
+        "SELECT coalesce(sum(length(cast(payload AS BLOB))+length(cast(reasons AS BLOB))+512),0) FROM message_revisions"))
+    messages = await session.scalar(text(
+        "SELECT coalesce(sum(length(cast(text AS BLOB))+length(cast(caption AS BLOB))+"
+        "length(cast(sender_name AS BLOB))+length(cast(username AS BLOB))+length(cast(deletion_error AS BLOB))+512),0) FROM archived_messages"))
+    return None, revisions + messages
+
 
 MEDIA = (
     "photo",
@@ -62,16 +84,38 @@ def version_key(message, edited, update_id):
     return "hash:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def recording_status(session, group, settings=None):
+async def recording_status(session, group, settings=None):
     if not group or not group.approved or not group.settings.get("archive_enabled", True):
         return {"state": "disabled", "reason": ""}
-    database = session.bind.url.database
-    if database and database != ":memory:":
-        paths = (Path(database), Path(database + "-wal"))
-        limit = getattr(settings, "archive_max_db_mb", 512) * 1024 * 1024
-        if sum(path.stat().st_size for path in paths if path.is_file()) >= limit:
-            return {"state": "capacity_paused", "reason": "数据库达到归档容量上限，已暂停新增归档；已有记录保留"}
-    return {"state": "active", "reason": ""}
+    _, used = await archive_bytes(session)
+    limit, group_limit = await limits(session, settings, group.id)
+    _, group_used = await group_bytes(session, group.id)
+    size = {"bytes": used, "limit_bytes": limit, "group_bytes": group_used, "group_limit_bytes": group_limit}
+    if used >= limit:
+        return {"state": "capacity_paused", "reason": "已保留的归档数据达到容量上限，已暂停新增归档；已有记录保留", **size}
+    if group_limit is not None and group_used >= group_limit:
+        return {"state": "capacity_paused", "reason": "本群归档已达到分配额度，已暂停新增归档；其他群可继续记录", **size}
+    return {"state": "active", "reason": "", **size}
+
+
+async def record_gap(session, row, message, edited, update_id, reason):
+    """Keep bounded, content-free evidence that this is an incomplete archive."""
+    if row is None:
+        return
+    key = f"archive:gap:{row.id}"
+    marker = await session.get(Meta, key)
+    data = json.loads(marker.value) if marker else {}
+    order = [message.get("edit_date") or message["date"], bool(edited), update_id]
+    version = version_key(message, edited, update_id)
+    if data.get("version") == version or data.get("order", []) >= order:
+        return
+    data = {"omitted_at_least": data.get("omitted_at_least", 0) + 1,
+            "first_skipped_at": data.get("first_skipped_at", now()), "last_skipped_at": now(),
+            "reason": reason, "version": version, "order": order}
+    if marker:
+        marker.value = json.dumps(data)
+    else:
+        session.add(Meta(key=key, value=json.dumps(data)))
 
 
 async def capture(session, message, edited=False, update_id=0, *, settings=None):
@@ -81,30 +125,33 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
     group = await session.get(Group, chat["id"])
     if group is None or not group.approved:
         return
-    status = recording_status(session, group, settings)
+    status = await recording_status(session, group, settings)
     if status["state"] == "disabled":
         return
-    marker = await session.get(Meta, "archive:paused")
-    if status["state"] == "capacity_paused":
-        if not marker:
-            session.add(Meta(key="archive:paused", value=status["reason"]))
-        return
-    if marker:
-        await session.delete(marker)
     row = await session.scalar(
         select(ArchivedMessage).where(
             ArchivedMessage.group_id == group.id, ArchivedMessage.message_id == message["message_id"]
         )
     )
     key = version_key(message, edited, update_id)
+    if row and await session.scalar(select(MessageRevision.id).where(
+        MessageRevision.archive_id == row.id, MessageRevision.version_key == key,
+    )):
+        return
+    marker = await session.get(Meta, "archive:paused")
+    if status["state"] == "capacity_paused":
+        if not marker and status["bytes"] >= status["limit_bytes"]:
+            session.add(Meta(key="archive:paused", value=status["reason"]))
+        await record_gap(session, row, message, edited, update_id, status["reason"])
+        return
+    if marker:
+        await session.delete(marker)
     if row and row.revision_count >= getattr(settings, "archive_max_revisions", 20):
+        await record_gap(session, row, message, edited, update_id, "已达到单条消息版本上限")
         return
-    if row and await session.scalar(
-        select(MessageRevision.id).where(
-            MessageRevision.archive_id == row.id, MessageRevision.version_key == key
-        )
-    ):
-        return
+    counter, used = await archive_bytes(session)
+    group_counter, group_used = await group_bytes(session, group.id)
+    before = visible_bytes(row) if row else 0
     event_at = message.get("edit_date") or message["date"]
     if row is None:
         row = ArchivedMessage(
@@ -137,9 +184,7 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
         sender = message.get("sender_chat") or message.get("from") or {}
         row.sender_id = sender.get("id")
         row.sender_type = "chat" if message.get("sender_chat") else "bot" if sender.get("is_bot") else "user"
-        row.sender_name = " ".join(
-            str(sender.get(k, "")) for k in ("first_name", "last_name", "title")
-        ).strip()
+        row.sender_name = sender_name(sender)
         row.username = sender.get("username", "")
         row.message_type = next(
             (kind for kind in MEDIA if message.get(kind)), "text" if "text" in message else "service"
@@ -148,6 +193,12 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
         row.sent_at, row.edited_at = message["date"], message.get("edit_date", 0)
         row.latest_update_id, row.latest_is_edit, row.source = update_id, edited, "telegram"
     await session.flush()
+    delta = len(json.dumps(snapshot(message), ensure_ascii=True).encode("utf-8")) + 514 + visible_bytes(row) - before
+    if counter:
+        counter.value = str(used + delta)
+    else:
+        session.add(Meta(key=ARCHIVE_BYTES, value=str(used + delta)))
+    increment(session, group_counter, group_used, group.id, delta)
     return row
 
 
@@ -166,7 +217,18 @@ async def mark_reasons(session, message, edited, update_id, reasons):
             )
         )
         if revision:
+            # Initialize the counter before changing data so an upgrade's first
+            # adjustment does not count the same evidence twice.
+            counter, used = await archive_bytes(session)
+            group_counter, group_used = await group_bytes(session, row.group_id)
+            before = len(json.dumps(revision.reasons).encode("utf-8"))
             revision.reasons = list(dict.fromkeys(revision.reasons + reasons))
+            amount = len(json.dumps(revision.reasons).encode("utf-8")) - before
+            if counter:
+                counter.value = str(used + amount)
+            else:
+                session.add(Meta(key=ARCHIVE_BYTES, value=str(used + amount)))
+            increment(session, group_counter, group_used, row.group_id, amount)
 
 
 async def record_deletion(session, action):
@@ -183,6 +245,9 @@ async def record_deletion(session, action):
     # A later retry cannot erase an already confirmed deletion.
     if row.deletion_state in ("deleted", "already_absent") and action.state != "succeeded":
         return
+    counter, used = await archive_bytes(session)
+    group_counter, group_used = await group_bytes(session, row.group_id)
+    before = visible_bytes(row)
     row.deletion_action_id, row.deletion_error = action.id, action.error
     row.deletion_state = (
         ("already_absent" if action.payload.get("already_absent") else "deleted")
@@ -193,6 +258,11 @@ async def record_deletion(session, action):
     )
     if action.state == "succeeded":
         row.deleted_at = now()
+    if counter:
+        counter.value = str(used + visible_bytes(row) - before)
+    else:
+        session.add(Meta(key=ARCHIVE_BYTES, value=str(used + visible_bytes(row) - before)))
+    increment(session, group_counter, group_used, row.group_id, visible_bytes(row) - before)
 
 
 def conditions(group_id, filters: ArchiveFilter):
@@ -243,6 +313,9 @@ async def decorate(session, rows, detail=False):
     if not rows:
         return []
     ids = [row.id for row in rows]
+    gaps = {marker.key.removeprefix("archive:gap:"): json.loads(marker.value)
+            for marker in await session.scalars(select(Meta).where(
+                Meta.key.in_([f"archive:gap:{identifier}" for identifier in ids])))}
     revisions = {}
     if detail:
         for revision in (
@@ -284,6 +357,14 @@ async def decorate(session, rows, detail=False):
     result = []
     for row in rows:
         data = values(row)
+        from purrai.group_history import historical_source
+        data.update(await historical_source(session, row.group_id, row.message_id))
+        gap = gaps.get(row.id)
+        if gap:
+            data["recording_gap"] = {key: gap[key] for key in
+                ("omitted_at_least", "first_skipped_at", "last_skipped_at", "reason")}
+            data["recording_gap"]["latest_not_recorded"] = gap["order"] > [
+                row.edited_at or row.sent_at, bool(row.latest_is_edit), row.latest_update_id]
         data["violation"] = violations.get(row.message_id)
         if detail:
             data["revisions"] = revisions.get(row.id, [])
@@ -313,7 +394,7 @@ async def page(db, group_id, filters, page_number=1, size=20, *, settings=None):
             )
         ).all()
         return {"items": await decorate(session, rows), "total": total, "page": page_number, "size": size,
-                "recording": recording_status(session, await session.get(Group, group_id), settings)}
+                "recording": await recording_status(session, await session.get(Group, group_id), settings)}
 
 
 async def detail(db, group_id, identifier):

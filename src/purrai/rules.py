@@ -1,119 +1,27 @@
-import hashlib
 import re
-import unicodedata
-from collections import Counter
-from urllib.parse import urlsplit
 
 from purrai.wallet_addresses import contains_wallet_address
-from purrai.advertising_patterns import advertising_reasons
+from purrai.business_rules import BusinessEngine
+from purrai.text_matching import (
+    normalize as normalize,
+    content_digest as content_digest,
+    compact as compact,
+    matching_text as matching_text,
+    matches as matches,
+    mentions as mentions,
+    similarity_signature as similarity_signature,
+    is_similar as is_similar,
+    parsed_url as parsed_url,
+    domain as domain,
+    domain_matches as domain_matches,
+    message_content as message_content,
+)
 
-LEGACY_CONTACT_REASON = "分享联系人，删除消息并踢出群聊"
-CONTACT_REASON = "分享联系人，删除消息并永久封禁"
-CONTACT_REASONS = (LEGACY_CONTACT_REASON, CONTACT_REASON)
-
-
-def normalize(text: str) -> str:
-    return "".join(
-        c for c in unicodedata.normalize("NFKC", text).casefold() if unicodedata.category(c) != "Cf"
-    ).strip()
-
-
-def content_digest(text: str) -> str:
-    return hashlib.sha256(normalize(text).encode()).hexdigest()
-
-
-def compact(text: str) -> str:
-    return "".join(c for c in normalize(text) if c.isalnum())
-
-
-def matches(text: str, value: str, mode: str) -> bool:
-    if mode == "pinyin":
-        from pypinyin import lazy_pinyin
-
-        def tokens(value):
-            return lazy_pinyin(compact(value))
-
-        needle, haystack = tokens(value), tokens(text)
-        return bool(needle) and any(
-            haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
-        )
-    if mode == "compact":
-        return bool(compact(value)) and compact(value) in compact(text)
-    haystack, needle = normalize(text), normalize(value)
-    return bool(needle) and (haystack == needle if mode == "exact" else needle in haystack)
-
-
-def mentions(text: str) -> list[str]:
-    # An address such as alice@example.com must not become a Telegram mention.
-    normalized = normalize(text)
-    found = [
-        match.group(1)
-        for match in re.finditer(r"(?<![a-z0-9_@])@([a-z0-9_]{1,32})(?![a-z0-9_])", normalized)
-        if not re.match(r"\.[a-z]{2,}", normalized[match.end() :])
-    ]
-    return list(dict.fromkeys(found))
-
-
-def similarity_signature(text: str) -> tuple[str, int]:
-    original_length = len(compact(text))
-    value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s]+", " link ", normalize(text))
-    value = re.sub(r"@[a-z0-9_]+", " user ", value)
-    value = compact(re.sub(r"\d+", "number", value))[:2000]
-    if len(value) < 8:
-        return "", original_length
-    grams = Counter(value[i : i + 3] for i in range(len(value) - 2))
-    vector = [0] * 64
-    for gram, count in grams.items():
-        digest = int.from_bytes(hashlib.blake2b(gram.encode(), digest_size=8).digest(), "big")
-        for index in range(64):
-            vector[index] += count if digest & (1 << index) else -count
-    return f"{sum((1 << i) for i, value in enumerate(vector) if value >= 0):016x}", original_length
-
-
-def is_similar(left: str, left_length: int, right: str, right_length: int, threshold: int) -> bool:
-    if not left or not right or min(left_length, right_length) / max(left_length, right_length, 1) < 0.7:
-        return False
-    return 100 * (64 - (int(left, 16) ^ int(right, 16)).bit_count()) >= threshold * 64
-
-
-def parsed_url(value: str):
-    value = normalize(value)
-    try:
-        return urlsplit(value if "://" in value else "https://" + value)
-    except (ValueError, UnicodeError):
-        return None
-
-
-def domain(value: str) -> str:
-    parsed = parsed_url(value)
-    if parsed is None:
-        return ""
-    try:
-        host = (parsed.hostname or "").rstrip(".")
-        return host.removeprefix("www.").encode("idna").decode("ascii")
-    except (ValueError, UnicodeError):
-        # Text and Telegram entities can contain incomplete or invalid URLs.
-        # They must not abort the other moderation rules for this message.
-        return ""
-
-
-def domain_matches(host: str, configured: str) -> bool:
-    target = domain(configured)
-    return bool(target) and (host == target or host.endswith("." + target))
-
-
-def message_content(message: dict) -> tuple[str, list[str]]:
-    text = message.get("text") or message.get("caption") or ""
-    entities = message.get("entities") or message.get("caption_entities") or []
-    urls = re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", text, re.I)
-    for entity in entities:
-        if entity["type"] == "text_link":
-            urls.append(entity.get("url", ""))
-        elif entity["type"] == "url":
-            encoded = text.encode("utf-16-le")
-            start = entity["offset"] * 2
-            urls.append(encoded[start : start + entity["length"] * 2].decode("utf-16-le", errors="ignore"))
-    return text, [u.rstrip(".,，。!?！？)") for u in urls if u]
+from purrai.advertising_constants import (
+    CONTACT_REASON as CONTACT_REASON,
+    CONTACT_REASONS as CONTACT_REASONS,
+    LEGACY_CONTACT_REASON as LEGACY_CONTACT_REASON,
+)
 
 
 def assess(
@@ -132,18 +40,41 @@ def assess(
     mentioned_users: list[dict] | None = None,
     source_titles: list[str] | None = None,
 ) -> dict:
-    reasons, names, mute_reasons = [], [], []
-    ban_reasons = advertising_reasons(normalize(text), [normalize(title) for title in source_titles or []]) if settings.get("advertising_ban", True) else []
-    reasons.extend(ban_reasons)
+    reasons, names, mute_reasons, hit_ids = [], [], [], []
+    engine = BusinessEngine(rules)
+    body_text = engine.view("s_auth", text)
+    body_discussion = engine.condition("communication_context", text)
+    ban_reasons = []
+    if settings.get("advertising_ban", True):
+        hits = [(hit, True) for hit in engine.run("profile", sender_name)]
+        hits += [(hit, False) for stage in ("short", "advertising")
+                 for hit in engine.run(stage, normalize(text), source_titles=[normalize(title) for title in source_titles or []])]
+        for hit, profile in hits:
+            hit_ids.append(hit.id)
+            if profile and hit.action == "mute":
+                names.append(hit.reason)
+            else:
+                reasons.append(hit.reason)
+                if hit.action == "mute":
+                    mute_reasons.append(hit.reason)
+                elif hit.action == "ban":
+                    ban_reasons.append(hit.reason)
     active = [r for r in rules if r.get("enabled", True)]
+    from purrai.promotion_targets import blacklist_reasons
+    target_reasons = blacklist_reasons({"text": text}, active, settings=settings, urls=urls)
+    reasons.extend(target_reasons)
+    hit_ids.extend(rule["id"] for rule in active if rule.get("id") and rule["kind"] == "block_target"
+                   and any(reason.endswith(rule["value"]) for reason in target_reasons))
+    ban_reasons.extend(reason for reason in target_reasons if reason.startswith("全局广告黑名单："))
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]
     for rule in active:
         value = rule["value"]
         if rule["kind"] == "keyword" and value:
             mode, scope = rule.get("mode", "contains"), rule.get("scope", "message")
-            body_hit, name_hit = matches(text, value, mode), matches(sender_name, value, mode)
+            body_hit = scope in ("message", "either") and not body_discussion and matches(body_text, value, mode)
+            name_hit = scope != "message" and matches(sender_name, value, mode)
             hit = (
-                (name_hit and matches(text, rule.get("context_value", ""), mode))
+                (name_hit and not body_discussion and matches(body_text, rule.get("context_value", ""), mode))
                 if scope == "name_and_message"
                 else name_hit
                 if scope == "name"
@@ -152,6 +83,8 @@ def assess(
                 else body_hit
             )
             if hit:
+                if rule.get("id"):
+                    hit_ids.append(rule["id"])
                 if mode == "pinyin":
                     label = "谐音关键词"
                 elif mode == "compact":
@@ -215,14 +148,32 @@ def assess(
         contains_wallet_address(value) for value in [text, *urls]
     ):
         reasons.append("新成员观察期发送加密货币地址")
+    reasons.extend(activity_reasons(settings, repeats, similar, burst))
+    for rule in active:
+        if not rule.get("id"):
+            continue
+        if rule["kind"] == "block_mention" and any(reason in [*names, *reasons] for reason in (
+            f"禁止用户名：@{normalize(rule['value']).lstrip('@')}",
+            f"禁止引流账号：@{normalize(rule['value']).lstrip('@')}")):
+            hit_ids.append(rule["id"])
+        if rule["kind"] == "block_domain" and any(
+            reason.startswith("禁止域名：") and domain_matches(reason.split("：", 1)[1], rule["value"])
+            for reason in reasons):
+            hit_ids.append(rule["id"])
+    return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
+            "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
+            "rule_ids": list(dict.fromkeys(hit_ids))}
+
+
+def activity_reasons(settings, repeats, similar, burst):
+    reasons = []
     if settings.get("repeat_enabled") and repeats >= settings["repeat_count"]:
         reasons.append("重复刷屏")
     if settings.get("similar_enabled") and similar >= settings.get("similar_count", 4):
         reasons.append("近似内容刷屏")
     if settings.get("burst_enabled") and burst >= settings.get("burst_count", 8):
         reasons.append("短时间连续发送")
-    return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
-            "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons}
+    return reasons
 
 
 def evaluate(*args, **kwargs) -> list[str]:

@@ -1,0 +1,1321 @@
+{
+  "format": 1,
+  "views": [
+    {
+      "id": "s_norm",
+      "title": "业务文本：规范化及简繁转换",
+      "source": "text",
+      "steps": [
+        {
+          "op": "normalize"
+        },
+        {
+          "op": "translate",
+          "value": {
+            "風": "风",
+            "險": "险",
+            "賺": "赚",
+            "錢": "钱",
+            "萬": "万",
+            "聯": "联",
+            "單": "单",
+            "薦": "荐",
+            "禮": "礼",
+            "長": "长",
+            "舊": "旧",
+            "號": "号",
+            "蘋": "苹",
+            "機": "机",
+            "稅": "税",
+            "價": "价",
+            "類": "类",
+            "結": "结",
+            "擔": "担",
+            "個": "个",
+            "發": "发",
+            "來": "来",
+            "紹": "绍",
+            "簡": "简",
+            "遞": "递",
+            "鈔": "钞",
+            "幣": "币",
+            "專": "专",
+            "現": "现",
+            "資": "资",
+            "轉": "转",
+            "帳": "账",
+            "線": "线",
+            "們": "们"
+          }
+        }
+      ]
+    },
+    {
+      "id": "s_auth",
+      "title": "业务文本：去除引用和代码块",
+      "source": "s_norm",
+      "steps": [
+        {
+          "op": "replace",
+          "pattern": "(?s:```.*?```)|`[^`\\n]*`|“[^”]*”|「[^」]*」|『[^』]*』|\"[^\"\\n]*\"|(?m:^\\s*>.*$)",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "s_value",
+      "title": "业务文本：仅保留文字和数字",
+      "source": "s_auth",
+      "steps": [
+        {
+          "op": "compact"
+        }
+      ]
+    },
+    {
+      "id": "s_full",
+      "title": "昵称：仅保留文字和数字",
+      "source": "s_norm",
+      "steps": [
+        {
+          "op": "compact"
+        }
+      ]
+    },
+    {
+      "id": "s_deobfuscated",
+      "title": "昵称：去除汉字间的字母数字",
+      "source": "s_full",
+      "steps": [
+        {
+          "op": "replace",
+          "pattern": "(?<=[\\u4e00-\\u9fff])[a-z0-9]+(?=[\\u4e00-\\u9fff])",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "a_auth",
+      "title": "广告文本：去除引用",
+      "source": "text",
+      "steps": [
+        {
+          "op": "replace",
+          "pattern": "“[^”]*”|「[^」]*」|『[^』]*』|\"[^\"\\n]*\"|(?m:^\\s*>.*$)",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "a_value",
+      "title": "广告文本：仅保留文字和数字",
+      "source": "a_auth",
+      "steps": [
+        {
+          "op": "compact"
+        }
+      ]
+    },
+    {
+      "id": "c_norm",
+      "title": "聊天文本：规范化及简繁转换",
+      "source": "text",
+      "steps": [
+        {
+          "op": "normalize"
+        },
+        {
+          "op": "translate",
+          "value": {
+            "來": "来",
+            "強": "强",
+            "勝": "胜",
+            "滿": "满",
+            "莊": "庄",
+            "點": "点",
+            "頭": "头",
+            "免": "免",
+            "費": "费",
+            "進": "进",
+            "發": "发",
+            "轉": "转",
+            "機": "机",
+            "賺": "赚",
+            "個": "个",
+            "學": "学",
+            "葉": "叶",
+            "頻": "频",
+            "內": "内",
+            "無": "无",
+            "們": "们",
+            "這": "这",
+            "準": "准",
+            "撿": "捡",
+            "錢": "钱"
+          }
+        }
+      ]
+    },
+    {
+      "id": "c_auth",
+      "title": "聊天文本：去除引用",
+      "source": "c_norm",
+      "steps": [
+        {
+          "op": "replace",
+          "pattern": "“[^”]*”|「[^」]*」|『[^』]*』|\"[^\"\\n]*\"|(?m:^\\s*>.*$)",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "c_value",
+      "title": "聊天文本：仅保留文字和数字",
+      "source": "c_auth",
+      "steps": [
+        {
+          "op": "compact"
+        }
+      ]
+    },
+    {
+      "id": "chat_norm",
+      "title": "聊天通用过滤：规范化",
+      "source": "text",
+      "steps": [
+        {
+          "op": "normalize"
+        }
+      ]
+    },
+    {
+      "id": "chat_value",
+      "title": "聊天通用过滤：去除提及和分隔符",
+      "source": "chat_norm",
+      "steps": [
+        {
+          "op": "replace",
+          "pattern": "@[a-z0-9_]+",
+          "value": ""
+        },
+        {
+          "op": "compact"
+        }
+      ]
+    }
+  ],
+  "conditions": [
+    {
+      "id": "direct_offer",
+      "title": "本人直接招揽",
+      "enabled": true,
+      "condition": {
+        "op": "each",
+        "input": "s_auth",
+        "condition": {
+          "op": "match",
+          "input": "$item",
+          "pattern": "(?:私聊我|私信我|联系我|加我|我这(?:里|边)|本人(?:接|招|提供)|现招|招募)",
+          "mode": "match"
+        },
+        "split": "[\\n，,。；;！!]",
+        "steps": [
+          {
+            "op": "compact"
+          }
+        ]
+      }
+    },
+    {
+      "id": "communication_context",
+      "title": "业务规则中的举报、提问和劝阻豁免",
+      "enabled": true,
+      "condition": {
+        "op": "any",
+        "items": [
+          {
+            "op": "empty",
+            "input": "s_value"
+          },
+          {
+            "op": "all",
+            "items": [
+              {
+                "op": "not",
+                "item": {
+                  "op": "ref",
+                  "ref": "direct_offer"
+                }
+              },
+              {
+                "op": "any",
+                "items": [
+                  {
+                    "op": "match",
+                    "input": "s_value",
+                    "pattern": "(?:举报|曝光|请管理员|刚看到|刚收到|看到有人|有人(?:发|说|宣传)|他们说|这种(?:广告|话术)|这条广告)",
+                    "mode": "match"
+                  },
+                  {
+                    "op": "match",
+                    "input": "s_value",
+                    "pattern": "是不是|是否.{0,12}(?:广告|骗局|违法|靠谱)|真的吗|是真的吗|靠谱吗|可信吗|什么是|是什么意思|啥意思|指什么|为什么|怎么(?:识别|辨别|举报|防范|判断|退款|处理|办)|如何(?:识别|辨别|举报|防范|判断|处理)|被骗|求助",
+                    "mode": "search"
+                  },
+                  {
+                    "op": "match",
+                    "input": "s_value",
+                    "pattern": "(?:不要|请勿|别|拒绝|不做|不能)(?:相信|信|参加|参与|从事|做|碰|找|发)?(?:代收|代刷|跑分|走私|洗钱|赌博|假币|假钞|转账|进群|私聊)",
+                    "mode": "search"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "contact_audience",
+      "title": "正文向读者发出联系邀请",
+      "enabled": true,
+      "condition": {
+        "op": "each",
+        "input": "a_auth",
+        "condition": {
+          "op": "all",
+          "items": [
+            {
+              "op": "not",
+              "item": {
+                "op": "match",
+                "input": "$item",
+                "pattern": "有人|他|她|老师|这个人|那个|所谓|怎么|如何|请问|我看到|我遇到",
+                "mode": "match"
+              }
+            },
+            {
+              "op": "match",
+              "input": "$item",
+              "pattern": "私聊我|私信我|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码加入|扫码进群",
+              "mode": "find",
+              "prefix_chars": 4,
+              "where": {
+                "op": "not",
+                "item": {
+                  "op": "match",
+                  "input": "$prefix",
+                  "pattern": "不要|不用|禁止|拒绝|无需|不必|别",
+                  "mode": "search"
+                }
+              }
+            }
+          ]
+        },
+        "split": "[\\n。！？!?；;，,]",
+        "steps": [
+          {
+            "op": "compact"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invites_audience",
+      "title": "正文向读者发出入群邀请",
+      "enabled": true,
+      "condition": {
+        "op": "each",
+        "input": "text",
+        "condition": {
+          "op": "all",
+          "items": [
+            {
+              "op": "not",
+              "item": {
+                "op": "match",
+                "input": "$item",
+                "pattern": "我|哪里|有没有|怎么|如何|能不能|是否|请问|谁知道",
+                "mode": "match"
+              }
+            },
+            {
+              "op": "match",
+              "input": "$item",
+              "pattern": "(?:来|加入|进入|进|加|欢迎加入|邀请.{0,4}加入)(?:我们|我的|咱们|这个|内部|内|实战|学习|交流|策略|投资|合约|交易|vip|贵宾|免费|的){0,8}(?:群|频道)",
+              "mode": "search",
+              "where": {
+                "op": "all",
+                "items": [
+                  {
+                    "op": "any",
+                    "items": [
+                      {
+                        "op": "equals",
+                        "input": "$start",
+                        "value": 0
+                      },
+                      {
+                        "op": "match",
+                        "input": "$item",
+                        "pattern": "欢迎|大家|想|有兴趣|感兴趣|可以|请|赶快|赶紧|现在|免费",
+                        "mode": "match"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "any",
+                    "items": [
+                      {
+                        "op": "match",
+                        "input": "$match",
+                        "pattern": "内部|策略|投资|合约|交易|vip|贵宾|频道",
+                        "mode": "search"
+                      },
+                      {
+                        "op": "match",
+                        "input": "$item",
+                        "pattern": "(?:每天|每日|实时|免费).{0,8}(?:精准分析|跟单|带单|策略|指导)|(?:跟单|带单|合约).{0,8}(?:免费|实时策略|稳赚)|让每一次开仓.{0,8}依据",
+                        "mode": "search"
+                      },
+                      {
+                        "op": "match",
+                        "input": "$item",
+                        "pattern": "私聊我|私信我|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码加入|扫码进群",
+                        "mode": "search"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "split": "[\\n。！？!?；;，,]",
+        "steps": [
+          {
+            "op": "compact"
+          }
+        ]
+      }
+    },
+    {
+      "id": "discussion",
+      "title": "广告规则中的举报、讨论和引用豁免",
+      "enabled": true,
+      "condition": {
+        "op": "all",
+        "items": [
+          {
+            "op": "not",
+            "item": {
+              "op": "ref",
+              "ref": "invites_audience",
+              "input": "a_auth"
+            }
+          },
+          {
+            "op": "not",
+            "item": {
+              "op": "ref",
+              "ref": "contact_audience",
+              "input": "a_auth"
+            }
+          },
+          {
+            "op": "any",
+            "items": [
+              {
+                "op": "match",
+                "input": "text",
+                "pattern": "^\\s*(?:举报|曝光|请管理员(?:处理|看看)|刚看到有人发广告)\\s*[:：]",
+                "mode": "match"
+              },
+              {
+                "op": "match",
+                "input": "a_value",
+                "pattern": "(?:举报|曝光|防骗|诈骗|骗局|骗子|骗人|广告).{0,16}(?:提醒|识别|小心|警惕|别|不要|请管理员|处理|是真的吗|怎么看|是不是)|(?:怎么|如何)(?:识别|辨别|举报)|(?:这个|这种|有人|刚看到|看到有人|所谓).{0,36}(?:广告|诈骗|骗局|骗子|骗钱|别进|不要加)|请管理员.{0,12}(?:处理|看看|删)",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "a_value",
+                "pattern": "是不是(?:骗子|诈骗|骗局|广告)|这算不算(?:广告|诈骗)",
+                "mode": "search"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "stages": [
+    {
+      "id": "solicitation",
+      "title": "明确业务招揽",
+      "enabled": true,
+      "first_match": true,
+      "before": [],
+      "condition": {
+        "op": "not",
+        "item": {
+          "op": "ref",
+          "ref": "communication_context"
+        }
+      },
+      "rules": [
+        {
+          "id": "sol-1",
+          "title": "以零风险噱头招揽针对海外人员的灰产业务",
+          "reason": "明确广告引流：以零风险噱头招揽针对海外人员的灰产业务",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "(?:零|0)风险.{0,4}(?:搞|骗|做)老外",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "熬夜.{0,5}来|招人|招募|招聘|的来",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sol-2",
+          "title": "代收或支付工具招揽并承诺高额日收益",
+          "reason": "明确广告引流：代收或支付工具招揽并承诺高额日收益",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "微信|微心|支付宝|支副宝|收款码|代收|跑分|洗米|洗钱|收米",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "(?:一天|每天|每日|日[入赚挣]).{0,3}(?:[1-9][0-9o]{3,}|[1-9][0-9o]*(?:千|万|k)|[一二三四五六七八九十]+[千万])",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "(?:招|招聘|招募|急缺|缺人|来做|的来|能收|可收|代收|接单)",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sol-3",
+          "title": "体育博彩荐单并以收益招揽",
+          "reason": "明确广告引流：体育博彩荐单并以收益招揽",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "足球|联赛|赌球|体育",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "红单|串子|串关|投注技巧|博彩",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "日赚|日入|收米|稳赚|包赢|推荐.{0,12}@|跟单",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sol-4",
+          "title": "直播礼物代刷代充业务招揽",
+          "reason": "明确广告引流：直播礼物代刷代充业务招揽",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "抖音|快手|直播|斗鱼|虎牙",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "代刷礼物|礼物代刷|代充礼物",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "长期|新老号|接单|低价|均可|折|联系|私聊",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sol-5",
+          "title": "走私手机货源低价销售招揽",
+          "reason": "明确广告引流：走私手机货源低价销售招揽",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "苹果|iphone|手机|水果机",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "走私",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "低价出|低价出售|全系列|现货|供货|接单|批发|代理|分销",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sol-6",
+          "title": "低折扣手机分销并以利润或担保结算招揽",
+          "reason": "明确广告引流：低折扣手机分销并以利润或担保结算招揽",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "苹果|iphone|手机|水果机",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "[一二三四五六七八九0-9](?:点[0-9])?折",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_value",
+                "pattern": "一台利润|每台利润|担保.{0,8}结算|分销|代理",
+                "mode": "search"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "short",
+      "title": "短语删除规则",
+      "enabled": true,
+      "first_match": true,
+      "before": [],
+      "condition": {
+        "op": "not",
+        "item": {
+          "op": "ref",
+          "ref": "communication_context"
+        }
+      },
+      "rules": [
+        {
+          "id": "short-1",
+          "title": "业务招揽短语",
+          "reason": "业务招揽短语，仅删除：",
+          "enabled": true,
+          "action": "delete",
+          "condition": {
+            "op": "match",
+            "input": "s_value",
+            "pattern": "个人可三通|个人可以三通|新人可代",
+            "mode": "fullmatch"
+          },
+          "reason_field": "s_value"
+        }
+      ]
+    },
+    {
+      "id": "profile",
+      "title": "昵称业务招揽",
+      "enabled": true,
+      "first_match": false,
+      "before": [],
+      "condition": {
+        "op": "all",
+        "items": [
+          {
+            "op": "not",
+            "item": {
+              "op": "ref",
+              "ref": "communication_context"
+            }
+          },
+          {
+            "op": "not",
+            "item": {
+              "op": "match",
+              "input": "s_norm",
+              "pattern": "反诈|防骗|科普|鉴别|鉴定|博物馆|警方|揭秘|研究|取证",
+              "mode": "search"
+            }
+          }
+        ]
+      },
+      "rules": [
+        {
+          "id": "profile-1",
+          "title": "手机货源营销昵称同时包含低价或折扣招揽",
+          "reason": "昵称广告引流：手机货源营销昵称同时包含低价或折扣招揽",
+          "enabled": true,
+          "action": "mute",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "苹果|iphone|手机|水果机",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "免税|走私",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "[一二三四五六七八九0-9]折|低价|供货|批发",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "profile-2",
+          "title": "直播代刷代充营销昵称",
+          "reason": "昵称广告引流：直播代刷代充营销昵称",
+          "enabled": true,
+          "action": "mute",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_deobfuscated",
+                "pattern": "抖音|快手|直播",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_deobfuscated",
+                "pattern": "代刷|代充",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "profile-3",
+          "title": "假币交易或洗钱营销昵称",
+          "reason": "昵称广告引流：假币交易或洗钱营销昵称",
+          "enabled": true,
+          "action": "mute",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "假钞|假币",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "交流|交易|洗钱|出售|快递|面交|专用|赌博|嫖娼|玩妹|日常用",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "profile-4",
+          "title": "商品折扣宣传并引导查看个人介绍",
+          "reason": "昵称广告引流：商品折扣宣传并引导查看个人介绍",
+          "enabled": true,
+          "action": "mute",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "新款|全系列",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "最低|低价|[一二三四五六七八九0-9]折",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "s_full",
+                "pattern": "看我(?:的)?(?:介绍|简介|主页)|联系|私聊|加我|主页直通",
+                "mode": "search"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "advertising",
+      "title": "群内广告招揽",
+      "enabled": true,
+      "first_match": true,
+      "before": [
+        "solicitation"
+      ],
+      "condition": {
+        "op": "not",
+        "item": {
+          "op": "ref",
+          "ref": "discussion"
+        }
+      },
+      "rules": [
+        {
+          "id": "ad-1",
+          "title": "招揽加入交易群或策略频道",
+          "reason": "明确广告引流：招揽加入交易群或策略频道",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "ref",
+                "ref": "invites_audience",
+                "input": "a_auth"
+              },
+              {
+                "op": "any",
+                "items": [
+                  {
+                    "op": "match",
+                    "input": "a_value",
+                    "pattern": "跟单|带单|开仓|合约|币圈|btc|eth|比特币|以太坊|交易|策略|老师.{0,6}分析|分析.{0,6}逻辑",
+                    "mode": "search"
+                  },
+                  {
+                    "op": "match",
+                    "input": "a_value",
+                    "pattern": "(?:每天|每日|实时|免费).{0,8}(?:精准分析|跟单|带单|策略|指导)|(?:跟单|带单|合约).{0,8}(?:免费|实时策略|稳赚)|让每一次开仓.{0,8}依据",
+                    "mode": "search"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "ad-2",
+          "title": "业务或收益招揽并要求联系",
+          "reason": "明确广告引流：业务或收益招揽并要求联系",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "ref",
+                "ref": "contact_audience",
+                "input": "a_auth"
+              },
+              {
+                "op": "any",
+                "items": [
+                  {
+                    "op": "match",
+                    "input": "a_value",
+                    "pattern": "带单|返佣|代刷|代充|跑分|水房|套利项目|投资群|策略频道",
+                    "mode": "search"
+                  },
+                  {
+                    "op": "match",
+                    "input": "a_value",
+                    "pattern": "稳赚|包赚|零风险|保本收益|躺赚|日[入赚]\\d+",
+                    "mode": "search"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "ad-3",
+          "title": "收益承诺并要求加入",
+          "reason": "明确广告引流：收益承诺并要求加入",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "a_value",
+                "pattern": "稳赚|包赚|零风险|保本收益|躺赚|日[入赚]\\d+",
+                "mode": "match"
+              },
+              {
+                "op": "match",
+                "input": "a_value",
+                "pattern": "立即加群|立即进群|立即加入|立即注册|欢迎加入|扫码加入",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "ad-4",
+          "title": "跟单广告来源配合交易招揽正文",
+          "reason": "明确广告引流：跟单广告来源配合交易招揽正文",
+          "enabled": true,
+          "action": "ban",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "each",
+                "input": "source_titles",
+                "condition": {
+                  "op": "match",
+                  "input": "$item",
+                  "pattern": "免费.{0,8}(?:跟单|带单)|(?:跟单|带单).{0,8}(?:实时策略|稳赚|盈利)|(?:合约|投资).{0,8}(?:稳赚|保本)",
+                  "mode": "search"
+                },
+                "steps": [
+                  {
+                    "op": "compact"
+                  }
+                ]
+              },
+              {
+                "op": "match",
+                "input": "a_value",
+                "pattern": "(?:每天|每日|实时|免费).{0,8}(?:精准分析|跟单|带单|策略|指导)|(?:跟单|带单|合约).{0,8}(?:免费|实时策略|稳赚)|让每一次开仓.{0,8}依据",
+                "mode": "match"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "chat_solicitation",
+      "title": "聊天排除：业务招揽",
+      "enabled": true,
+      "first_match": true,
+      "before": [],
+      "condition": {
+        "op": "all",
+        "items": [
+          {
+            "op": "not",
+            "item": {
+              "op": "ref",
+              "ref": "discussion",
+              "input": "c_norm"
+            }
+          },
+          {
+            "op": "not",
+            "item": {
+              "op": "match",
+              "input": "c_value",
+              "pattern": "怎么|如何|是不是|是真的吗|怎么办|可信吗|骗局|诈骗|小心|警惕|不要|别信",
+              "mode": "search"
+            }
+          }
+        ]
+      },
+      "rules": [
+        {
+          "id": "chat-sol-1",
+          "title": "回血口令",
+          "reason": "广告招揽：回血口令",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "match",
+            "input": "c_value",
+            "pattern": "来回血",
+            "mode": "fullmatch"
+          }
+        },
+        {
+          "id": "chat-sol-2",
+          "title": "高比例返佣引流",
+          "reason": "广告招揽：高比例返佣引流",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "c_norm",
+                "pattern": "(?:高返|高反|返佣|反佣)\\s*\\d{1,3}\\s*[%％]",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "群|福利|策略|带单",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-sol-3",
+          "title": "交易收益或策略引流",
+          "reason": "广告招揽：交易收益或策略引流",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "策略|带单|胜率|赚.{0,6}倍|\\d+天.{0,6}倍",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "点头像|戳[主竹][页叶]|进来捡钱|赶快进|速进|免费来|天天发单",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-sol-4",
+          "title": "社群收益引流",
+          "reason": "广告招揽：社群收益引流",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "社[群裙].{0,12}(?:好准|赚|盈利)",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "进来|捡钱",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-sol-5",
+          "title": "博彩频道推广",
+          "reason": "广告招揽：博彩频道推广",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "新澳|[六6][合和][彩采]",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "内[幕慕]|频道|开奖|下注",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-sol-6",
+          "title": "色情服务报价",
+          "reason": "广告招揽：色情服务报价",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "match",
+            "input": "c_value",
+            "pattern": "\\d{2,5}[全佺]套.{0,8}(?:无限火力|面付|上门)",
+            "mode": "search"
+          }
+        },
+        {
+          "id": "chat-sol-7",
+          "title": "能量租赁报价",
+          "reason": "广告招揽：能量租赁报价",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "match",
+            "input": "c_norm",
+            "pattern": "\\d+(?:\\.\\d+)?\\s*trx\\s*闪租",
+            "mode": "fullmatch"
+          }
+        },
+        {
+          "id": "chat-sol-8",
+          "title": "整条商品促销报价",
+          "reason": "广告招揽：整条商品促销报价",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "match",
+            "input": "c_value",
+            "pattern": "(?:苹果|水果机)\\d{1,2}(?:只要|仅售|特价)\\d+(?:k|千|元|块)",
+            "mode": "fullmatch"
+          }
+        },
+        {
+          "id": "chat-sol-9",
+          "title": "高收入副业招揽",
+          "reason": "广告招揽：高收入副业招揽",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "副业|增收|兼职",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "c_value",
+                "pattern": "(?:一天|日入|日赚)[0-9o]{3,}",
+                "mode": "search"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "chat_advertising",
+      "title": "聊天排除：推广话术",
+      "enabled": true,
+      "first_match": true,
+      "before": [
+        "chat_solicitation"
+      ],
+      "condition": {
+        "op": "not",
+        "item": {
+          "op": "all",
+          "items": [
+            {
+              "op": "truthy",
+              "input": "direct"
+            },
+            {
+              "op": "match",
+              "input": "chat_value",
+              "pattern": "(?:怎么识别|如何识别|是不是(?:广告|诈骗|骗局)|这是不是|这算不算|为什么.{0,12}(?:不能|不要|危险)|是真的吗)",
+              "mode": "search"
+            }
+          ]
+        }
+      },
+      "rules": [
+        {
+          "id": "chat-ad-1",
+          "title": "灰产或跑分招聘",
+          "reason": "广告招揽：灰产或跑分招聘",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "any",
+            "items": [
+              {
+                "op": "each",
+                "input": "chat_norm",
+                "condition": {
+                  "op": "match",
+                  "input": "$item",
+                  "pattern": "^(?:来[个点些几位名]*|找[个些几位名]*|急招|招聘|招募|诚招|长期招).{0,28}(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队)|^(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队).{0,24}(?:招人|招募|招聘|收人|无押|无压|日结|经验优先)",
+                  "mode": "search"
+                },
+                "split": "[\\n。！？!?；;，,]",
+                "steps": [
+                  {
+                    "op": "replace",
+                    "pattern": "@[a-z0-9_]+",
+                    "value": ""
+                  },
+                  {
+                    "op": "compact"
+                  }
+                ]
+              },
+              {
+                "op": "match",
+                "input": "chat_value",
+                "pattern": "^(?:来[个点些几位名]*|找[个些几位名]*|急招|招聘|招募|诚招|长期招).{0,28}(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队)|^(?:跑分|水房|灰产|灰经验|代收|代付|收款码|车队).{0,24}(?:招人|招募|招聘|收人|无押|无压|日结|经验优先)",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-ad-2",
+          "title": "业务推广并要求联系或引流",
+          "reason": "广告招揽：业务推广并要求联系或引流",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "chat_value",
+                "pattern": "(?:带单|返佣|代刷|代充|代办|兼职|搬砖|策略频道|投资群|套利|开户|注册|赚钱)",
+                "mode": "search"
+              },
+              {
+                "op": "match",
+                "input": "chat_value",
+                "pattern": "(?:私聊|私信|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码|免费进群|免费进频道)",
+                "mode": "search"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-ad-3",
+          "title": "付费群或频道免费引流话术",
+          "reason": "广告招揽：付费群或频道免费引流话术",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "chat_value",
+                "pattern": "(?:花钱|付费|收费).{0,16}(?:频道|群).{0,16}(?:现在|如今|今天).{0,12}(?:免费|白送|直接进|随便进)",
+                "mode": "search"
+              },
+              {
+                "op": "not",
+                "item": {
+                  "op": "all",
+                  "items": [
+                    {
+                      "op": "truthy",
+                      "input": "direct"
+                    },
+                    {
+                      "op": "match",
+                      "input": "chat_value",
+                      "pattern": "(?:怎么看|是不是|为什么|是真的吗|合理吗)",
+                      "mode": "search"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "chat-ad-4",
+          "title": "收益承诺并要求加入或联系",
+          "reason": "广告招揽：收益承诺并要求加入或联系",
+          "enabled": true,
+          "action": "exclude",
+          "condition": {
+            "op": "all",
+            "items": [
+              {
+                "op": "match",
+                "input": "chat_value",
+                "pattern": "(?:稳赚|包赚|保本收益|躺赚|零风险|日[入赚]\\d+)",
+                "mode": "search"
+              },
+              {
+                "op": "any",
+                "items": [
+                  {
+                    "op": "match",
+                    "input": "chat_value",
+                    "pattern": "(?:私聊|私信|联系我|联系老板|加我|看我简介|点我头像|进我主页|扫码|免费进群|免费进频道)",
+                    "mode": "search"
+                  },
+                  {
+                    "op": "match",
+                    "input": "chat_value",
+                    "pattern": "(?:加群|进群|注册|开户|立即加入)",
+                    "mode": "search"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

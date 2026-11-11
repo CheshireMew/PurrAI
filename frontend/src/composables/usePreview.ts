@@ -9,8 +9,8 @@ export function previewMessages(result: PreviewResult) {
 export function usePreview(groupId: () => number) {
   const input = reactive<PreviewInput>({ text: '', sender_name: '', newcomer: false, contact: false, forwarded: false, repeats: 0, similar: 0, burst: 0 })
   const reasons = ref<string[] | null>(null)
-  async function preview(rules?: Rule[]) {
-    const result = await post(`/api/groups/${groupId()}/rules/preview`, { ...input, ...(rules ? { rules } : {}) }) as PreviewResult
+  async function preview(rules?: Rule[], draft?: Rule) {
+    const result = await post(`/api/groups/${groupId()}/rules/preview`, { ...input, ...(rules ? { rules } : {}), ...(draft ? { draft: { ...draft, id: draft.id || '' } } : {}) }) as PreviewResult
     reasons.value = previewMessages(result)
   }
   return { input, reasons, preview }

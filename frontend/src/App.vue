@@ -5,6 +5,7 @@ import { Grid, ChatDotRound, Key, Filter, Warning, User as UserIcon, Setting, Re
 import { api, ApiError, post, setCsrf } from './api'
 import { ActionTracker } from './actionTracker'
 import { ActionRequests, type AcceptedAction, type ActionBody, type ActionRequest } from './actionRequests'
+import { MutationRequests, type MutationRequest } from './mutationRequests'
 import { catalog, configureCatalog } from './catalog'
 import { workspaceKey } from './workspace'
 import { useTask } from './composables/useTask'
@@ -16,20 +17,31 @@ import OverviewPage from './pages/OverviewPage.vue'
 import GroupsPage from './pages/GroupsPage.vue'
 import VerificationsPage from './pages/VerificationsPage.vue'
 import RulesPage from './pages/RulesPage.vue'
+import AutoRepliesPage from './pages/AutoRepliesPage.vue'
 import ViolationsPage from './pages/ViolationsPage.vue'
 import WhitelistPage from './pages/WhitelistPage.vue'
 import PermissionsPage from './pages/PermissionsPage.vue'
 import SystemPage from './pages/SystemPage.vue'
+import MembersPage from './pages/MembersPage.vue'
+import OperationsPage from './pages/OperationsPage.vue'
+import ChatDiagnosticsPage from './pages/ChatDiagnosticsPage.vue'
+import { navigate, observeNavigation, route } from './navigation'
 
 const me = ref<User | null>(null), starting = ref(true)
-const page = ref('overview'), selected = ref<number | null>(null), groups = ref<Group[]>([]), refreshKey = ref(0)
+const page = ref(route.value.page), selected = ref<number | null>(route.value.group), groups = ref<Group[]>([]), refreshKey = ref(0)
 const menuExpanded = ref(false)
+const groupWarning = ref('')
 const { busy, error, safe } = useTask(expireSession)
 const actionTracker = reactive(new ActionTracker())
 const actionRequests = reactive(new ActionRequests())
+const mutations = reactive(new MutationRequests())
 const nav = [
   { id: 'overview', name: '总览', icon: Grid, detail: '看看群里发生了什么' },
   { id: 'groups', name: '群管理', icon: ChatDotRound, detail: '让每个群都有合适的保护' },
+  { id: 'members', name: '成员管理', icon: UserIcon, detail: '查询成员当前状态、历史与处置' },
+  { id: 'operations', name: '操作记录', icon: Document, detail: '查询人工操作、自动处置和核实结果' },
+  { id: 'chat', name: '聊天状态', icon: ChatDotRound, detail: '查看回复、静默、等待和模型用量' },
+  { id: 'auto-replies', name: '自动回复', icon: ChatDotRound, detail: '设置关键词和固定回复内容' },
   { id: 'verifications', name: '入群验证', icon: Key, detail: '从进群的第一步开始把关' },
   { id: 'rules', name: '防广告规则', icon: Filter, detail: '把规则讲清楚，把打扰挡下来' },
   { id: 'violations', name: '违规记录', icon: Warning, detail: '每次处理，都有原因可查' },
@@ -40,15 +52,27 @@ const nav = [
 ]
 const navigation = computed(() => nav.filter(item => me.value?.root || !['admins', 'system'].includes(item.id)))
 const current = computed(() => nav.find(item => item.id === page.value)!)
-const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages'].includes(page.value))
+if (!nav.some(item => item.id === page.value)) page.value = 'overview'
+let restoringNavigation = false
+watch(route, current => {
+  restoringNavigation = true
+  page.value = navigation.value.some(item => item.id === current.page) ? current.page : 'overview'
+  if (current.group !== null && groups.value.some(item => item.id === current.group)) selected.value = current.group
+  restoringNavigation = false
+}, {flush: 'sync'})
+watch([page, selected], () => { if (!starting.value && !restoringNavigation) navigate(page.value, selected.value) }, {flush: 'sync'})
+const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages', 'members', 'operations', 'chat', 'auto-replies'].includes(page.value))
 watch(page, async () => {
   menuExpanded.value = false
   await nextTick()
   document.querySelector('.sidebar button.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 })
 async function reloadGroups() {
-  groups.value = await api<Group[]>('/api/groups')
-  if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value[0]?.id ?? null
+  groups.value = await api<Group[]>('/api/groups', {}, response => {
+    groupWarning.value = response.headers.get('X-PurrAI-Groups-Partial') === 'true'
+      ? '部分群权限暂未核实，当前显示已确认的群；稍后可刷新重试。' : ''
+  })
+  if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value.find(group => group.previous_ids?.includes(selected.value!))?.id ?? groups.value[0]?.id ?? null
 }
 function expireSession() { me.value = null }
 function acceptAction({ receipt, reason }: AcceptedAction) {
@@ -65,6 +89,11 @@ async function submitAction(path: string, body: ActionBody) {
 async function retryAction(request: ActionRequest) {
   await safe(async () => acceptAction(await actionRequests.retry(request)))
 }
+async function retryMutation(request: MutationRequest) {
+  if (await safe(async () => { await mutations.retry(request); ElMessage.success('已确认提交结果') })) {
+    await reloadGroups(); refreshKey.value++
+  }
+}
 async function confirmAction(path: string, action: string, title: string) {
   let reason: string
   try { reason = (await ElMessageBox.prompt('请填写处理原因，操作会保留记录。', title,
@@ -72,14 +101,14 @@ async function confirmAction(path: string, action: string, title: string) {
   catch { return }
   await submitAction(path, { action, reason })
 }
-provide(workspaceKey, { me, groups, catalog, actionTracker, actionRequests, submitAction, retryAction, reloadGroups, expireSession, confirmAction })
+provide(workspaceKey, { me, groups, catalog, actionTracker, actionRequests, mutations, retryMutation, submitAction, retryAction, reloadGroups, expireSession, confirmAction })
 async function refreshView() {
   await safe(async () => { await Promise.all([reloadGroups(), actionTracker.refresh(true)]) })
   refreshKey.value++
 }
 async function logout() { await safe(async () => { await post('/auth/logout'); me.value = null }) }
 async function refreshActions() {
-  if (!me.value) return
+  if (!me.value || document.visibilityState === 'hidden') return
   try { await actionTracker.refresh() }
   catch (reason) { if (reason instanceof ApiError && reason.status === 401) expireSession() }
 }
@@ -88,16 +117,20 @@ onMounted(async () => {
   try {
     me.value = await api<User>('/api/me'); setCsrf(me.value.csrf)
     actionRequests.useUser(me.value.id)
-    const [metadata] = await Promise.all([api<AdminCatalog>('/api/catalog'), reloadGroups()])
-    configureCatalog(metadata); selected.value = groups.value[0]?.id ?? null
+    mutations.useUser(me.value.id)
+    const [metadata] = await Promise.all([api<AdminCatalog>('/api/catalog'), safe(reloadGroups)])
+    configureCatalog(metadata)
+    if (!navigation.value.some(item => item.id === page.value)) page.value = 'overview'
+    navigate(page.value, selected.value, true)
   } catch (reason) {
     me.value = null
     if (!(reason instanceof ApiError && reason.status === 401)) error.value = (reason as Error).message
   } finally { starting.value = false }
   const loginError = new URLSearchParams(location.search).get('login_error'); if (loginError) error.value = loginError
-  timer = setInterval(() => { void refreshActions() }, 1000)
+  timer = setInterval(() => { void refreshActions() }, 3000)
 })
-onUnmounted(() => clearInterval(timer))
+const stopNavigation = observeNavigation()
+onUnmounted(() => { clearInterval(timer); stopNavigation() })
 </script>
 
 <template>
@@ -163,11 +196,16 @@ onUnmounted(() => clearInterval(timer))
 </div>
 </div>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
+<el-alert v-if="groupWarning" :title="groupWarning" type="warning" :closable="false"/>
 <el-alert v-if="needsGroup && !selected" title="还没有可以管理的群。请先将机器人加入超级群，再由本群管理员启用保护。" type="info" :closable="false"/>
 <OverviewPage v-if="page === 'overview'" :refresh-key="refreshKey" @navigate="page = $event"/>
 <GroupsPage v-else-if="page === 'groups'" :refresh-key="refreshKey"/>
+<MembersPage v-else-if="page === 'members' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
+<OperationsPage v-else-if="page === 'operations' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
+<ChatDiagnosticsPage v-else-if="page === 'chat' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <VerificationsPage v-else-if="page === 'verifications' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <RulesPage v-else-if="page === 'rules' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
+<AutoRepliesPage v-else-if="page === 'auto-replies' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <MessageArchive v-else-if="page === 'messages' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <ViolationsPage v-else-if="page === 'violations' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <WhitelistPage v-else-if="page === 'whitelist' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>

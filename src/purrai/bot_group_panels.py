@@ -33,6 +33,7 @@ class GroupPanels:
         if await self.management.principal(actor):
             buttons.append(button("接入群组", "group_admission"))
             buttons.append(button("系统状态与备份", "system"))
+            buttons.append(button("通用设置与规则", "policy_home"))
         buttons.append(button("权限与账号说明", "admins"))
         await self.panel(
             actor,
@@ -41,7 +42,7 @@ class GroupPanels:
                 "还没有可管理群，请先把机器人加入超级群。"
                 if not groups
                 else "可以直接在 Telegram 完成配置和处置。"
-            ),
+            ) + ("\n部分群权限暂未核实，刷新可继续查询。" if self.management.access.discovery_status(actor)["partial"] else ""),
             buttons,
             message_id=message_id,
             resume={"action": "groups", "data": {"page": page}},
@@ -60,6 +61,9 @@ class GroupPanels:
             button("验证设置", "settings", section="verification"),
             button("防广告设置", "settings", section="moderation"),
             button("群聊天设置", "settings", section="chat"),
+            button("关键词自动回复", "autoreply_home"),
+            button("聊天处理诊断", "ops_chat"),
+            button("临时应急保护", "ops_emergency"),
             button("待验证成员", "list", kind="pending"),
             button("全部验证记录", "list", kind="verification"),
             button("广告规则与测试", "list", kind="rule"),
@@ -67,8 +71,10 @@ class GroupPanels:
             button("消息归档与导出", "archive"),
             button("白名单", "list", kind="whitelist"),
             button("成员放行 / 禁言 / 封禁", "members"),
+            button("查询成员与历史", "prompt", kind="member_lookup"),
             button("操作记录", "list", kind="action"),
             button("恢复通用设置", "settings_inherit"),
+            button("设置来源与逐项恢复", "policy_inheritance"),
             button("切换群", "groups"),
         ]
         if group.settings.get("join_requests"):

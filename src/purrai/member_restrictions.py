@@ -11,6 +11,7 @@ from purrai.models import (
     uid,
 )
 from purrai.restriction_state import ban_matches, restriction_matches, permission_state_matches
+from purrai.rule_evaluation import rule_penalty_applies
 from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions, permission_snapshot
 from purrai.verification_penalties import active_verifications, begin_penalty, finish_penalty
 
@@ -162,6 +163,10 @@ class MemberRestrictions:
             raise ValueError("成员限制已被其他管理员修改，保留当前限制")
         active = await active_verifications(session, member)
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
+        recovered = already_muted and owned.get("source_action") == action.id
+        if kind in ("profile", "rule") and not recovered and not await rule_penalty_applies(session, action, group):
+            action.state, action.error = "cancelled", "审核规则已变化，不再执行永久禁言"
+            return
         previous = (owned or {}).get("previous", {})
         if owned and owned.get("kind") == "verification" and active:
             previous = active[0].previous_permissions

@@ -7,6 +7,7 @@ from contextlib import suppress
 from sqlalchemy import func, or_, select
 
 from purrai.models import Action, ArchivedMessage, Meta, Verification, Violation
+from purrai.sender_identity import sender_name
 from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources
 from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
@@ -66,7 +67,7 @@ def reply_snapshot(message, *, direct=True):
     sender = chat_sender(source) if anonymous_admin(source) else reply.get("sender_chat") or reply.get("from") or {}
     snapshot = {**metadata, "version": 1, "message_id": reply["message_id"],
                 "sender_id": sender.get("id", 0),
-                "sender_name": sender.get("title") or " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")])),
+                "sender_name": sender_name(sender),
                 "reference_sources": channel_sources(reply)}
     channel = (reply.get("sender_chat") or {}).get("type") == "channel"
     bot_source = (sender.get("is_bot") or reply.get("via_bot") or (reply.get("forward_from") or {}).get("is_bot")

@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ActionTracker, type ActionRow } from './actionTracker'
 import { ApiError } from './api'
 
 describe('批量操作回执', () => {
+  afterEach(() => { vi.useRealTimers() })
   it('125 个任务使用一个批次查询，提交后立即保留回执', async () => {
     const fetcher = vi.fn().mockResolvedValue({ id: 'batch', state: 'succeeded', reason: '人工核实',
       summary: { total: 125, pending: 0, succeeded: 125, failed: 0, cancelled: 0 } })
@@ -16,6 +17,7 @@ describe('批量操作回执', () => {
   })
 
   it('状态查询限流时保留已提交任务，随后查询恢复真实结果', async () => {
+    vi.useFakeTimers()
     const fetcher = vi.fn().mockRejectedValueOnce(new ApiError(429, '请求过于频繁'))
       .mockResolvedValue({ id: 'batch', state: 'failed', error: '1 个任务失败',
         summary: { total: 125, pending: 0, succeeded: 124, failed: 1, cancelled: 0 } })
@@ -24,6 +26,9 @@ describe('批量操作回执', () => {
     await tracker.refresh()
     expect(tracker.items[0]?.state).toBe('pending')
     expect(tracker.items[0]?.tracking_error).toContain('任务已提交')
+    await tracker.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(2001)
     await tracker.refresh()
     expect(tracker.items[0]?.state).toBe('failed')
     expect(tracker.items[0]?.tracking_error).toBe('')
@@ -83,6 +88,7 @@ describe('批量操作回执', () => {
   })
 
   it('慢合并查询不重叠，查询失败保留全部回执并在下一次恢复', async () => {
+    vi.useFakeTimers()
     let reject!: (reason: Error) => void
     const bulk = vi.fn().mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
       .mockResolvedValue({ items: ['a', 'b'].map(id => ({ id, state: 'succeeded', reason: '核对' })), errors: {} })
@@ -94,6 +100,7 @@ describe('批量操作回执', () => {
     reject(new ApiError(429, '暂时限流'))
     await first
     expect(tracker.items.every(item => item.state === 'pending' && item.tracking_error?.includes('暂时限流'))).toBe(true)
+    vi.advanceTimersByTime(2001)
     await tracker.refresh()
     expect(tracker.items.every(item => item.state === 'succeeded' && item.tracking_error === '')).toBe(true)
   })

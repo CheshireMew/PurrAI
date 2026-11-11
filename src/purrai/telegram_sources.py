@@ -4,7 +4,7 @@ import json
 
 from purrai.telegram_links import TelegramLink, allowed_link
 
-CHANNEL_PREFIX = "外部频道广告："
+from purrai.advertising_constants import CHANNEL_PREFIX as CHANNEL_PREFIX
 
 
 def stored_channel_sources(snapshot):

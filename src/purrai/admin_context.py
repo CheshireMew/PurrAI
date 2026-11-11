@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
+from purrai.errors import ManagementError
 from purrai.models import (
     Action,
     uid,
@@ -13,13 +14,15 @@ class AdminContext:
     def __init__(self, db, telegram, settings, access):
         self.db, self.tg, self.settings, self.access = db, telegram, settings, access
 
-    async def previous(self, session, actor, request_id):
+    async def previous(self, session, actor, request_id, intent=None):
         if not request_id:
             return None
         row = await session.scalar(select(Action).where(Action.dedupe_key == f"change:{actor}:{request_id}"))
+        if row and intent is not None and row.payload.get("intent") != intent:
+            raise ManagementError(409, "请求标识已用于其他操作")
         return row.payload["result"] if row else None
 
-    async def record(self, session, actor, group_id, kind, reason, result, request_id=""):
+    async def record(self, session, actor, group_id, kind, reason, result, request_id="", intent=None):
         row = await enqueue(
             session,
             kind,
@@ -27,7 +30,7 @@ class AdminContext:
             group_id,
             actor_id=actor,
             reason=reason,
-            payload={"result": result},
+            payload={"result": result, **({"intent": intent} if intent is not None else {})},
         )
         row.state = "succeeded"
         return result

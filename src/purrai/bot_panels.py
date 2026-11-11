@@ -5,6 +5,12 @@ from purrai.bot_configuration_panels import ConfigurationPanels
 from purrai.bot_group_panels import GroupPanels
 from purrai.bot_record_panels import RecordPanels
 from purrai.bot_system_panels import SystemPanels
+from purrai.bot_policy_panels import PolicyPanels
+from purrai.bot_review_panels import ReviewPanels
+from purrai.bot_member_panels import MemberPanels
+from purrai.bot_batch_panels import BatchPanels
+from purrai.bot_operations_panels import OperationsPanels
+from purrai.bot_auto_reply_panels import AutoReplyPanels
 
 
 class BotPanels:
@@ -14,6 +20,12 @@ class BotPanels:
         self.archive = ArchivePanels(management, ui, state)
         self.record = RecordPanels(management, ui, state)
         self.system_views = SystemPanels(management, ui, state)
+        self.policy = PolicyPanels(management, ui, state)
+        self.review = ReviewPanels(management, ui, state)
+        self.members = MemberPanels(management, ui)
+        self.batch = BatchPanels(management, ui, state)
+        self.operations = OperationsPanels(management, ui, state)
+        self.auto_replies = AutoReplyPanels(management, ui, state)
 
     async def choose_groups(self, actor, page=0, message_id=None):
         return await self.group.choose_groups(actor, page, message_id)

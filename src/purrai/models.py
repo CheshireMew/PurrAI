@@ -17,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from purrai.business_rules import default_business_rules
 
 
 def now() -> float:
@@ -57,6 +58,25 @@ class SharedPolicy(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     settings: Mapped[dict] = mapped_column(JSON, default=default_settings)
     rules: Mapped[list] = mapped_column(JSON, default=list)
+    business_rules: Mapped[dict] = mapped_column(JSON, default=default_business_rules)
+
+
+class PromotionSource(Base):
+    __tablename__ = "promotion_sources"
+    rule_id: Mapped[str] = mapped_column(String, primary_key=True)
+    group_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    violation_id: Mapped[str] = mapped_column(String, default="", index=True)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+    withdrawn_at: Mapped[float] = mapped_column(Float, default=0)
+
+
+class RuleHit(Base):
+    __tablename__ = "rule_hits"
+    group_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rule_id: Mapped[str] = mapped_column(String, primary_key=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
 
 
 class Admin(Base):
@@ -126,6 +146,20 @@ class Rule(Base):
     penalty: Mapped[str] = mapped_column(String, default="delete")
     inherited_from: Mapped[str] = mapped_column(String, server_default="")
     customized: Mapped[bool] = mapped_column(Boolean, server_default="1")
+
+
+class AutoReply(Base):
+    __tablename__ = "auto_replies"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    keyword: Mapped[str] = mapped_column(String)
+    reply: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(String, default="exact")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, default=10)
+    last_triggered_at: Mapped[float] = mapped_column(Float, default=0)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
 
 
 class Whitelist(Base):
@@ -280,6 +314,7 @@ class Inbox(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[float] = mapped_column(Float, default=now)
     error: Mapped[str] = mapped_column(Text, default="")
+    completed_at: Mapped[float] = mapped_column(Float, default=0, server_default="0", index=True)
 
 
 class Action(Base):
@@ -337,3 +372,4 @@ class Meta(Base):
     __tablename__ = "meta"
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[float] = mapped_column(Float, default=0, server_default="0", index=True)

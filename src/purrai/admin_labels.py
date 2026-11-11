@@ -1,6 +1,7 @@
 """Administrator labels and configuration field descriptions."""
 
 STATE = {
+    "migrated": "已升级为超级群",
     "unapproved": "等待所有者批准",
     "pending": "等待处理",
     "active": "保护中",
@@ -13,6 +14,7 @@ STATE = {
     "passed": "已通过",
     "failed": "失败",
     "succeeded": "已完成",
+    "reviewed": "已人工核实",
     "cancelled": "已取消",
     "left": "已退群",
     "superseded": "已换新验证",
@@ -20,6 +22,10 @@ STATE = {
 
 
 OPERATIONS = {
+    "auto_reply": "关键词自动回复",
+    "auto_reply_rule": "修改自动回复规则",
+    "group_migration": "群升级数据接续",
+    "emergency": "临时应急保护",
     "release": "放行",
     "reissue": "重新出题",
     "ban": "临时封禁",
@@ -27,6 +33,14 @@ OPERATIONS = {
     "unmute": "解除 PurrAI 禁言",
     "unban": "解除 PurrAI 封禁",
     "revoke_warning": "撤销警告",
+    "violation_correction": "误判纠正",
+    "delivery_review": "人工核实发送结果",
+    "owner_alert": "运行异常通知",
+    "archive_quota": "修改归档额度",
+    "archive_purge": "整理已导出归档",
+    "backup_plan": "设置备份计划",
+    "backup_exercise": "备份恢复演练",
+    "backup_retention": "整理自有备份",
     "manual_mute": "手动禁言",
     "manual_ban": "手动封禁",
     "challenge": "重新出题",
@@ -61,6 +75,8 @@ OPERATIONS = {
 
 
 FAILURE_ACTIONS = {
+    "decline_uncertain": "拒绝申请结果未确认，请核实 Telegram 中的结果",
+    "decline_failed": "拒绝申请未完成，请核实申请与机器人权限",
     "permanent_mute": "永久禁言，留在群里",
     "permanent_ban": "已踢出并禁止重新加入",
     "kick": "已踢出，可重新加入",
@@ -70,6 +86,8 @@ FAILURE_ACTIONS = {
 
 
 BOOLEANS = {
+    "coordinated_enabled": "多账号重复刷屏检测",
+    "raid_enabled": "集中入群时自动应急保护",
     "archive_enabled": "记录群消息归档",
     "join_requests": "申请入群先验证",
     "verification_enabled": "图片验证",
@@ -82,12 +100,19 @@ BOOLEANS = {
     "similar_enabled": "近似内容刷屏检测",
     "burst_enabled": "连续发送检测",
     "advertising_ban": "明确广告招揽永久封禁",
+    "contact_ads_only": "只拦截广告联系人名片",
     "external_group_ban": "外群链接、外部频道引用及转发永久封禁",
     "external_invite_ban": "外部私密邀请统一封禁",
 }
 
 
 NUMBERS = {
+    "coordinated_window": "多账号刷屏统计窗口（秒）",
+    "coordinated_count": "相同内容的不同账号数",
+    "coordinated_min_length": "多账号刷屏最短内容长度",
+    "raid_window": "集中入群统计窗口（秒）",
+    "raid_count": "触发应急的不同入群账号数",
+    "emergency_seconds": "临时应急保护持续时间（秒）",
     "verification_timeout": "验证时限（秒）",
     "max_attempts": "最多错误次数",
     "failure_ban_seconds": "手动封禁及申请重试间隔（秒）",
@@ -112,6 +137,7 @@ KINDS = {
     "allow_domain": "允许域名",
     "block_mention": "禁止引流账号",
     "allow_mention": "允许提及账号",
+    "block_target": "推广目标黑名单",
 }
 
 
@@ -157,6 +183,12 @@ CHAT_BUTTON_LABELS = {
 
 
 NAVIGATION_ACTIONS = {
+    "ops_chat", "ops_emergency", "ops_emergency_prompt", "ops_backups", "ops_backup_prompt",
+    "batch_review", "batch_page", "batch_reason",
+    "member_detail",
+    "review_search", "review_search_prompt", "review_correction", "review_show", "review_reason",
+    "policy_home", "policy_settings", "policy_field", "policy_rules", "policy_rule",
+    "policy_new_rule", "policy_prompt", "policy_inheritance",
     "group_admission",
     "groups",
     "group",

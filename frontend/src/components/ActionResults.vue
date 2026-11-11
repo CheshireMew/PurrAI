@@ -3,13 +3,17 @@ import { computed } from 'vue'
 import { label } from '../api'
 import { statusTone } from '../presentation'
 import { useWorkspace } from '../workspace'
-const { actionTracker, actionRequests, retryAction } = useWorkspace()
+const { actionTracker, actionRequests, retryAction, mutations, retryMutation } = useWorkspace()
 const actions = computed(() => actionTracker.items)
 </script>
 
 <template>
-<section v-if="actions.length || actionRequests.items.length" class="panel action-results" aria-live="polite" aria-relevant="additions text">
+<section v-if="actions.length || actionRequests.items.length || mutations.items.length" class="panel action-results" aria-live="polite" aria-relevant="additions text">
 <h2>本次提交的操作</h2>
+<div v-for="request in mutations.items" :key="request.id" class="action-line">
+<span>{{ request.title }}</span><el-tag type="warning">{{ request.error || '正在提交' }}</el-tag>
+<el-button v-if="request.error" size="small" @click="retryMutation(request)">确认提交结果</el-button>
+</div>
 <div v-for="request in actionRequests.items" :key="request.body.request_id" class="action-line">
 <span>{{ request.body.reason }}</span>
 <el-tag type="warning">提交结果待确认</el-tag>

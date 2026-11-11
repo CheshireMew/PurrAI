@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from time import perf_counter
 from contextlib import suppress
 
 from aiogram.exceptions import TelegramRetryAfter
@@ -13,6 +14,7 @@ from purrai import chat_commands
 from purrai.chat_context import ChatContext
 from purrai.chat_delivery import ChatDelivery
 from purrai.chat_generation import ChatGeneration
+from purrai.chat_telemetry import timing
 from purrai.chat_observation import ChatObservation
 from purrai.chat_receipts import ChatReceipts
 from purrai.chat_scheduler import ChatScheduler
@@ -69,6 +71,7 @@ class GroupChat:
             return False
         turn, cfg, context, original, sender_id = claimed
         key = turn.group_id, turn.topic_id
+        started = perf_counter()
         try:
             partial = has_sent_text(turn)
             if turn.direct and not turn.response:
@@ -99,7 +102,7 @@ class GroupChat:
                 if not partial:
                     await self.contexts.remember_sent_context(session, turn, context)
                 sticker_options = await self.stickers.options(session, turn.group_id, cfg)
-            generated = await ChatGeneration(self.model, self.budget, self.tg).generate(
+            generated = await ChatGeneration(self.model, self.budget, self.tg, self.db).generate(
                 turn, cfg, context, sender_id, sticker_options
             )
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)
@@ -149,6 +152,9 @@ class GroupChat:
                     store_state(session, state_row, *key, state)
         finally:
             self.busy.discard(key)
+            async with self.db.transaction() as session:
+                await timing(session, turn.id, last_attempt_seconds=round(perf_counter() - started, 3),
+                             last_processed_at=now(), queue_seconds=round(max(0, now() - turn.created_at - (perf_counter() - started)), 3))
         return True
 
     async def loop(self):
@@ -195,6 +201,9 @@ class GroupChat:
                 select(ChatTurn)
                 .where(
                     ChatTurn.group_id == group_id,
+                    # Informational reasons stay on their turns. Only failures
+                    # need attention, and newer silence must not conceal them.
+                    ChatTurn.state.in_(("failed", "retraction_failed")),
                     ChatTurn.error != "",
                     ChatTurn.created_at >= now() - 86400,
                 )

@@ -123,7 +123,8 @@ async def test_existing_web_session_uses_current_group_roles_on_reads_writes_and
     client.cookies.set("purrai_session", "auto-session")
     client.headers["X-CSRF-Token"] = "auto-csrf"
     me = (await client.get("/api/me")).json()
-    assert me["id"] == 2 and not me["root"] and me["group_ids"] == [-1001]
+    assert me["id"] == 2 and not me["root"] and me["group_ids"] is None
+    assert [row["id"] for row in (await client.get("/api/groups")).json()] == [-1001]
     assert (await client.post("/api/groups/-1001/activate")).status_code == 200
     assert (
         await client.patch("/api/groups/-1001/settings", json={"settings": {"max_attempts": 4}})
@@ -134,13 +135,14 @@ async def test_existing_web_session_uses_current_group_roles_on_reads_writes_and
     assert (await client.post("/api/system/backup")).status_code == 403
     telegram.members[(-1001, 2)] = {"status": "member"}
     telegram.members[(-1002, 2)] = {"status": "administrator"}
-    assert (await client.get("/api/me")).json()["group_ids"] == [-1002]
+    assert [row["id"] for row in (await client.get("/api/groups")).json()] == [-1002]
     assert (await client.get("/api/groups/-1001/verifications")).status_code == 403
     assert (
-        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"})
+        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"}, headers={"Idempotency-Key": "revoked-rule-create"})
     ).status_code == 403
     telegram.members[(-1002, 2)] = {"status": "member"}
-    assert (await client.get("/api/me")).status_code == 403
+    assert (await client.get("/api/me")).status_code == 200
+    assert (await client.get("/api/groups")).json() == []
 
 
 async def test_unavailable_telegram_does_not_allow_automatic_management(env):

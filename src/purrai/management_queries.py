@@ -1,6 +1,6 @@
 """Shared administration read models for HTTP and Telegram."""
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from purrai.action_results import action_result
 from purrai.chat_budget import ChatBudget
@@ -8,9 +8,11 @@ from purrai.errors import ManagementError
 from purrai.models import Action, Group, Inbox, Meta, Rule, Verification, Violation, Whitelist, now
 from purrai.moderation_records import violation_actions
 from purrai.serialization import row_dict
+from purrai.record_versions import versioned
 from purrai.record_operations import permanently_banned, verification_operations, violation_operations
 from purrai.verification_state import ACTIVE
 from purrai.shared_policy import effective_rule, effective_rules
+from purrai.rule_presentation import describe_rule
 
 RECORD_MODELS = {
     "pending": Verification,
@@ -34,11 +36,18 @@ class ManagementQueries:
         result = []
         for row in rows:
             item = await action_result(session, row) if model is Action else row_dict(row)
+            if model in (Rule, Whitelist):
+                item = versioned(item)
             if model is Verification:
                 for key in ("answer_hash", "input_digits", "nonce"):
                     item.pop(key, None)
                 item["allowed_operations"] = verification_operations(item)
             if model is Violation:
+                from purrai.group_history import historical_source
+                item.update(await historical_source(session, row.group_id, row.message_id))
+                import json
+                correction = await session.get(Meta, f"violation-correction:{row.id}")
+                item["correction"] = json.loads(correction.value) if correction else None
                 item["actions"] = [
                     row_dict(a) for a in await violation_actions(session, row.group_id, row.id)
                 ]
@@ -61,12 +70,17 @@ class ManagementQueries:
         after=0,
         before=0,
         manual_only=False,
+        actor_id=None,
+        kind="",
+        query="",
+        system_only=False,
     ):
         await self.context.access.authorize(actor, group_id)
         model = self.model(model)
         if model is Rule:
             async with self.context.db.sessions() as session:
-                items = sorted(await effective_rules(session, group_id), key=lambda item: item["id"])
+                items = sorted([describe_rule(item) for item in await effective_rules(session, group_id)],
+                               key=lambda item: item["id"])
             start = (page_number - 1) * size if size is not None else 0
             return {"items": items[start:start + size] if size is not None else items,
                     "total": len(items), "page": page_number, "size": size}
@@ -76,13 +90,24 @@ class ManagementQueries:
         if state:
             filters.append(model.state == state)
         if user_id:
-            filters.append(model.user_id == user_id)
+            filters.append(or_(Action.user_id == user_id, Action.payload["result"]["user_id"].as_integer() == user_id)
+                           if model is Action else model.user_id == user_id)
         if after:
             filters.append(model.created_at >= after)
         if before:
             filters.append(model.created_at <= before)
         if manual_only:
             filters.append(Action.actor_id.is_not(None))
+        if model is Action:
+            if actor_id is not None:
+                filters.append(Action.actor_id == actor_id)
+            if system_only:
+                filters.append(Action.actor_id.is_(None))
+            if kind:
+                filters.append(Action.kind == kind)
+            if query.strip():
+                filters.append(or_(Action.reason.contains(query.strip(), autoescape=True),
+                                   Action.error.contains(query.strip(), autoescape=True)))
         order = (
             model.created_at.desc()
             if hasattr(model, "created_at")
@@ -106,27 +131,21 @@ class ManagementQueries:
         return result["items"], result["total"]
 
     async def load_record(self, session, group_id, model, identifier):
-        if model is Rule:
-            item = await effective_rule(session, group_id, identifier)
-            if item is None:
-                raise ManagementError(404, "规则不存在，请刷新列表")
-            return Rule(**{key: value for key, value in item.items() if key in Rule.__table__.columns})
         key = (group_id, int(identifier)) if model is Whitelist else identifier
         row = await session.get(model, key)
         if row is None or row.group_id != group_id:
             raise ManagementError(404, "记录不存在，请刷新列表")
         return row
 
-    async def single(self, actor, group_id, model, identifier):
-        await self.context.access.authorize(actor, group_id)
-        model = self.model(model)
-        async with self.context.db.sessions() as session:
-            return await self.load_record(session, group_id, model, identifier)
-
     async def detail(self, actor, group_id, model, identifier):
         await self.context.access.authorize(actor, group_id)
         model = self.model(model)
         async with self.context.db.sessions() as session:
+            if model is Rule:
+                item = await effective_rule(session, group_id, identifier)
+                if item is None:
+                    raise ManagementError(404, "规则不存在，请刷新列表")
+                return describe_rule(item)
             row = await self.load_record(session, group_id, model, identifier)
             return (await self.project(session, model, [row]))[0]
 
@@ -172,6 +191,17 @@ class ManagementQueries:
                 )
             ).all()
 
+    async def failed_page(self, actor, *, event=False, page_number=1, size=20):
+        await self.context.access.principal(actor, root=True)
+        model = Inbox if event else Action
+        async with self.context.db.sessions() as session:
+            count = await session.scalar(select(func.count()).select_from(model).where(model.state == "failed"))
+            rows = (await session.scalars(select(model).where(model.state == "failed").order_by(model.id)
+                .offset((page_number - 1) * size).limit(size))).all()
+            items = [{"id": row.id, "attempts": row.attempts, "error": row.error} for row in rows] if event else [
+                await action_result(session, row) for row in rows]
+            return {"items": items, "total": count, "page": page_number, "size": size}
+
     async def system(self, actor):
         await self.context.access.principal(actor, root=True)
         async with self.context.db.sessions() as session:
@@ -194,7 +224,7 @@ class ManagementQueries:
             result = {
                 "pending_actions": counts.get("pending", 0),
                 "failed_count": counts.get("failed", 0),
-                "failed_actions": [row_dict(row) for row in failed],
+                "failed_actions": [await action_result(session, row) for row in failed],
                 "failed_events": [
                     {"id": row.id, "error": row.error, "attempts": row.attempts} for row in events
                 ],
@@ -220,9 +250,30 @@ class ManagementQueries:
                     query = query.where((model.id if model is Group else model.group_id).in_(identifiers))
                 return await session.scalar(query)
 
+            reason_rows = func.json_each(Violation.reasons).table_valued("value")
+            advertising = select(reason_rows.c.value).where(
+                reason_rows.c.value.startswith("明确广告引流：")
+                | reason_rows.c.value.startswith("外群链接引流：")
+                | reason_rows.c.value.startswith("外部频道广告：")
+                | reason_rows.c.value.startswith("全局广告黑名单：")
+                | reason_rows.c.value.startswith("业务招揽短语，仅删除：")
+                | reason_rows.c.value.contains("关键词：")
+                | reason_rows.c.value.startswith("昵称＋正文组合：")
+                | reason_rows.c.value.startswith("禁止域名：")
+                | reason_rows.c.value.startswith("禁止引流账号：")
+                | reason_rows.c.value.startswith("分享联系人")
+            ).correlate(Violation).exists()
+            spam = select(reason_rows.c.value).where(reason_rows.c.value.in_(
+                ("重复刷屏", "近似内容刷屏", "短时间连续发送"))
+                | reason_rows.c.value.startswith("多账号重复刷屏：")).correlate(Violation).exists()
+            since = Violation.created_at >= now() - 86400
+
             return {
-                "groups": await count(Group),
-                "active_groups": await count(Group, Group.enabled.is_(True)),
+                "groups": await count(Group, Group.status != "migrated"),
+                "active_groups": await count(Group, Group.approved.is_(True), Group.enabled.is_(True),
+                                             Group.status == "active"),
+                "abnormal_groups": await count(Group, Group.approved.is_(True), Group.enabled.is_(True),
+                                               Group.status != "active"),
                 "pending": await count(Verification, Verification.state.in_(ACTIVE)),
                 "passed_today": await count(
                     Verification, Verification.state == "passed", Verification.updated_at >= now() - 86400
@@ -231,5 +282,8 @@ class ManagementQueries:
                     Verification, Verification.state == "failed", Verification.updated_at >= now() - 86400
                 ),
                 "violations_today": await count(Violation, Violation.created_at >= now() - 86400),
+                "advertising_today": await count(Violation, since, advertising),
+                "spam_today": await count(Violation, since, spam),
+                "other_policy_today": await count(Violation, since, ~advertising, ~spam),
                 "failed_actions": await count(Action, Action.state == "failed"),
             }

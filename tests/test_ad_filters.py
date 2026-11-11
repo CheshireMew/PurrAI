@@ -271,6 +271,7 @@ async def test_http_rule_preview_distinguishes_name_mute_and_message_deletion_an
     response = await client.post(
         "/api/groups/-1001/rules",
         json={"kind": "keyword", "value": "同城", "mode": "pinyin", "scope": "name"},
+        headers={"Idempotency-Key": "name-preview-create"},
     )
     assert response.status_code == 200
     response = await client.post(
@@ -279,7 +280,8 @@ async def test_http_rule_preview_distinguishes_name_mute_and_message_deletion_an
     assert response.status_code == 200
     assert response.json()["mute_member"] and response.json()["delete_message"]
     response = await client.post(
-        "/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告", "scope": "message"}
+        "/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告", "scope": "message"},
+        headers={"Idempotency-Key": "message-preview-create"},
     )
     assert response.status_code == 200
     response = await client.post(

@@ -29,14 +29,15 @@ async def test_authorization_csrf_expiration_and_revocation(env, client):
     assert (await client.get("/api/admins")).status_code == 403
     assert (await client.get("/api/groups/-1002/rules")).status_code == 403
     assert (
-        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"})
+        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"}, headers={"Idempotency-Key": "create-first-rule"})
     ).status_code == 403
     client.headers["X-CSRF-Token"] = "other-csrf"
     assert (
-        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"})
+        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"}, headers={"Idempotency-Key": "create-first-rule"})
     ).status_code == 200
     telegram.members[(-1001, 2)] = {"status": "member"}
-    assert (await client.get("/api/me")).status_code == 403
+    assert (await client.get("/api/me")).status_code == 200
+    assert (await client.get("/api/groups")).json() == []
     async with database.transaction() as session:
         login = await session.get(Session, hashlib.sha256(b"other").hexdigest())
         login.expires_at = 0
@@ -44,7 +45,7 @@ async def test_authorization_csrf_expiration_and_revocation(env, client):
 
 
 async def test_rules_preview_and_whitelist(client):
-    response = await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"})
+    response = await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"}, headers={"Idempotency-Key": "rules-preview-create"})
     assert response.status_code == 200
     identifier = response.json()["id"]
     assert (await client.post("/api/groups/-1001/rules/preview", json={"text": "广告"})).json()["reasons"]
@@ -52,12 +53,14 @@ async def test_rules_preview_and_whitelist(client):
         await client.put(
             f"/api/groups/-1001/rules/{identifier}",
             json={"kind": "keyword", "value": "广告", "enabled": False},
+            headers={"Idempotency-Key": "rules-preview-disable", "If-Match": response.json()["version"]},
         )
     ).status_code == 200
     assert not (await client.post("/api/groups/-1001/rules/preview", json={"text": "广告"})).json()["reasons"]
-    assert (await client.put("/api/groups/-1001/whitelist", json={"user_id": 42})).status_code == 200
+    added = await client.put("/api/groups/-1001/whitelist", json={"user_id": 42}, headers={"Idempotency-Key": "white-create-once", "If-Match": "missing"})
+    assert added.status_code == 200
     assert len((await client.get("/api/groups/-1001/whitelist")).json()) == 1
-    assert (await client.delete("/api/groups/-1001/whitelist/42")).status_code == 200
+    assert (await client.delete("/api/groups/-1001/whitelist/42", headers={"Idempotency-Key": "white-remove-once", "If-Match": added.json()["version"]})).status_code == 200
 
 
 async def test_login_not_configured_and_health(client):
@@ -128,7 +131,7 @@ async def test_authorized_group_admin_write_succeeds_only_in_own_group(env, clie
     client.cookies.set("purrai_session", "authorized")
     client.headers["X-CSRF-Token"] = "authorized-csrf"
     assert (
-        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"})
+        await client.post("/api/groups/-1001/rules", json={"kind": "keyword", "value": "广告"}, headers={"Idempotency-Key": "authorized-create-rule"})
     ).status_code == 200
     assert len((await client.get("/api/groups")).json()) == 1
     assert (await client.post("/api/groups/-1001/activate")).status_code == 200

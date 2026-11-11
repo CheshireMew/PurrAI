@@ -80,10 +80,8 @@ def install_auth(app):
         from urllib.parse import urlencode
 
         settings = request.app.state.settings
-        try:
-            await request.app.state.management.principal(user_id)
-        except ManagementError as exc:
-            return RedirectResponse("/?" + urlencode({"login_error": str(exc)}))
+        # Telegram authentication establishes identity only. Every group read
+        # and write still checks the current role at its owning boundary.
         async with request.app.state.db.transaction() as session:
             if button_key:
                 from sqlalchemy import delete

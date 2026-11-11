@@ -43,7 +43,8 @@ async def test_shared_rules_apply_to_all_groups_and_edits_only_override_current_
     async with db.transaction() as session:
         group = await discover(session, {"id": -1002, "title": "第二群", "type": "supergroup"})
         group.approved, group.enabled = True, True
-    await manager.rule(1, -1001, RuleInput(kind="keyword", value="本群测试词", enabled=False), identifier)
+    original = (await client.get('/api/groups/-1001/rules')).json()[0]
+    await manager.rule(1, -1001, RuleInput(kind="keyword", value="本群测试词", enabled=False), identifier, expected_version=original["version"])
     local = await client.get('/api/groups/-1001/rules')
     assert local.status_code == 200 and local.json()[0]["id"] == identifier and not local.json()[0]["enabled"]
     async with db.sessions() as session:
@@ -55,9 +56,10 @@ async def test_shared_rules_apply_to_all_groups_and_edits_only_override_current_
     await drain(svc)
     assert tg.members[(-1002, 42)]["until_date"] == 0
     assert not tg.members[(-1002, 42)]["can_send_messages"]
-    detail = await manager.queries.single(1, -1001, "rule", identifier)
-    assert detail.group_id == -1001 and detail.value == "本群测试词"
-    await manager.rules.inherit(1, -1001, identifier)
+    detail = await manager.queries.detail(1, -1001, "rule", identifier)
+    assert detail["group_id"] == -1001 and detail["value"] == "本群测试词"
+    current = (await client.get('/api/groups/-1001/rules')).json()[0]
+    await manager.rules.inherit(1, -1001, identifier, current["version"])
     async with db.sessions() as session:
         assert (await effective_rules(session, -1001))[0]["value"] == "通用测试词"
 

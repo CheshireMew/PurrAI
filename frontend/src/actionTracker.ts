@@ -19,6 +19,9 @@ type FetchStatuses = (ids: string[]) => Promise<ActionStatuses>
 export class ActionTracker {
   items: ActionRow[] = []
   refreshing = false
+  private retryAt = 0
+  private failures = 0
+  private cycleFailed = false
 
   private fetchAction: FetchAction
   private fetchStatuses?: FetchStatuses
@@ -45,8 +48,9 @@ export class ActionTracker {
   }
 
   async refresh(includeFinished = false) {
-    if (this.refreshing) return
+    if (this.refreshing || Date.now() < this.retryAt) return
     this.refreshing = true
+    this.cycleFailed = false
     try {
       const pending = this.items.filter(item => includeFinished || item.state === 'pending')
       for (let start = 0; start < pending.length; start += 50) {
@@ -61,18 +65,24 @@ export class ActionTracker {
             }
           } catch (error) {
             for (const item of items) this.failed(item, error)
+            break
           }
         } else {
           for (const item of items) {
             try { Object.assign(item, await this.fetchAction(item.id), { tracking_error: '' }) }
-            catch (error) { this.failed(item, error) }
+            catch (error) { this.failed(item, error); break }
           }
         }
       }
+      if (!this.cycleFailed) { this.failures = 0; this.retryAt = 0 }
     } finally { this.refreshing = false }
   }
 
   private failed(item: ActionRow, error: unknown) {
+    if (!this.cycleFailed) this.failures++
+    this.cycleFailed = true
+    this.retryAt = Math.max(this.retryAt, Date.now() + Math.max(error instanceof ApiError ? error.retryAfter * 1000 : 0,
+      Math.min(60000, 1000 * 2 ** Math.min(this.failures, 6))))
     // An unavailable status never discards the receipt or resubmits the operation.
     item.tracking_error = `任务已提交，结果暂时无法刷新：${error instanceof Error ? error.message : '连接失败'}`
     if (error instanceof ApiError && error.status === 401) throw error

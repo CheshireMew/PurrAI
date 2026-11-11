@@ -16,7 +16,9 @@ from purrai.chat_state import (
 from purrai.models import ChatMessage, ChatTurn, Group, now
 from purrai.rules import message_content
 from purrai.schemas import GroupSettings
+from purrai.sender_identity import sender_name
 from purrai.stickers import sticker_text
+from purrai.chat_telemetry import observation
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,17 @@ class ChatObservation:
             if reasons:
                 image = False
                 logger.info("聊天输入已拦截 group=%s message=%s reasons=%s", group_id, message_id, reasons)
+            topic = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
+            if cfg.chat_enabled and self.settings.chat_ready and sender.get("id"):
+                explanation = ("聊天忽略口令" if command else "；".join(reasons) if reasons else
+                    "目标成员或消息已受限" if not allowed else "图片不可读取，未直接叫到机器人" if image and not direct else
+                    "消息已超过处理时限" if now() - message["date"] > 120 else
+                    "主动参与已关闭，未直接叫到机器人" if not cfg.chat_proactive and not direct else
+                    "编辑或重复收到的消息，不新建回复" if edited or row else
+                    "消息不属于可参与的普通文字对话" if not eligible else "已进入聊天调度，等待模型判断")
+                await observation(session, group_id, message_id, topic,
+                                  "queued" if eligible and not (edited or row) and (cfg.chat_proactive or direct)
+                                  and not (image and not direct) and now() - message["date"] <= 120 else "filtered", explanation)
             if row:
                 row.text, row.eligible = text[:1600], eligible
                 row.reply_text = reply_snapshot(message, direct=direct)
@@ -98,9 +111,7 @@ class ChatObservation:
                 topic_id=topic_id,
                 message_id=message_id,
                 sender_id=sender["id"],
-                sender_name=" ".join(filter(None, [sender.get("first_name"), sender.get("last_name")]))[
-                    :100
-                ],
+                sender_name=sender_name(sender, limit=100),
                 text=text[:1600],
                 reply_to_id=reply.get("message_id", 0),
                 reply_text=reply_snapshot(message, direct=direct),

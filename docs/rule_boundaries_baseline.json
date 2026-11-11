@@ -1,0 +1,1204 @@
+{
+  "format": 2,
+  "created_at": "2026-11-11",
+  "purpose": "Authorized migration of all three legacy business modules to editable SharedPolicy data; adapters contain no business patterns.",
+  "adapter_ast": {
+    "src/purrai/advertising_patterns.py": "81412a9f62f6a918330c94052e8d9bcc74ba5b876e95eb253b1d88f961e9b3ce",
+    "src/purrai/chat_input.py": "0c53fea217951d5d445b934e7ed3b7fb7f9035050d0479e7e8b38b51a09bdbc8",
+    "src/purrai/solicitation_rules.py": "6d97d744ab13e14b302bb479ddde1074987f631e13bb50acc3a1558a210e02ea"
+  },
+  "seed_sha256": "21c56a6c7419a94ec0e2fca390dcc6709782cf9650d1eff1cd26e169757fcb72",
+  "entries": [
+    {
+      "path": "src/purrai/bot_auto_reply_panels.py",
+      "scope": "AutoReplyPanels.route",
+      "kind": "matching-data",
+      "digest": "cb32acf0774a9454080818812695293d456b54527e4ea66c0b5e1e07b957ff26",
+      "line": 69,
+      "review": "2026-11-11: Input instructions for the user-requested reply editor; dictionary keys are UI fields. Trigger keywords and responses come only from AutoReply database rows.",
+      "examples": [
+        "请发送优先级，0 至 1000，数值越大越优先。",
+        "请发送冷却秒数，0 至 86400。0 表示不冷却。",
+        "请发送完整的回复文字，最多 4000 个字符，支持换行，按纯文字发送。\n当前内容：\n",
+        "请发送新的触发关键词，最多 250 个字符。"
+      ]
+    },
+    {
+      "path": "src/purrai/action_delivery.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "52e8596a6f8af1e1becdef9329fe85a8abbfb5d835785bcacbe1f3c41ede9b73",
+      "line": 7,
+      "examples": [
+        "发送结果未确认，为避免重复操作未重发；请先核实 Telegram 中的结果，再按需重新发起"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "791e956216059d5217ee4ff7bc669c6c326d1792516dac38ce0a5a85217b4b9c",
+      "line": 3,
+      "examples": [
+        "保护中",
+        "失败",
+        "已人工核实",
+        "已升级为超级群",
+        "已取消"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "38efd50fa2f2b6ba97a2cf755a1562a60c395affcf5c653aca099065ca64aa79",
+      "review": "2026-11-11: User-requested keyword auto-replies add two operation display labels only; no trigger words or matching decisions.",
+      "line": 24,
+      "examples": [
+        "临时封禁",
+        "临时应急保护",
+        "临时禁言",
+        "人工核实发送结果",
+        "修改归档额度"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "1aa863ba3ffc7a7ac2e16f81b5fecc872b223d922633336b47d5937bfef286f4",
+      "line": 75,
+      "examples": [
+        "已踢出并禁止重新加入",
+        "已踢出，可重新加入",
+        "拒绝入群申请",
+        "拒绝申请未完成，请核实申请与机器人权限",
+        "拒绝申请结果未确认，请核实 Telegram 中的结果"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "b3b2f75eb2da164a3c7c4edcf0dcb447a1ac42d933d929020a9494d8be4ee33b",
+      "line": 86,
+      "examples": [
+        "只拦截广告联系人名片",
+        "图片验证",
+        "外群链接、外部频道引用及转发永久封禁",
+        "外部私密邀请统一封禁",
+        "多账号重复刷屏检测"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "34d00d263e769e864af5495fbca6fc88a40013ff302d2fca0afc6e207d553e1a",
+      "line": 107,
+      "examples": [
+        "临时应急保护持续时间（秒）",
+        "前几条消息继续观察（0 关闭）",
+        "发图及表情前独立文字条数（0 关闭）",
+        "多账号刷屏最短内容长度",
+        "多账号刷屏统计窗口（秒）"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "f7141e473822aff848013ece43d9c7f9754950e921d8abb268ac46e75bb0c432",
+      "line": 132,
+      "examples": [
+        "允许域名",
+        "允许提及账号",
+        "关键词",
+        "推广目标黑名单",
+        "禁止域名"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "7256210dedf91462d4980eb11702bc3f21a412b8d94f0baf879c83ba156c6d89",
+      "line": 142,
+      "examples": [
+        "包含",
+        "完整",
+        "忽略表情和分隔符",
+        "谐音"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "74b4a33fc2aec73a7513aa8c137d3d0298c0a7be61b612530bfca48b1a971f4e",
+      "line": 145,
+      "examples": [
+        "昵称及用户名",
+        "昵称或正文",
+        "昵称＋正文组合",
+        "正文"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "28f7e11f64f0a358fc396ca3f2099570916f9178bc1002f9c43b48d538036680",
+      "line": 153,
+      "examples": [
+        "主动接话检查间隔（秒）",
+        "口令识别例外（每行一条，- 清空）",
+        "口令识别次数（7 天内，至少 3 位群友）",
+        "性格与说话习惯",
+        "最近消息条数"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "2bf020c10435950cdae155621f5cfb57210cb7e2121713b994acadceb2f82084",
+      "line": 168,
+      "examples": [
+        "主动接话检查间隔",
+        "口令识别例外",
+        "口令识别次数",
+        "性格与说话习惯",
+        "最近消息条数"
+      ]
+    },
+    {
+      "path": "src/purrai/backup_management.py",
+      "scope": "BackupManagement.path",
+      "kind": "matching-call",
+      "digest": "d8eda0f9b0fb41e1ff58477b11fbb80be9ea2aef4843e1f5d7a20a123f4e15a3",
+      "line": 52,
+      "examples": [
+        "purrai-\\d{8}-\\d{6}-\\d{6}\\.sqlite3"
+      ]
+    },
+    {
+      "path": "src/purrai/backup_management.py",
+      "scope": "BackupManagement.status",
+      "kind": "matching-call",
+      "digest": "bcbf83c5f70c88b10308d93b6e0cb79dedae139fc0b03f66883fca65b4f20ca5",
+      "line": 73,
+      "examples": [
+        "purrai-\\d{8}-\\d{6}-\\d{6}\\.sqlite3"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_archive_panels.py",
+      "scope": "ArchivePanels.archive_detail",
+      "kind": "matching-data",
+      "digest": "670fa2390de1115758a9abb63a41e084bd292961e5cfb70db9e5b60c43b6ccc7",
+      "line": 66,
+      "examples": [
+        "PurrAI 已确认删除",
+        "删除失败",
+        "执行删除时已不存在",
+        "未由 PurrAI 发起删除，是否仍在群内未知",
+        "等待删除"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_common.py",
+      "scope": "duration_reason",
+      "kind": "matching-call",
+      "digest": "0a560d0f11f6bde10f7ef81fe593570c41c92c5879e88c92a74b6259799f9110",
+      "line": 16,
+      "examples": [
+        "^(\\d+)(s|m|h|d|秒|分|分钟|小时|天)(?:\\s+|$)"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_common.py",
+      "scope": "duration_reason",
+      "kind": "matching-data",
+      "digest": "b7250cddae52bfabc599bde23647d04f9627a66d3ad1982becc5b1c755db48f1",
+      "line": 19,
+      "examples": [
+        "分钟",
+        "小时"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_common.py",
+      "scope": "keyboard_rows",
+      "kind": "string-match",
+      "digest": "a56ede0c84bf21b600436c10db85dd2a89b2b1948639c79a4ba6f66982a5ddeb",
+      "line": 30,
+      "examples": [
+        "切换群",
+        "取消",
+        "返回"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_common.py",
+      "scope": "explain",
+      "kind": "matching-data",
+      "digest": "71fc1987275335920dd35bc6512830384b2b415cd24d771541887bb33e19ba8b",
+      "line": 61,
+      "examples": [
+        "原因",
+        "备注",
+        "用户 ID",
+        "管理员 ID",
+        "管理员备注"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.prompt",
+      "kind": "matching-data",
+      "digest": "82c82aa8fd9e44cb3fab38d8d8af07eafaed8fbcd7328329ba612acf40f88563",
+      "line": 44,
+      "examples": [
+        " 个，可返回面板查看。",
+        "。性格直接用自然语言描述即可。",
+        "当前已有 ",
+        "当前已有  个，可返回面板查看。",
+        "现有规则内容作为昵称关键词。请发送正文中还需同时命中的关键词。昵称和正文同时命中时永久禁言并删消息。"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.confirmation",
+      "kind": "matching-data",
+      "digest": "f75ae8a158017065cdcae3f0affe73f79b2ec7951855aa5d1bcd33fa360d7a3a",
+      "line": 73,
+      "examples": [
+        "批量放行所有正在验证的成员",
+        "移出白名单"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.input",
+      "kind": "comparison",
+      "digest": "9ae85d3af624a98f19f7d05226999e0fa0e9e08fd2945e10fe10085526ad1f90",
+      "line": 144,
+      "examples": [
+        "已完成",
+        "未完成"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.input",
+      "kind": "comparison",
+      "digest": "08c95408833b59925970bab0108962bcd852987016b725e27ce50980adf625db",
+      "line": 147,
+      "examples": [
+        "已完成"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.input",
+      "kind": "string-match",
+      "digest": "07195818bec5da40c470668fc5f89893c4cbb1fd164ab26fcc7df72d48f5cca5",
+      "line": 258,
+      "examples": [
+        "昵称:"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_input.py",
+      "scope": "BotInput.input",
+      "kind": "string-match",
+      "digest": "002c4957d62398ccf90a57a79a7c5ee48d724848873d332cd82f1a56ae6bdbfb",
+      "line": 258,
+      "examples": [
+        "昵称："
+      ]
+    },
+    {
+      "path": "src/purrai/bot_member_panels.py",
+      "scope": "MemberPanels.detail",
+      "kind": "matching-data",
+      "digest": "ea3c8e4092d063621f76a345f062d19460f8257f48874a02a9ff47b22ff0f644",
+      "line": 13,
+      "examples": [
+        "受限制",
+        "已离群",
+        "正常成员",
+        "管理员",
+        "群主"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_operations_panels.py",
+      "scope": "OperationsPanels.route",
+      "kind": "matching-data",
+      "digest": "56c7e88b22af3ad3a54e63566e6b6f8397114c0c30d35de95175afe91fb0a753",
+      "line": 30,
+      "examples": [
+        "群聊天诊断 · 最近任务"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_operations_panels.py",
+      "scope": "OperationsPanels.route",
+      "kind": "matching-data",
+      "digest": "ceb22cf3ce88ef06c70f2f33b67ba38d7d60032fd779e40264931cfff41acc69",
+      "line": 53,
+      "examples": [
+        "备份计划与文件",
+        "整理只作用于本计划创建且未被修改的旧文件；共享和外来备份保留。"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_policy_panels.py",
+      "scope": "PolicyPanels.field",
+      "kind": "matching-data",
+      "digest": "9ebf6182ee4ae81e6bddfcaae41713105b9eac93b3bf8dc2e418197a4ed1c53f",
+      "line": 93,
+      "examples": [
+        "永久禁言（留群）",
+        "踢出（允许重新加入）"
+      ]
+    },
+    {
+      "path": "src/purrai/bot_record_panels.py",
+      "scope": "RecordPanels.list_panel",
+      "kind": "matching-data",
+      "digest": "10a95ef825cb0559bddb5239f2be8a388d1448a85b6761b0ad64ff2c449fac4f",
+      "line": 15,
+      "examples": [
+        "广告规则",
+        "待验证成员",
+        "操作记录",
+        "白名单",
+        "违规记录"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_budget.py",
+      "scope": "ChatBudget.reserve",
+      "kind": "matching-data",
+      "digest": "2bc0a2d60be3b9b11a34b9e091f07e46cc575939d50044ed2040d2a1d4a5b5bc",
+      "line": 83,
+      "examples": [
+        "全部群",
+        "本群",
+        "这位成员"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "165c6930a2648cf1cb2cb13ad1a502f9e3acd7ed9988ab512c187a628903fbb2",
+      "line": 15,
+      "examples": [
+        "(?:发)?积分红包\\s*\\d+(?:\\.\\d+)?(?:\\s+\\d+)?"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "3f7c991b0ee1470239185d50a0cefb77f71d3cbdb52c241ff28a9ad87c39a874",
+      "line": 16,
+      "examples": [
+        "@([a-z0-9_]+bot)\\s+(.+)"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "67410de3a38b1871304175b169f8e38a24f4adaa1e5916a9b35e726bde191411",
+      "line": 18,
+      "examples": [
+        "(?:查询|查看|领取|兑换|刷新|我的|每日|今日|个人|群)?(?:积分|余额|金币|贡献|等级|经验|账户|背包|红包|抽奖|转盘|任务|奖励|签到|运势)(?:查询|排行|排名|明细|记录|中心|列表|商店|统计|转盘)?"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "utility_command",
+      "kind": "comparison",
+      "digest": "464443a8a98dbe790309ca2c8d92513c8527462ce140debb4ed95ba58c28b7ce",
+      "line": 31,
+      "examples": [
+        "积分排行"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_model.py",
+      "scope": "ChatModel.reply",
+      "kind": "comparison",
+      "digest": "852827805f6c604a5a30320a3ac9076f802e79a735a6e8d736cb70fc4f787b3a",
+      "line": 48,
+      "examples": [
+        "max_completion_tokens"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_model.py",
+      "scope": "ChatModel.reply",
+      "kind": "matching-data",
+      "digest": "34017f95f60d81279f2a511b2f715d81fddfa8e414edf4378ca667b2e824876c",
+      "line": 63,
+      "examples": [
+        "API Key 无效",
+        "API 地址或模型不存在",
+        "API 无权访问",
+        "API 限流或额度不足"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_safety.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "b810db96f8d23c81405132d34dae620f679b938e1fd97d8a048aefd948333263",
+      "line": 10,
+      "examples": [
+        "[a-z][a-z0-9+.-]*://[^\\s<>]+|(?:mailto|tg|data|javascript):[^\\s<>]+|(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/[^\\s<>]*)?|(?<![\\w@.-])(?:[\\w.+-]+@)?(?:[^\\W_][\\w-]*\\.)+(?:[^\\W\\d_][\\w-]+)(?::\\d+)?(?:/[^\\s<>]*)?"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_safety.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "3c2e56fdee7ea4f007a2f87b0b3a7f8f55418375547a44e44a08d303fdca571b",
+      "line": 17,
+      "examples": [
+        "(?:^|\\s)/(?:ban|mute|unban|unmute|release|reissue)(?:@[a-z0-9_]+)?(?=\\s|$)|(?:^|[\\n。！？])\\s*[【\\[]?(?:系统|管理员|群主|官方)(?:公告|通知|指令)[】\\]]?\\s*[:：]|(?:我(?:已经?|刚刚)|已成功)(?:将|把)[^。！？\\n]{0,40}(?:禁言|封禁|踢出|移出)|(?:我(?:已经?|刚刚)|已成功)(?:永久)?(?:禁言|封禁|踢出|移出|解除了?禁言|解除了?封禁)|\\b(?:I(?:'ve| have)|successfully)\\s+(?:banned|muted|kicked|unbanned|unmuted)\\b"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_state.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "a6ab65f9a4b8dc1751f058fdb41165689545d5ed5731b2285a75100dfb0eafae",
+      "line": 16,
+      "examples": [
+        "[无法读取的图片]"
+      ]
+    },
+    {
+      "path": "src/purrai/cli.py",
+      "scope": "<module>",
+      "kind": "comparison",
+      "digest": "09441feae21572eaa763a32bdde854389ae462cfe8cc8808b2afea5c6fe90aa2",
+      "line": 163,
+      "examples": [
+        "__main__"
+      ]
+    },
+    {
+      "path": "src/purrai/db.py",
+      "scope": "Database.__init__",
+      "kind": "comparison",
+      "digest": "79e57c886e5acb0b2b621c15a4d0da090339be44ef640de096f8dc480791638b",
+      "line": 25,
+      "examples": [
+        ":memory:"
+      ]
+    },
+    {
+      "path": "src/purrai/diagnostics.py",
+      "scope": "safe_text",
+      "kind": "matching-call",
+      "digest": "4112e55069494413ccfaebc36445eb9001054a9ff1e3016707e3e91a25b39447",
+      "line": 41,
+      "examples": [
+        "(?i)(bearer\\s+)[^\\s,;]+"
+      ]
+    },
+    {
+      "path": "src/purrai/diagnostics.py",
+      "scope": "safe_text",
+      "kind": "matching-call",
+      "digest": "d6c772f0b3f1564e7ff81ef4315c8ec508a135d3c8822631665910f937bf3561",
+      "line": 42,
+      "examples": [
+        "(?i)(https?://)[^\\s/@]+:[^\\s/@]+@"
+      ]
+    },
+    {
+      "path": "src/purrai/diagnostics.py",
+      "scope": "safe_text",
+      "kind": "matching-call",
+      "digest": "8bb4da8d15d9d29a527ab2c47f000df29c0297d3c0722c47c0ff4ad6de00e3dc",
+      "line": 43,
+      "examples": [
+        "(?i)((?:token|api[_-]?key|secret|password|authorization|cookie)\\s*[=:]\\s*)[^\\s,;]+"
+      ]
+    },
+    {
+      "path": "src/purrai/emoji_status.py",
+      "scope": "EmojiStatusGuard.resolve",
+      "kind": "comparison",
+      "digest": "866ea4695965e965bd96e80da32ae26483cdfe792e414998f3def935e69bcf1d",
+      "line": 77,
+      "examples": [
+        "private"
+      ]
+    },
+    {
+      "path": "src/purrai/frontend_build.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "0a8c55c00abeba762e46e86d81a992cbaceda6e6ef3b51cecff052d712f27b94",
+      "line": 9,
+      "examples": [
+        "前端构建缺失或已过期，请在 frontend 目录执行 npm run build。"
+      ]
+    },
+    {
+      "path": "src/purrai/frontend_build.py",
+      "scope": "FrontendBuild.status",
+      "kind": "matching-data",
+      "digest": "f71d22d5c840d31be69a73aaabe281be390df4bf3d9751d48047fe3a830f0b7f",
+      "line": 42,
+      "examples": [
+        "当前构建已核对"
+      ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.update",
+      "kind": "comparison",
+      "digest": "457d0453b1863ef82cef3a445e967eaf44bd275d4469a48d3448a18791d618e3",
+      "line": 51,
+      "examples": [
+        "join_requests"
+      ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.change_status_packs",
+      "kind": "comparison",
+      "digest": "7b49805bd81b4d9179de22c3f87c73c914fc2e0df4b7112b9b9245c8e9c7be5b",
+      "line": 91,
+      "examples": [
+        "add"
+      ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.change_status_packs",
+      "kind": "comparison",
+      "digest": "7b49805bd81b4d9179de22c3f87c73c914fc2e0df4b7112b9b9245c8e9c7be5b",
+      "line": 102,
+      "examples": [
+        "add"
+      ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.change_status_packs",
+      "kind": "comparison",
+      "digest": "b57cc56671efffdd6c1ea41d99a7ed3bbf8415de5c7e9728e12a0cd5fae0e899",
+      "line": 104,
+      "examples": [
+        "remove"
+      ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.shared",
+      "kind": "comparison",
+      "digest": "8b6e8b18d89cfec85f661c1fa6b0e002a5bee72e9294135f2101d93a130b77fd",
+      "line": 166,
+      "examples": [
+        "emoji_status_blocked_packs"
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "239a53472131325b133d6bab60356e7b64fcce05fa9221ea205f07da0b01c8be",
+      "line": 255,
+      "examples": [
+        "明确广告引流："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "74b962fc225c114154e2b5cc786572b266a2a2aa9d6274322fa1d9535de54c98",
+      "line": 256,
+      "examples": [
+        "外群链接引流："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "73cee314944f24a42ebe19b651c590d2bacdb1181534e42eadfab4adf43d97cf",
+      "line": 257,
+      "examples": [
+        "外部频道广告："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "8e8261a517ebd454ea9d228deada1f0904285d2806ad228198733476d9923d7e",
+      "line": 258,
+      "examples": [
+        "全局广告黑名单："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "9f40f266591e1f59b1528267f661b22678ede0db21fffa6895e40d61fea6fc4a",
+      "line": 259,
+      "examples": [
+        "业务招揽短语，仅删除："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "71813f9aaecf1b6415619dda2c038c70d671db13d7b8e58f806f56a5cba73bc4",
+      "line": 261,
+      "examples": [
+        "昵称＋正文组合："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "0b94ceef2cfe0f4e2626e94ed8335e9a65ae7311ffd15aca4b16285b629fb645",
+      "line": 262,
+      "examples": [
+        "禁止域名："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "95f20d15c1d6004c4ef94c8e912605a89ed8fec8d78f63a382bf1fe525145598",
+      "line": 263,
+      "examples": [
+        "禁止引流账号："
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "934f4592eddc5b8cd002f1801c5612d8e9c2cc76dac9c8088f3a265112e20ba5",
+      "line": 264,
+      "examples": [
+        "分享联系人"
+      ]
+    },
+    {
+      "path": "src/purrai/management_queries.py",
+      "scope": "ManagementQueries.dashboard",
+      "kind": "string-match",
+      "digest": "122dc66d2da8418c98e15b5e65c5346c98d690f01f0b849534ebea1557396814",
+      "line": 268,
+      "examples": [
+        "多账号重复刷屏："
+      ]
+    },
+    {
+      "path": "src/purrai/media_gate.py",
+      "scope": "media_gate_exemption",
+      "kind": "string-match",
+      "digest": "0c49f53595ca1f1be41cae748dcc21b3fd4245e3eb50ef4f8d4be1ca086a0059",
+      "line": 199,
+      "examples": [
+        "独立文字发言不足 "
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "a78e51c31eaa3de2694ef88dc28abb8fe0ff209da230fddec584bd92263b90a8",
+      "line": 39,
+      "examples": [
+        "manual:",
+        "manual::"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "6096c4a19cda82a012590f7e9a52821acc9001e9900de1196805d8a8c46b99bd",
+      "line": 42,
+      "examples": [
+        "reissue"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "66a3ae617a08a83caecc88b45c78be79228c94417bbe4b7da053efdaa879733b",
+      "line": 51,
+      "examples": [
+        "reissue",
+        "release"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "fbce63fc196a85967a18a40a9207d4bd152db1e77a5ea15991cafb310107532a",
+      "line": 53,
+      "examples": [
+        "unban"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "8c3902b66064e1f44181408010ef588aec82b2b177bc777959941e1a8f447e75",
+      "line": 55,
+      "examples": [
+        "ban",
+        "reissue",
+        "release",
+        "unban"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "a6f1d05def47cbbf557df0913627f87556a72f4df081340a7dd056e53857c9dd",
+      "line": 60,
+      "examples": [
+        "unban"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "6096c4a19cda82a012590f7e9a52821acc9001e9900de1196805d8a8c46b99bd",
+      "line": 75,
+      "examples": [
+        "reissue"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.release_pending",
+      "kind": "comparison",
+      "digest": "f6561c9fbb6d5a930bc3a8754889320c94e22ae26ecd6df5b258cd5e9f41c10f",
+      "line": 121,
+      "examples": [
+        "release"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.violation_action",
+      "kind": "comparison",
+      "digest": "614613e4ac96f8e02b480c36a8434e4d5c118fa7ea636ab3e2f03520e969ab05",
+      "line": 171,
+      "examples": [
+        "revoke_warning",
+        "unban",
+        "unmute"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.violation_action",
+      "kind": "comparison",
+      "digest": "5e9f8a51fc8d5d982af760ea731fe9d1701dcc7f23ed86a5cba6a9ed5c05e195",
+      "line": 174,
+      "examples": [
+        "correction:",
+        "correction::"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.violation_action",
+      "kind": "comparison",
+      "digest": "4a00750f03576e6a72933c5017d85049e800623e92034dd9179e96b1e411ee1b",
+      "line": 181,
+      "examples": [
+        "unban",
+        "unmute"
+      ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.violation_action",
+      "kind": "comparison",
+      "digest": "03a4381f8c020569c33ed2b13dd26ad4ca500a7816a7d577882d24d53292a49d",
+      "line": 203,
+      "examples": [
+        "revoke_warning"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation.py",
+      "scope": "Moderation.moderate_message",
+      "kind": "string-match",
+      "digest": "7ce68bcbecfbd24e11fcfd0d6bd0b24ba43189bdad3f0fd741df243aa3082836",
+      "line": 166,
+      "examples": [
+        "全局广告黑名单："
+      ]
+    },
+    {
+      "path": "src/purrai/notification_actions.py",
+      "scope": "NotificationActions.notify",
+      "kind": "matching-data",
+      "digest": "90814ee7c78ce483e1864eca04841889ec58d0c5f65113a92e675822f49361c7",
+      "line": 54,
+      "examples": [
+        " · 执行结果",
+        "PurrAI ·  · 执行结果"
+      ]
+    },
+    {
+      "path": "src/purrai/pack_names.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "9c616b77fb18729e1bc625a4988f47590585339590e5f7efef8f73e55a163523",
+      "line": 6,
+      "examples": [
+        "bygbb666",
+        "gshechaba",
+        "tgvip_16"
+      ]
+    },
+    {
+      "path": "src/purrai/promotion_targets.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "c1e83f1200fa7282f9056d37d4a428b0026622c995aabddab485678608000405",
+      "line": 9,
+      "examples": [
+        "全局广告黑名单："
+      ]
+    },
+    {
+      "path": "src/purrai/promotion_targets.py",
+      "scope": "advertised_targets",
+      "kind": "matching-call",
+      "digest": "fd57af218a17e8591d0a0741d142768b7bc30da7c2ad93bbab77cbb38956d984",
+      "line": 149,
+      "examples": [
+        "(?:电话|手机|联系电话|tel|phone|whatsapp)[ :：]*([+0-9][0-9 ()-]{6,24}[0-9])"
+      ]
+    },
+    {
+      "path": "src/purrai/promotion_targets.py",
+      "scope": "remember_targets",
+      "kind": "string-match",
+      "digest": "85495bb10cdfb6a96418acfe1f10dfe148d3e802521b277d30841ac7a56872c9",
+      "line": 194,
+      "examples": [
+        "外群链接引流：",
+        "外部频道广告：",
+        "明确广告引流："
+      ]
+    },
+    {
+      "path": "src/purrai/rule_admin.py",
+      "scope": "RuleAdministration.validate",
+      "kind": "comparison",
+      "digest": "e24ffecebc715fa8bead389db48a11baed4838588f8a93e8788cb28253bea22c",
+      "line": 93,
+      "examples": [
+        "block_target"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_admin.py",
+      "scope": "RuleAdministration.validate",
+      "kind": "comparison",
+      "digest": "8f28f7060413adae76af8495764897c12793fdb6018859a65b6626fbbc360262",
+      "line": 99,
+      "examples": [
+        "allow_mention",
+        "block_mention"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_admin.py",
+      "scope": "RuleAdministration.validate",
+      "kind": "comparison",
+      "digest": "cf8b4d2b19e0d68401427e2e4ab9493e4864df7c5a066abf4e37c816147244a0",
+      "line": 102,
+      "examples": [
+        "keyword"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_queries.py",
+      "scope": "RuleQueries.batch",
+      "kind": "comparison",
+      "digest": "43934fff62c6878a795b625714e076526f0213184174ac0bf9c9d5cc2c73679b",
+      "line": 52,
+      "examples": [
+        "global"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_queries.py",
+      "scope": "RuleQueries.batch",
+      "kind": "comparison",
+      "digest": "43934fff62c6878a795b625714e076526f0213184174ac0bf9c9d5cc2c73679b",
+      "line": 66,
+      "examples": [
+        "global"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_queries.py",
+      "scope": "RuleQueries.batch",
+      "kind": "comparison",
+      "digest": "43934fff62c6878a795b625714e076526f0213184174ac0bf9c9d5cc2c73679b",
+      "line": 79,
+      "examples": [
+        "global"
+      ]
+    },
+    {
+      "path": "src/purrai/rules.py",
+      "scope": "assess",
+      "kind": "string-match",
+      "digest": "7ce68bcbecfbd24e11fcfd0d6bd0b24ba43189bdad3f0fd741df243aa3082836",
+      "line": 60,
+      "examples": [
+        "全局广告黑名单："
+      ]
+    },
+    {
+      "path": "src/purrai/rules.py",
+      "scope": "assess",
+      "kind": "string-match",
+      "digest": "b4684354faf4923c56f00d484d616540e7c146f33135cc743334e819f3e5a978",
+      "line": 152,
+      "examples": [
+        "禁止域名："
+      ]
+    },
+    {
+      "path": "src/purrai/stickers.py",
+      "scope": "Stickers.refresh.fetch",
+      "kind": "matching-data",
+      "digest": "81626eb92470e94b7a07a449d2bcbeca4d78cf04e23a92bb4c5ec5027ecc7dc3",
+      "line": 108,
+      "examples": [
+        "Telegram 限流，稍后重试"
+      ]
+    },
+    {
+      "path": "src/purrai/stickers.py",
+      "scope": "Stickers.refresh.fetch",
+      "kind": "matching-data",
+      "digest": "ca923b2998f101919a3ddb1265a718d3eaadc6496b89c2c37bfa9861db51bb70",
+      "line": 111,
+      "examples": [
+        "贴纸包暂时无法读取或不是普通贴纸包"
+      ]
+    },
+    {
+      "path": "src/purrai/telegram.py",
+      "scope": "TelegramGateway.register_commands",
+      "kind": "matching-data",
+      "digest": "90c27ce491cbeb5bbf9146e316f966aa20098db0832dbd17410051aa7db77e98",
+      "line": 52,
+      "examples": [
+        "使用帮助",
+        "开始使用",
+        "查看我的 Telegram 数字 ID"
+      ]
+    },
+    {
+      "path": "src/purrai/telegram.py",
+      "scope": "TelegramGateway.register_commands",
+      "kind": "matching-data",
+      "digest": "18f17fea228349cbd15654f24fa83a3a5a88875cbf2a5de80d7a902e0c7e3765",
+      "line": 53,
+      "examples": [
+        "打开管理面板",
+        "查看当前群状态",
+        "选择管理群"
+      ]
+    },
+    {
+      "path": "src/purrai/telegram.py",
+      "scope": "TelegramGateway.register_commands",
+      "kind": "matching-data",
+      "digest": "1401bdd105185b736290a4b8059ae9b1da0c42fa5abde99bbaecc53345f1d08c",
+      "line": 54,
+      "examples": [
+        "临时封禁",
+        "临时禁言",
+        "人工放行验证",
+        "解除 PurrAI 封禁",
+        "解除 PurrAI 禁言"
+      ]
+    },
+    {
+      "path": "src/purrai/telegram_links.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "75203b002820911f36ba9b351d8401303ac8fe05979d53b7be5df510e50ee205",
+      "line": 9,
+      "examples": [
+        "(?<![a-z0-9_.])(?:(?:https?://)?(?:t\\.me|telegram\\.me|telegram\\.dog)/|tg://)[^\\s<>\\\"'，。！？]+"
+      ]
+    },
+    {
+      "path": "src/purrai/text_matching.py",
+      "scope": "similarity_signature",
+      "kind": "matching-call",
+      "digest": "b9314df0e4e20da4cd0cd3f6966e3622ec337716f8524c52749103cd1e832941",
+      "line": 62,
+      "examples": [
+        "(?:https?://|www\\.|t\\.me/)[^\\s]+"
+      ]
+    },
+    {
+      "path": "src/purrai/text_matching.py",
+      "scope": "message_content",
+      "kind": "matching-call",
+      "digest": "c0c8a54ba10a95cecfe7a8231f5a48912e6a2fc22533e47142dc94461a9973cf",
+      "line": 111,
+      "examples": [
+        "(?:https?://|tg://|www\\.)[^\\s<>]+|(?<![A-Za-z0-9_.])(?:t\\.me|telegram\\.me|telegram\\.dog)/[^\\s<>]+"
+      ]
+    },
+    {
+      "path": "src/purrai/verification_penalties.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "4aaca74718253faeb15be3b5c272f84c77a044424584a681425e4aeb100f6b22",
+      "line": 11,
+      "examples": [
+        "已永久禁言",
+        "已踢出并禁止重新加入",
+        "永久封禁",
+        "永久禁言"
+      ]
+    },
+    {
+      "path": "src/purrai/violation_correction.py",
+      "scope": "ViolationCorrection.apply",
+      "kind": "comparison",
+      "digest": "43934fff62c6878a795b625714e076526f0213184174ac0bf9c9d5cc2c73679b",
+      "line": 53,
+      "examples": [
+        "global"
+      ]
+    },
+    {
+      "path": "src/purrai/violation_correction.py",
+      "scope": "ViolationCorrection.apply",
+      "kind": "comparison",
+      "digest": "43934fff62c6878a795b625714e076526f0213184174ac0bf9c9d5cc2c73679b",
+      "line": 71,
+      "examples": [
+        "global"
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "dc79df1cb0a4e64552498ef97b5c5c989fc67048bbeaa4fae91a0c367ed93563",
+      "line": 3,
+      "examples": [
+        "分享联系人，删除消息并踢出群聊"
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "9701df98534ea31c77f7bcc60bbeecf3e50aa1a0166f7e1b9ca6b8e1dbefb516",
+      "line": 4,
+      "examples": [
+        "分享联系人，删除消息并永久封禁"
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "0cf39a018e149e80584610d680115c0063de87b2ef96e50e83e014ca69653f23",
+      "line": 6,
+      "examples": [
+        "明确广告引流："
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "42db56484d39e48420a87d1cea40fc6dd42e82b3a1392fc624dde0c3d0e4f9b4",
+      "line": 7,
+      "examples": [
+        "外群链接引流："
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "fb9f97bfc735e46087b795a3b2d5b2f11938c17bef176510eebbd5f8f2e87c1f",
+      "line": 8,
+      "examples": [
+        "外部频道广告："
+      ]
+    },
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "006cab8ec53f80df4ec3c6dcb1c5c288d9d066267948d13c5bcfeafbc4d05860",
+      "line": 9,
+      "examples": [
+        "全局广告黑名单："
+      ]
+    },
+    {
+      "path": "src/purrai/solicitation_rules.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "4451b155d081849d538bc54b3a441861ba6f5aeb932ba4c14f4af2ec915a7a01",
+      "line": 5,
+      "examples": [
+        "明确广告引流："
+      ]
+    },
+    {
+      "path": "src/purrai/solicitation_rules.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "51c28925fddd31a352c03c72aab0f7c608931c58d1d9b287fa19cd29c68e6223",
+      "line": 6,
+      "examples": [
+        "业务招揽短语，仅删除："
+      ]
+    }
+  ]
+}

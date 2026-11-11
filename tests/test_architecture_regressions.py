@@ -124,7 +124,7 @@ async def test_web_authorizes_target_once_and_lists_groups_once(env, client):
                             csrf="audit", expires_at=now() + 60))
     tg.members[(-1001, 2)] = {"status": "administrator"}
     client.cookies.set("purrai_session", "scope-audit")
-    for path, count in (("/api/me", 3), ("/api/groups", 3), ("/api/dashboard", 3),
+    for path, count in (("/api/me", 0), ("/api/groups", 3), ("/api/dashboard", 3),
                         ("/api/groups/-1001/rules", 1)):
         tg.calls.clear()
         response = await client.get(path)
@@ -132,7 +132,8 @@ async def test_web_authorizes_target_once_and_lists_groups_once(env, client):
         assert len([method for method, _ in tg.calls if method == "get_chat_member"]) == count
     tg.members[(-1001, 2)] = {"status": "member"}
     assert (await client.get("/api/groups/-1001/rules")).status_code == 403
-    assert (await client.get("/api/me")).status_code == 403
+    assert (await client.get("/api/me")).status_code == 200
+    assert (await client.get("/api/groups")).json() == []
 
 
 async def test_slow_notification_does_not_block_another_members_verification(env, monkeypatch):
@@ -229,7 +230,7 @@ async def test_inbox_keeps_group_order_and_processes_another_group_while_one_is_
     try:
         assert await runtime.process_one("messages")
         assert observed == [703, 701, 702]
-        assert not runtime.inbox_claims.identifiers
+        assert not runtime.inbox.claims.identifiers
     finally:
         await runtime.stop()
 
@@ -281,7 +282,7 @@ async def test_running_workers_moderate_group_while_private_panel_is_waiting_on_
         await asyncio.Future()
 
     monkeypatch.setattr(tg, "call", slow)
-    monkeypatch.setattr(runtime, "poll_loop", idle_poll)
+    monkeypatch.setattr(runtime.receiver, "poll_loop", idle_poll)
     control = private("/admin", 1)
     control["from"].update(is_bot=False, first_name="管理员")
     await runtime.persist([{"update_id": 1, "message": control}])
@@ -306,7 +307,7 @@ async def test_running_workers_moderate_group_while_private_panel_is_waiting_on_
             assert (await session.get(Inbox, 1)).state == "pending"
     finally:
         await runtime.stop()
-    assert not runtime.inbox_claims.identifiers
+    assert not runtime.inbox.claims.identifiers
     assert not service.action_claims.identifiers
 
 
@@ -314,6 +315,7 @@ async def test_batch_of_125_members_needs_one_progress_request_and_preserves_out
     _, db, _, _ = env
     async with db.transaction() as session:
         for user_id in range(100, 225):
+            session.add(Member(group_id=-1001, user_id=user_id, generation="test", present=True))
             session.add(Verification(group_id=-1001, user_id=user_id, generation="test",
                                      state="pending", deadline=now() + 180))
     response = await client.post("/api/groups/-1001/release-pending", json={

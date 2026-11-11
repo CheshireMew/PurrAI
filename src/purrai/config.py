@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     archive_max_db_mb: int = Field(default=512, ge=16)
     archive_max_revisions: int = Field(default=20, ge=1, le=100)
     backup_dir: Path = Path("data/backups")
+    alert_backlog_seconds: int = Field(default=300, ge=30, le=86400)
     frontend_dist: Path = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
     @property

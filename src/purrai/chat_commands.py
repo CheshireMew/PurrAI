@@ -138,4 +138,4 @@ def status(data, cfg, rules=()):
             "items": [{"text": phrase, "count": len(events), "users": len({event[1] for event in events}),
                        "ignored": phrase in active}
                       for phrase, events in sorted(data["commands"].items(), key=lambda item: (-len(item[1]), item[0]))
-                      if not input_reasons(phrase, list(rules), cfg.model_dump())]}
+                      if not input_reasons(phrase, rules, cfg.model_dump())]}

@@ -109,6 +109,56 @@ async def test_hidden_link_added_in_caption_edit_is_checked_and_only_bans_once(e
     assert len([1 for name, _ in tg.calls if name == "ban_chat_member"]) == 1
 
 
+@pytest.mark.parametrize("original,delay,edited,entities", [
+    ("1", 600, "免费带单，私聊我领取策略", []),
+    ("正常讨论", 86400, "免费带单，私聊我领取策略", []),
+    ("1", 86400, INVITE, []),
+    ("正常内容", 600, "查看详情", [{"type": "text_link", "offset": 0, "length": 4, "url": INVITE}]),
+])
+async def test_delayed_normal_message_edit_is_moderated_through_telegram_updates(
+    env, monkeypatch, original, delay, edited, entities,
+):
+    from purrai.models import ArchivedMessage, MessageRevision
+    from purrai.runtime import Runtime
+
+    await setup(env, monkeypatch)
+    _, db, tg, service = env
+    sent_at = int(now()) - delay
+    async with db.transaction() as session:
+        (await session.get(Group, -1001)).activated_at = sent_at - 60
+    runtime = Runtime(db, tg, service)
+    incoming = message(701, original, date=sent_at,
+                       **{"from": {"id": 42, "is_bot": False, "first_name": "普通成员"}})
+    try:
+        await runtime.persist([{"update_id": 1, "message": incoming}])
+        assert await runtime.process_one()
+        await drain(service)
+        assert not any(name in ("delete_message", "ban_chat_member") for name, _ in tg.calls)
+        async with db.sessions() as session:
+            assert await session.scalar(select(Violation)) is None
+
+        update = {"update_id": 2, "edited_message": {
+            **incoming, "text": edited, "entities": entities, "edit_date": int(now()),
+        }}
+        await runtime.persist([update])
+        assert await runtime.process_one()
+        await drain(service)
+        assert [args["message_id"] for name, args in tg.calls if name == "delete_message"] == [701]
+        assert tg.members[(-1001, 42)] == {"status": "kicked", "until_date": 0}
+        await runtime.persist([update])
+        assert not await runtime.process_one()
+        await drain(service)
+        assert sum(name == "ban_chat_member" for name, _ in tg.calls) == 1
+        async with db.sessions() as session:
+            archived = await session.scalar(select(ArchivedMessage))
+            versions = (await session.scalars(select(MessageRevision).where(
+                MessageRevision.archive_id == archived.id).order_by(MessageRevision.id))).all()
+            assert [row.payload.get("text") for row in versions] == [original, edited]
+            assert (await session.scalar(select(Violation))).message_id == 701
+    finally:
+        await runtime.stop()
+
+
 @pytest.mark.parametrize("body", ["举报：这个人发广告 " + INVITE,
     INVITE + " 这个群是骗子，大家别进", "“来内部群学习老师的分析逻辑” 这种广告请警惕 " + INVITE])
 async def test_explicit_scam_reports_remove_the_live_invite_without_permanent_ban(env, monkeypatch, body):

@@ -357,13 +357,18 @@ async def test_archive_caps_preserve_existing_records(env):
     async with db.engine.begin() as connection:
         await connection.execute(text("CREATE TABLE audit_padding (payload BLOB)"))
         await connection.execute(text("INSERT INTO audit_padding VALUES (zeroblob(17825792))"))
-    await service.message(message(2, "超出容量后不再归档"))
-    async with db.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(ArchivedMessage)) == 1
-        assert await session.get(Meta, "archive:paused")
-    settings.archive_max_db_mb = 64  # Covers both the 17 MB database and its WAL.
-    await service.message(message(3, "提高容量阈值后继续归档"))
+    await service.message(message(2, "其他表占用空间不挤占归档额度"))
+    async with db.transaction() as session:
+        assert await session.scalar(select(func.count()).select_from(ArchivedMessage)) == 2
+        assert await session.get(Meta, "archive:paused") is None
+        (await session.get(Meta, "archive:stored-bytes")).value = str(17 * 1024 * 1024)
+    await service.message(message(3, "归档自身超出容量后不再新增"))
     async with db.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(ArchivedMessage)) == 2
-        assert await session.scalar(select(func.count()).select_from(MessageRevision)) == 3
+        assert await session.get(Meta, "archive:paused")
+    settings.archive_max_db_mb = 64
+    await service.message(message(4, "提高容量阈值后继续归档"))
+    async with db.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(ArchivedMessage)) == 3
+        assert await session.scalar(select(func.count()).select_from(MessageRevision)) == 4
         assert await session.get(Meta, "archive:paused") is None

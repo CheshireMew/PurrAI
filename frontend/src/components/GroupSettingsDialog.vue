@@ -5,18 +5,21 @@ import { api, post } from '../api'
 import type { ChatStatus, Group, GroupSettings, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
+import EmergencyProtection from './EmergencyProtection.vue'
 
 const props = defineProps<{ group: Group | null; sharedBaseline?: SharedPolicy | null }>()
 const sharedMode = computed(() => props.group?.id === 0)
 const commonBaseline = ref<SharedPolicy | null>(null)
 const emit = defineEmits<{ close: []; saved: [] }>()
-const { catalog, groups, reloadGroups } = useWorkspace()
+const { catalog, groups, reloadGroups, mutations } = useWorkspace()
 const { busy, error, safe } = useTask()
 const dialog = ref(false), editingId = ref('')
 const activeTab = ref('verification')
 const settingsTabs = [
   { name: 'verification', label: '入群验证' }, { name: 'moderation', label: '防广告' },
   { name: 'chat', label: '群聊天' }, { name: 'emoji', label: '状态表情' }, { name: 'archive', label: '消息归档' },
+  { name: 'inheritance', label: '继承与恢复' },
+  { name: 'protection', label: '联合刷屏与应急' },
 ]
 const copySettings = (value: GroupSettings): GroupSettings => JSON.parse(JSON.stringify(value))
 const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaults))
@@ -26,10 +29,14 @@ const ignoredChatText = ref('')
 const commandExceptionsText = ref('')
 const allowedLinksText = ref('')
 const chatStatus = ref<Partial<ChatStatus>>({})
+const inheritance = ref<{ defaults: GroupSettings; settings: GroupSettings; overrides: string[] } | null>(null)
+const inheritedRows = computed(() => Object.keys(form).map(key => ({ key: key as keyof GroupSettings,
+  label: catalog.value!.settings.labels?.[key] || key })))
+const showValue = (value: unknown) => typeof value === 'boolean' ? value ? '开启' : '关闭' : Array.isArray(value) ? value.join('、') || '空' : String(value)
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
 type BooleanKey = { [K in keyof GroupSettings]: GroupSettings[K] extends boolean ? K : never }[keyof GroupSettings]
 const verificationKeys = new Set(['join_requests', 'verification_enabled', 'verification_timeout', 'max_attempts', 'failure_ban_seconds'])
-const sectionFor = (key: string) => key === 'archive_enabled' ? 'archive' : verificationKeys.has(key) ? 'verification' : 'moderation'
+const sectionFor = (key: string) => /^(coordinated_|raid_|emergency_)/.test(key) ? 'protection' : key === 'archive_enabled' ? 'archive' : verificationKeys.has(key) ? 'verification' : 'moderation'
 const numericSettings = computed(() => (Object.entries(catalog.value!.settings.numbers) as [NumericKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
 const boolSettings = computed(() => (Object.entries(catalog.value!.settings.booleans) as [BooleanKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
 const bounds = (key: keyof GroupSettings) => catalog.value!.settings.fields[key]
@@ -48,6 +55,10 @@ watch(() => props.group, group => {
   commandExceptionsText.value = form.chat_command_exceptions.join('\n')
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
+  inheritance.value = null
+  if (group.id !== 0) api<{ defaults: GroupSettings; settings: GroupSettings; overrides: string[] }>(`/api/groups/${group.id}/settings/inheritance`)
+    .then(data => { if (current === version) inheritance.value = data })
+    .catch(() => { if (current === version) error.value = '暂时无法读取设置继承来源，可重新打开重试' })
   if (group.id !== 0) api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
     .catch(() => { if (current === version) chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
 }, { immediate: true })
@@ -66,12 +77,12 @@ async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: st
       const old = form.emoji_status_blocked_packs
       const names = packs
       const updated = operation === 'add' ? [...new Set([...old, ...names])] : operation === 'clear' ? [] : old.filter(value => !names.includes(value))
-      commonBaseline.value = await api<SharedPolicy>('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ settings: { emoji_status_blocked_packs: updated }, baseline: commonBaseline.value, request_id: crypto.randomUUID() }) })
+      commonBaseline.value = await mutations.submit<SharedPolicy>('/api/settings/defaults', 'PATCH', { settings: { emoji_status_blocked_packs: updated }, baseline: commonBaseline.value }, undefined, '保存通用名单')
       form.emoji_status_blocked_packs = commonBaseline.value.settings.emoji_status_blocked_packs
       settingsBaseline.value.emoji_status_blocked_packs = [...form.emoji_status_blocked_packs]
       emojiPacksText.value = ''; await reloadGroups(); ElMessage.success('已保存通用名单'); return
     }
-    const result = await post(`/api/groups/${id}/emoji-status-packs`, { operation, packs, request_id: crypto.randomUUID() }) as { packs: string[]; added: string[]; removed: string[] }
+    const result = await mutations.submit<{ packs: string[]; added: string[]; removed: string[] }>(`/api/groups/${id}/emoji-status-packs`, 'POST', { operation, packs }, undefined, '修改状态表情名单')
     if (editingId.value === id) {
       form.emoji_status_blocked_packs = result.packs; settingsBaseline.value.emoji_status_blocked_packs = [...result.packs]
       if (operation === 'add') emojiPacksText.value = ''
@@ -83,6 +94,22 @@ async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: st
 }
 async function resetChat() {
   await safe(async () => { await post(`/api/groups/${editingId.value}/chat/reset`); ElMessage.success('已重新开始聊天；消息归档仍然保留') })
+}
+async function changeInheritance(key: keyof GroupSettings, restore: boolean) {
+  if (!inheritance.value) return
+  await safe(async () => {
+    const result = await api<Group>(`/api/groups/${editingId.value}/settings`, { method: 'PATCH', body: JSON.stringify({
+      ...(restore ? { reset: [key] } : { settings: { [key]: form[key] } }), baseline: { [key]: settingsBaseline.value[key] },
+    }) })
+    Object.assign(form, { [key]: result.settings[key] }); settingsBaseline.value[key] = result.settings[key] as never
+    inheritance.value!.overrides = result.setting_overrides || []
+    if (key === 'chat_sticker_packs') chatPacksText.value = form.chat_sticker_packs.join('\n')
+    if (key === 'chat_antifraud_packs') antifraudPacksText.value = form.chat_antifraud_packs.join('\n')
+    if (key === 'chat_ignored_texts') ignoredChatText.value = form.chat_ignored_texts.join('\n')
+    if (key === 'chat_command_exceptions') commandExceptionsText.value = form.chat_command_exceptions.join('\n')
+    if (key === 'telegram_allowed_links') allowedLinksText.value = form.telegram_allowed_links.join('\n')
+    await reloadGroups(); ElMessage.success(restore ? '此项已恢复通用设置' : '此项已固定为本群设置')
+  })
 }
 async function restoreDefaults() {
   if (await safe(async () => {
@@ -101,7 +128,7 @@ async function save() {
     form.telegram_allowed_links = allowedLinksText.value.split(/\s+/).map(text => text.trim()).filter(Boolean)
     const changes = Object.fromEntries(Object.entries(form).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings])))
     const baseline = Object.fromEntries(Object.keys(changes).map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
-    if (sharedMode.value) await api('/api/settings/defaults', { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline: commonBaseline.value, request_id: crypto.randomUUID() }) })
+    if (sharedMode.value) await mutations.submit('/api/settings/defaults', 'PATCH', { settings: changes, baseline: commonBaseline.value }, undefined, '保存通用设置')
     else await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline }) })
     await reloadGroups(); ElMessage.success('已保存'); emit('saved')
   })) { if (editingId.value === id) dialog.value = false }
@@ -114,6 +141,17 @@ async function save() {
 <p class="settings-group-name">{{ group?.title }}</p>
 <el-tabs v-model="activeTab" class="settings-tabs">
 <el-tab-pane v-for="tab in settingsTabs" :key="tab.name" :label="tab.label" :name="tab.name">
+<template v-if="tab.name === 'inheritance' && activeTab === 'inheritance'">
+<p v-if="sharedMode">通用设置是各群的继承来源；本群覆盖请在对应群中管理。</p>
+<el-table v-else-if="inheritance" :data="inheritedRows">
+<el-table-column prop="label" label="设置" min-width="160"/>
+<el-table-column label="当前值" min-width="160"><template #default="{ row }">{{ showValue(form[row.key as keyof GroupSettings]) }}</template></el-table-column>
+<el-table-column label="通用值" min-width="160"><template #default="{ row }">{{ showValue(inheritance.defaults[row.key as keyof GroupSettings]) }}</template></el-table-column>
+<el-table-column label="来源" width="110"><template #default="{ row }">{{ inheritance.overrides.includes(row.key) ? '本群设置' : '跟随通用' }}</template></el-table-column>
+<el-table-column label="操作" width="130"><template #default="{ row }"><el-button text :disabled="busy" @click="changeInheritance(row.key, inheritance!.overrides.includes(row.key))">{{ inheritance.overrides.includes(row.key) ? '恢复此项' : '固定为本群值' }}</el-button></template></el-table-column>
+</el-table>
+<p v-else>正在读取继承来源…</p>
+</template>
 <el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
 <section v-show="activeTab === 'verification'" aria-label="入群验证设置">
 
@@ -125,7 +163,8 @@ async function save() {
 </el-form-item>
 <p class="muted">超时或错误次数用尽后执行所选方式；默认永久禁言，可由管理员放行或重出题。申请入群者尚未进群，失败仅拒绝申请。</p>
 </section>
-<section v-if="['verification', 'moderation', 'archive'].includes(activeTab)" :aria-label="activeTab === 'moderation' ? '防广告设置' : activeTab === 'archive' ? '消息归档设置' : '验证选项'">
+<EmergencyProtection v-if="activeTab === 'protection' && group && !sharedMode" :group-id="group.id"/>
+<section v-if="['verification', 'moderation', 'archive', 'protection'].includes(activeTab)" :aria-label="activeTab === 'protection' ? '联合刷屏与应急设置' : activeTab === 'moderation' ? '防广告设置' : activeTab === 'archive' ? '消息归档设置' : '验证选项'">
 <div class="settings-toggles">
 <el-form-item v-for="[key, name] in boolSettings" :key="key" :label="name">
 <el-switch v-model="form[key]" :aria-label="name"/>
@@ -139,7 +178,7 @@ async function save() {
 </section>
 <section v-show="activeTab === 'moderation'" aria-label="防广告处理说明">
 <p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
-<p class="muted">普通成员分享联系人会删除消息、踢出并禁止重新加入，不限入群时长；群主、管理员及防广告白名单豁免。</p>
+<p class="muted">开启“只拦截广告联系人名片”时，普通名片可以分享，广告名片和黑名单联系方式会删除消息并永久封禁；关闭时，普通成员分享任何联系人都会封禁。群主、管理员及防广告白名单豁免。</p>
 <p class="muted">明确广告招揽和外群链接不限入群时长，删消息并永久封禁。公开链接会先核实群组类型；外部私密邀请统一处理。本群已知链接、允许链接及允许提及账号豁免链接检查；名单不豁免广告正文。明确举报或防骗引用只删外群链接，不自动永久封禁。</p>
 <el-form-item label="允许的 Telegram 链接">
 <el-input v-model="allowedLinksText" type="textarea" :rows="3" placeholder="每行一个群组、频道或邀请链接"/>
@@ -165,7 +204,7 @@ async function save() {
 <el-button type="danger" plain :disabled="busy || !form.emoji_status_blocked_packs?.length" @click="changeEmojiPacks('clear')">清空状态表情包黑名单</el-button>
 </div>
 <p class="muted">新增、移除和清空会立即保存，不影响其他尚未保存的群设置；重复链接自动忽略。</p>
-<p class="muted">名字旁的表情状态来自这些表情包时，踢出并禁止重新加入；由发言触发检查时还会删除对应消息。仅在入群和发消息时触发检查，普通贴纸消息不触发这项处罚。默认已加入 bygbb666 和 GsHeChaba；清空名单不会自动解除已有封禁或禁言。</p>
+<p class="muted">入群时命中会永久封禁；群内发言命中会删除对应消息并永久禁言，成员留在群内。仅在入群和发消息时检查名字旁的表情状态，普通贴纸消息不触发这项处罚。程序初始名单：{{ catalog!.settings.defaults.emoji_status_blocked_packs.join('、') || '未设置' }}，实际检查以当前名单为准。清空名单不会自动解除已有封禁或禁言。</p>
 </section>
 <section v-show="activeTab === 'chat'" aria-label="群聊天设置">
 <p class="muted">{{ chatStatus.configured ? `模型：${chatStatus.model}` : '使用前请在服务器填写聊天 API 地址、Key 和模型名。' }} 最近消息按群及话题分开。</p>

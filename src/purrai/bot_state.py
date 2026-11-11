@@ -20,7 +20,12 @@ class BotState:
             if row:
                 row.value = encoded
             else:
-                session.add(Meta(key=key, value=encoded))
+                row = Meta(key=key, value=encoded)
+                session.add(row)
+            if key.startswith("bot_panel:"):
+                row.expires_at = now() + 30 * 86400
+            elif key.startswith(("bot_prompt:", "bot_draft:")):
+                row.expires_at = now() + 7 * 86400
 
     async def recall(self, key):
         async with self.db.sessions() as session:
@@ -46,12 +51,15 @@ class BotState:
                 if record and record.get("panel") == panel_id and not record.get("processed") and (
                     record.get("expires") is None or record["expires"] > now()
                 ):
+                    records_row = await session.get(Meta, f"bot_button:{old['callback_data'][2:]}")
+                    records_row.expires_at = now() + 30 * 86400
                     keyboard.append(old)
                     continue
                 token = secrets.token_hex(8)
                 session.add(
                     Meta(
                         key=f"bot_button:{token}",
+                        expires_at=now() + 30 * 86400,
                         value=json.dumps(
                             {
                                 "actor": actor,

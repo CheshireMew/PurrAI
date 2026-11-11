@@ -306,7 +306,7 @@ async def test_callback_lane_passes_slow_message_without_mixing_update_ids(env, 
 
     async def record_message(payload, **kwargs):
         await original_message(payload, **kwargs)
-        seen.append((kwargs["update_id"], runtime.current_update_id.get()))
+        seen.append((kwargs["update_id"], runtime.events.current_update_id.get()))
 
     async def slow(method, **kwargs):
         if method == "get_chat_member" and kwargs["user_id"] == 43:
@@ -326,7 +326,7 @@ async def test_callback_lane_passes_slow_message_without_mixing_update_ids(env, 
         await task
         await runtime.stop()
     assert seen == [(1000, 1000)]
-    assert runtime.current_update_id.get() == 0
+    assert runtime.events.current_update_id.get() == 0
 
 
 async def test_callback_lane_waits_for_earlier_membership_change(env, monkeypatch):

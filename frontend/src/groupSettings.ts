@@ -43,11 +43,20 @@ export interface GroupSettings {
   burst_enabled: boolean
   burst_window: number
   burst_count: number
+  coordinated_enabled: boolean
+  coordinated_window: number
+  coordinated_count: number
+  coordinated_min_length: number
+  raid_enabled: boolean
+  raid_window: number
+  raid_count: number
+  emergency_seconds: number
   warning_window: number
   warning_limit: number
   mute_seconds: number
   block_invites: boolean
   advertising_ban: boolean
+  contact_ads_only: boolean
   external_group_ban: boolean
   external_invite_ban: boolean
   telegram_allowed_links: string[]

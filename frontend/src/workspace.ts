@@ -2,6 +2,7 @@ import { inject, type InjectionKey, type Ref } from 'vue'
 import type { ActionTracker } from './actionTracker'
 import type { ActionBody, ActionRequest, ActionRequests } from './actionRequests'
 import type { AdminCatalog, Group, User } from './types'
+import type { MutationRequest, MutationRequests } from './mutationRequests'
 
 export interface Workspace {
   me: Ref<User | null>
@@ -9,6 +10,8 @@ export interface Workspace {
   catalog: Ref<AdminCatalog | null>
   actionTracker: Pick<ActionTracker, 'items' | 'accept' | 'refresh'>
   actionRequests: Pick<ActionRequests, 'items'>
+  mutations: Pick<MutationRequests, 'items' | 'submit'>
+  retryMutation(request: MutationRequest): Promise<void>
   submitAction(path: string, body: ActionBody): Promise<void>
   retryAction(request: ActionRequest): Promise<void>
   reloadGroups(): Promise<void>

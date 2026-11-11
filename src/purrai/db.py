@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 from contextlib import asynccontextmanager
+from contextlib import closing
 from pathlib import Path
 from functools import lru_cache
 
@@ -75,9 +76,17 @@ class Database:
         source = self.url.split("///", 1)[-1]
 
         def copy():
-            with sqlite3.connect(source) as origin, sqlite3.connect(target) as destination:
-                origin.backup(destination)
+            import shutil
+            origin_path = Path(source).resolve()
+            if not origin_path.is_file():
+                raise RuntimeError("待备份数据库不存在")
+            needed = origin_path.stat().st_size + 16 * 1024 * 1024
+            if shutil.disk_usage(directory).free < needed:
+                raise RuntimeError("备份目录可用空间不足，尚未生成新备份")
+            with closing(sqlite3.connect(origin_path.as_uri() + "?mode=ro", uri=True)) as origin, closing(sqlite3.connect(target)) as destination:
+                origin.backup(destination, pages=256, sleep=0.01)
 
-        async with self.lock:
-            await asyncio.to_thread(copy)
+        # sqlite's backup API maintains consistency while the live database
+        # continues writing. Do not hold the application's only writer lock.
+        await asyncio.to_thread(copy)
         return target

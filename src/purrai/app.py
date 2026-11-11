@@ -54,14 +54,31 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
     app.state.management = runtime.management
     from purrai.traffic import RateLimit
 
-    public_limit, login_limit = RateLimit(120, 600), RateLimit(5, 30)
+    login_limit = RateLimit(5, 30)
+    read_limit, write_limit = RateLimit(360, 6000), RateLimit(60, 600)
+    anonymous_limit = RateLimit(120, 600)
 
     @app.middleware("http")
     async def throttle(request, call_next):
         peer = request.client.host if request.client else "unknown"
-        if not public_limit.allow(peer) or (
-            request.url.path.startswith("/auth/telegram/") and not login_limit.allow(peer)
-        ):
+        path = request.url.path
+        allowed = True
+        if path.startswith("/auth/telegram/"):
+            allowed = login_limit.allow(peer)
+        elif path.startswith("/api/") or path == "/auth/logout":
+            # Only a verified session gets its own budget. Cookies invented by
+            # anonymous clients cannot create arbitrary independent buckets.
+            import hashlib
+            from purrai.models import Session, now
+            cookie = request.cookies.get("purrai_session", "")
+            async with database.sessions() as session:
+                login = await session.get(Session, hashlib.sha256(cookie.encode()).hexdigest()) if cookie else None
+            if login and login.expires_at > now():
+                limit = read_limit if request.method in ("GET", "HEAD", "OPTIONS") else write_limit
+                allowed = limit.allow(login.user_id)
+            else:
+                allowed = anonymous_limit.allow(peer)
+        if not allowed:
             return JSONResponse({"detail": "请求过于频繁，请稍后重试"}, status_code=429, headers={"Retry-After": "60"})
         return await call_next(request)
 
@@ -82,7 +99,7 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
             database_ready = (await database.schema_health())["ready"]
         except Exception:
             database_ready = False
-        runtime_ready = not start_runtime or bool(runtime.tasks) and all(not task.done() for task in runtime.tasks)
+        runtime_ready = not start_runtime or runtime.ready()
         operational = database_ready and runtime_ready and gateway.connected and bool(settings.bot_token)
         return JSONResponse(
             {

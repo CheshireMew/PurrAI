@@ -65,14 +65,14 @@ async def test_oidc_validates_claims_and_uses_telegram_id_not_subject(env, clien
     monkeypatch.setattr(AsyncOAuth2Client, "fetch_token", token)
     response = await client.get("/auth/telegram/callback", params={"state": query["state"][0], "code": "abc"})
     assert response.status_code == 307
-    if mode in ("valid", "group_admin"):
+    if mode in ("valid", "group_admin", "not_authorized"):
         assert response.headers["location"] == "/"
         assert (
             "purrai_session=" in response.headers["set-cookie"]
             or len(response.headers.get_list("set-cookie")) == 2
         )
         me = (await client.get("/api/me")).json()
-        assert me["id"] == (300 if mode == "group_admin" else 1)
+        assert me["id"] == (300 if mode in ("group_admin", "not_authorized") else 1)
         assert me["root"] is (mode == "valid")
     else:
         assert "login_error=" in response.headers["location"]

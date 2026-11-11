@@ -4,7 +4,7 @@ import { configureCatalog } from './catalog'
 import catalogFixture from '../e2e/fixtures/catalog.json'
 import type { AdminCatalog } from './types'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); setCsrf('') })
 describe('后台接口契约', () => {
   it('发送会话与 CSRF，并保留实际错误原因', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: '你没有此群的管理权限' }), { status: 403 }))
@@ -23,5 +23,19 @@ describe('后台接口契约', () => {
   })
   it('明确使用北京时间展示时间', () => {
     expect(time(Date.UTC(2026, 9, 17, 0, 0, 0) / 1000)).toContain('08:00:00')
+  })
+  it('遵守读取接口 Retry-After，等待期间不继续发请求且不阻止写入', async () => {
+    vi.useFakeTimers()
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ detail: '稍后重试' }),
+      { status: 429, headers: { 'Retry-After': '30' } })).mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetcher)
+    await expect(api('/api/retry-budget')).rejects.toMatchObject({ retryAfter: 30 })
+    await expect(api('/api/retry-budget')).rejects.toMatchObject({ status: 429 })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await api('/api/retry-budget', { method: 'POST' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(30001)
+    await api('/api/retry-budget')
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 })
