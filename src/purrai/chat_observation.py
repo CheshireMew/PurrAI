@@ -56,7 +56,7 @@ class ChatObservation:
             urls = message_content(message)[1]
             reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
             reasons += assess("", [], rules, group.settings, sender_name=profile_name(sender))["name_reasons"]
-            if has_link(*message_content(message.get("reply_to_message") or {})):
+            if has_link(*message_content(message.get("reply_to_message") or {}), rules=rules):
                 reasons.append(LINK_REASON)
             reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
                                                 linked_channel_id=await own_channel_id(session, group_id))

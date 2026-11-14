@@ -25,7 +25,7 @@ from purrai.models import (
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_rule_hits, record_violation
 from purrai.rules import activity_reasons, message_content
-from purrai.rule_evaluation import prepare_message
+from purrai.rule_evaluation import prepare_message, refresh_message_evidence
 from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
 from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -75,13 +75,16 @@ class Moderation:
         if not archived_at_receipt:
             async with self.db.transaction() as session:
                 await capture(session, message, edited, update_id, settings=self.settings)
+        if edited:
+            async with self.db.transaction() as session:
+                await refresh_message_evidence(session, message, update_id)
         if message["chat"]["type"] not in ("supergroup", "group"):
             return
         if message.get("new_chat_members") or message.get("left_chat_member"):
             return
         group_id = message["chat"]["id"]
         sender = message_sender(message)
-        if not sender or sender.get("id") == self.tg.user_id:
+        if not sender or sender.get("id") == self.tg.user_id or message.get("from", {}).get("id") == self.tg.user_id:
             return
         needs_admin_check = await self.assess_message(message, edited, update_id)
         if not needs_admin_check:

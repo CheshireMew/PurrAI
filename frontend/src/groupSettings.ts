@@ -57,6 +57,7 @@ export interface GroupSettings {
   mute_seconds: number
   block_invites: boolean
   advertising_ban: boolean
+  inline_buttons_ban: boolean
   contact_ads_only: boolean
   external_group_ban: boolean
   external_invite_ban: boolean

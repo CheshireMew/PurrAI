@@ -68,7 +68,7 @@ def snapshot(message):
     data = {
         key: value
         for key, value in message.items()
-        if key not in ("reply_markup", "reply_to_message", "pinned_message")
+        if key not in ("reply_to_message", "pinned_message")
     }
     for key in ("reply_to_message", "pinned_message"):
         if message.get(key):

@@ -8,12 +8,14 @@ describe('批量操作回执', () => {
     const fetcher = vi.fn().mockResolvedValue({ id: 'batch', state: 'succeeded', reason: '人工核实',
       summary: { total: 125, pending: 0, succeeded: 125, failed: 0, cancelled: 0 } })
     const tracker = new ActionTracker(fetcher)
-    tracker.accept({ batch_id: 'batch', action_ids: Array.from({ length: 125 }, (_, i) => `task-${i}`) }, '人工核实')
+    const context = {group_id: -1001, group_title: '核对过的群', action: 'batch_release', member_count: 125}
+    tracker.accept({ batch_id: 'batch', action_ids: Array.from({ length: 125 }, (_, i) => `task-${i}`) }, '人工核实', context)
     expect(tracker.items).toHaveLength(1)
     expect(tracker.items[0]?.summary?.pending).toBe(125)
     await tracker.refresh()
     expect(fetcher).toHaveBeenCalledExactlyOnceWith('batch')
     expect(tracker.items[0]?.summary?.succeeded).toBe(125)
+    expect(tracker.items[0]?.context).toEqual(context)
   })
 
   it('状态查询限流时保留已提交任务，随后查询恢复真实结果', async () => {

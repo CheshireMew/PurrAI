@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
+import { actionContext, describeAction } from '../actionContext'
 import { ElMessageBox } from 'element-plus'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
@@ -46,9 +47,11 @@ async function submit() {
   const seconds = customDuration.value && ['mute', 'ban'].includes(action.value) ? duration.value * unit.value : undefined
   if (seconds !== undefined && (seconds < 30 || seconds > 2592000)) { error.value = '时长须在 30 秒到 30 天之间'; return }
   const group = groups.value.find(item => item.id === props.groupId)
-  try { await ElMessageBox.confirm(`${group?.title || props.groupId} · 成员 ${id}\n${catalog.value!.operations[action.value]}${seconds ? `，本次 ${seconds} 秒` : ''}\n原因：${reason.value.trim()}`, '确认成员操作', { confirmButtonText: '确认提交', cancelButtonText: '取消' }) }
+  if (!group) return
+  const context = actionContext(group, action.value, id, undefined, seconds), explanation = reason.value.trim()
+  try { await ElMessageBox.confirm(`${describeAction(context, catalog.value!.operations)}\n原因：${explanation}`, '确认成员操作', { confirmButtonText: '确认提交', cancelButtonText: '取消' }) }
   catch { return }
-  await submitAction(`/api/groups/${props.groupId}/members/${id}/actions`, { action: action.value, reason: reason.value.trim(), ...(seconds ? { duration_seconds: seconds } : {}) })
+  await submitAction(`/api/groups/${context.group_id}/members/${id}/actions`, { action: context.action, reason: explanation, ...(context.duration_seconds !== undefined ? { duration_seconds: context.duration_seconds } : {}) }, context)
 }
 </script>
 

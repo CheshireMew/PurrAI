@@ -1,0 +1,943 @@
+{
+  "purpose": "现有广告线索统一为独立关键词；运行时仅使用经管理API保存的数据库配置，此文件不会自动加载。",
+  "apply_to": "SharedPolicy及各群已有关键词覆盖；需在支持ai_confirmed_mute及可编辑business_rules的版本上执行",
+  "rules": [
+    {
+      "kind": "keyword",
+      "value": "主页",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "简介",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "头像",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "置顶",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "私聊",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "私信",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "加我",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "扫码",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "代收",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "收款",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "收款码",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "收米",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "洗米",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "洗钱",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "跑分",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "水房",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "黑U",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "黑产",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "网赚",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "赚钱",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "日入",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "日赚",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "日挣",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "日结",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "保底",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "包提",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "稳赚",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "包赚",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "躺赚",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "零风险",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "保本",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "翻倍",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "翻仓",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "带单",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "跟单",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "返佣",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "搬砖",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "套利",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "六合",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "内幕",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "红单",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "串子",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "串关",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "博彩",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "赌球",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "策略频道",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "投资群",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "代刷",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "代充",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "代办",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "兼职",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "中转",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "KYC",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "ccmax",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "Claude-Max",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "走私",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "免税",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "低价",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "现货",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "供货",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "批发",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "代理",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "分销",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "水果机",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "假钞",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "假币",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "同城",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "无定金",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "面付",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "可代",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "三通",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "偷拍",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "盗摄",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "福利姬",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "色情",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "成人资源",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "成人视频",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "AV资源",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "免费资源",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    },
+    {
+      "kind": "keyword",
+      "value": "0风险",
+      "mode": "pinyin",
+      "scope": "either",
+      "context_value": "",
+      "penalty": "ai_confirmed_mute",
+      "enabled": true
+    }
+  ],
+  "categories": {
+    "引流": [
+      "主页",
+      "简介",
+      "头像",
+      "置顶",
+      "私聊",
+      "私信",
+      "加我",
+      "扫码"
+    ],
+    "资金招揽": [
+      "代收",
+      "收款",
+      "收款码",
+      "收米",
+      "洗米",
+      "洗钱",
+      "跑分",
+      "水房",
+      "黑U",
+      "黑产"
+    ],
+    "收益招揽": [
+      "网赚",
+      "赚钱",
+      "日入",
+      "日赚",
+      "日挣",
+      "日结",
+      "保底",
+      "包提",
+      "稳赚",
+      "包赚",
+      "躺赚",
+      "零风险",
+      "保本",
+      "翻倍",
+      "翻仓",
+      "0风险"
+    ],
+    "交易和博彩招揽": [
+      "带单",
+      "跟单",
+      "返佣",
+      "搬砖",
+      "套利",
+      "六合",
+      "内幕",
+      "红单",
+      "串子",
+      "串关",
+      "博彩",
+      "赌球",
+      "策略频道",
+      "投资群"
+    ],
+    "服务推广": [
+      "代刷",
+      "代充",
+      "代办",
+      "兼职",
+      "中转",
+      "KYC",
+      "ccmax",
+      "Claude-Max"
+    ],
+    "商品和招代理": [
+      "走私",
+      "免税",
+      "低价",
+      "现货",
+      "供货",
+      "批发",
+      "代理",
+      "分销",
+      "水果机",
+      "假钞",
+      "假币"
+    ],
+    "成人和资源招揽": [
+      "同城",
+      "无定金",
+      "面付",
+      "可代",
+      "三通",
+      "偷拍",
+      "盗摄",
+      "福利姬",
+      "色情",
+      "成人资源",
+      "成人视频",
+      "AV资源",
+      "免费资源"
+    ]
+  },
+  "transition": {
+    "previous_keyword_rules": "通过管理入口停用原整句、组合及旧直接处罚关键词；保留记录，不与新词库同时启用。各群独立规则和覆盖也需核对。",
+    "business_stages_to_disable": [
+      "solicitation",
+      "short",
+      "profile",
+      "advertising",
+      "chat_solicitation",
+      "chat_advertising"
+    ],
+    "business_rules": "读取当前business-policy，将上述阶段及其现有规则enabled改为false，保留内容和其他配置；使用读取时的If-Match保存。不要修改安装种子。",
+    "shared_rules": "读取最新settings/defaults，保留非keyword规则和已有元数据，将原keyword设为停用并加入本文件rules；携带baseline保存。不要直接覆盖整份配置。",
+    "ai_conditions": "沿用现有聊天开关、参与条件、冷却、额度、管理员及白名单豁免。命中关键词不等于AI已确认；未被送审或模型未确认时不执行本项处罚。",
+    "endpoints": [
+      "GET/PATCH /api/settings/defaults",
+      "GET/PUT /api/settings/business-policy",
+      "GET /api/groups/{id}/rules",
+      "PUT /api/groups/{id}/rules/{rule_id}（携带 If-Match 和 Idempotency-Key）"
+    ]
+  },
+  "evasion_examples": [
+    {
+      "keyword": "主页",
+      "variants": [
+        "住页",
+        "主.页",
+        "主·页",
+        "主 页",
+        "主​页",
+        "主1页",
+        "主x页"
+      ],
+      "handling": "谐音、忽略标点空白及零宽字符、汉字之间的数字和字母"
+    },
+    {
+      "keyword": "洗钱",
+      "variants": [
+        "洗浅",
+        "洗.錢"
+      ],
+      "handling": "同音字及繁体读音"
+    },
+    {
+      "keyword": "收米",
+      "variants": [
+        "收·米",
+        "收1米",
+        "收​米"
+      ],
+      "handling": "黑话作为独立词；统一去干扰"
+    },
+    {
+      "keyword": "六合",
+      "variants": [
+        "六·合",
+        "六1合"
+      ],
+      "handling": "黑话作为独立词；统一去干扰"
+    },
+    {
+      "keyword": "内幕",
+      "variants": [
+        "內幕",
+        "内B幕"
+      ],
+      "handling": "独立词、繁体读音和夹字母"
+    },
+    {
+      "keyword": "黑U",
+      "variants": [
+        "黑.U",
+        "黑Ｕ",
+        "黑u项目",
+        "嘿u项目"
+      ],
+      "handling": "保留中英混合词本身的字母，同时支持同音和全角"
+    },
+    {
+      "keyword": "网赚",
+      "variants": [
+        "網賺",
+        "网.赚"
+      ],
+      "handling": "繁体读音和标点"
+    },
+    {
+      "keyword": "零风险",
+      "variants": [
+        "零風險",
+        "零.风.险"
+      ],
+      "handling": "同音及分隔符；不把任意近音和任意错别字当作必然匹配"
+    }
+  ],
+  "observed_spelling_notes": [
+    {
+      "canonical": "微信",
+      "observed": "微心",
+      "status": "已记录同音规避方式；微信本身不作为独立广告候选"
+    },
+    {
+      "canonical": "支付宝",
+      "observed": "支副宝",
+      "status": "已记录同音规避方式；支付工具名称本身不作为独立广告候选"
+    },
+    {
+      "canonical": "项目",
+      "observed": "项木",
+      "status": "已记录同音规避方式；项目本身不作为独立广告候选"
+    },
+    {
+      "canonical": "8000",
+      "observed": "8ooo",
+      "status": "已记录字母替数字；取消具体收益数字模板，不靠数额识别"
+    },
+    {
+      "canonical": "零风险",
+      "observed": "0风险",
+      "status": "非同音替换，单独作为关键词维护"
+    }
+  ]
+}

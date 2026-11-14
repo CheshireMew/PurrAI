@@ -1,15 +1,11 @@
 """Chat exclusions use the same editable policy snapshot as moderation."""
 
 from purrai.business_rules import BusinessEngine
-from purrai.chat_safety import LINKS
+from purrai.chat_links import has_link as has_link, input_links
 from purrai.rules import assess, normalize
 
 
 LINK_REASON = "链接消息不参与聊天"
-
-
-def has_link(text, urls=()):
-    return bool(any(urls) or LINKS.search(normalize(text)))
 
 
 def solicitation(text, rules=None):
@@ -24,9 +20,9 @@ def advertising(text, *, direct=False, rules=None):
 
 def input_reasons(text, rules, settings, *, direct=False, urls=()):
     canonical = normalize(text)
-    found = [match.group().rstrip(".,，。!?！？);；:：]】}）\"'") for match in LINKS.finditer(canonical)]
-    reasons = assess(text, list(urls) + found, rules, settings)["reasons"]
-    if has_link(text, urls):
+    found = input_links(text, urls, rules=rules)
+    reasons = assess(text, found, rules, settings)["reasons"]
+    if found:
         reasons.append(LINK_REASON)
     name = normalize(settings.get("chat_name", ""))
     body = canonical.removeprefix(name).lstrip(" ，,：:") if name else canonical

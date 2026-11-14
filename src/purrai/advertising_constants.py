@@ -7,7 +7,8 @@ AD_PREFIX = "明确广告引流："
 GROUP_PREFIX = "外群链接引流："
 CHANNEL_PREFIX = "外部频道广告："
 BLACKLIST_PREFIX = "全局广告黑名单："
+BUTTON_REASON = "消息附带内联按钮，删除消息并永久封禁"
 
 
 def is_ban_reason(reason):
-    return reason.startswith((AD_PREFIX, GROUP_PREFIX, CHANNEL_PREFIX, BLACKLIST_PREFIX))
+    return reason == BUTTON_REASON or reason.startswith((AD_PREFIX, GROUP_PREFIX, CHANNEL_PREFIX, BLACKLIST_PREFIX))

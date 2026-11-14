@@ -176,3 +176,7 @@ async def test_bot_can_set_and_display_rule_penalty(env):
     assert "正文命中删除消息并永久禁言" in markup(tg)["text"]
     async with db.sessions() as session:
         assert (await session.get(Rule, "ad-rule")).penalty == "permanent_mute"
+    await click(runtime, tg, "处置改为AI确认广告后删消息并永久禁言")
+    assert "所选范围内任一关键词命中且AI确认广告" in markup(tg)["text"]
+    async with db.sessions() as session:
+        assert (await session.get(Rule, "ad-rule")).penalty == "ai_confirmed_mute"

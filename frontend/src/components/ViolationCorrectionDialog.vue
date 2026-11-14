@@ -5,15 +5,18 @@ import { api } from '../api'
 import { useTask } from '../composables/useTask'
 import { useWorkspace } from '../workspace'
 import type { Rule, Violation } from '../types'
+import { actionContext } from '../actionContext'
+import { useDraftClose } from '../composables/useDraftClose'
 
 type Evidence = { rules: (Rule & {global_version: string; other_sources: number})[]; global_allowed: boolean;
   affected_groups: {id: number; title: string; rule_ids?: string[]}[]; user_id: number; excerpt: string }
 const props = defineProps<{ groupId: number; violation: Violation | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const open = computed({ get: () => Boolean(props.violation), set: value => { if (!value) emit('close') } })
-const { mutations, actionTracker } = useWorkspace()
+const { mutations, actionTracker, groups } = useWorkspace()
 const { busy, error, safe } = useTask()
 const evidence = ref<Evidence | null>(null), selected = ref<string[]>([]), scope = ref('local'), reason = ref(''), action = ref('')
+const { requestClose } = useDraftClose(() => !!reason.value || !!action.value || selected.value.length > 0 || scope.value !== 'local', () => emit('close'), () => busy.value)
 let revision = 0
 watch(() => props.violation, async row => {
   const current = ++revision
@@ -32,14 +35,16 @@ async function save() {
       .map(rule => [rule.id!, scope.value === 'global' ? rule.global_version : rule.version]))
     const result = await mutations.submit<{action_ids: string[]}>(`/api/groups/${props.groupId}/violations/${row.id}/correction`,
       'POST', { reason: reason.value.trim(), action: action.value, scope: scope.value, rule_versions }, undefined, '纠正误判')
-    for (const id of result.action_ids) actionTracker.accept({ id, state: 'pending', reason: reason.value }, reason.value)
+    const group = groups.value.find(item => item.id === props.groupId)
+    for (const id of result.action_ids) actionTracker.accept({ id, state: 'pending', reason: reason.value }, reason.value,
+      group ? actionContext(group, action.value || '纠正误判', row.user_id, row.sender_name) : undefined)
     ElMessage.success(result.action_ids.length ? '纠正已保存，解除限制任务已提交' : '纠正已保存')
   })) { emit('saved'); emit('close') }
 }
 </script>
 
 <template>
-<el-dialog v-model="open" title="纠正误判" width="min(720px, 94vw)" :close-on-click-modal="false">
+<el-dialog v-model="open" title="纠正误判" class="form-dialog" width="min(720px, 94vw)" :before-close="requestClose" :close-on-click-modal="false">
 <div v-loading="busy">
 <p>成员 {{ violation?.user_id }} · {{ violation?.excerpt }}</p>
 <p>保留原始证据和处置历史，取消尚未执行的相关自动处罚。已删除的消息无法原地恢复。</p>
@@ -62,6 +67,6 @@ async function save() {
 <el-alert v-if="selected.length && scope === 'global'" :title="`将影响继承这些通用规则的群：${evidence.affected_groups.filter(group => !group.rule_ids || group.rule_ids.some(id => selected.includes(id))).map(group => group.title).join('、') || '无'}。已设置本群覆盖的规则保留；已有处罚不会批量解除。`" type="warning" :closable="false"/>
 </el-form>
 </div>
-<template #footer><el-button :disabled="busy" @click="open = false">取消</el-button><el-button type="primary" :loading="busy" :disabled="!evidence" @click="save">确认纠正</el-button></template>
+<template #footer><el-button :disabled="busy" @click="requestClose">取消</el-button><el-button type="primary" :loading="busy" :disabled="!evidence" @click="save">确认纠正</el-button></template>
 </el-dialog>
 </template>

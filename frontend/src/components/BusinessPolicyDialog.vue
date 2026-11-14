@@ -6,6 +6,8 @@ import type { BusinessDocument, BusinessPolicy, BusinessRule } from '../business
 import { actions, expression } from '../businessPolicy'
 import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
+import { useDraftClose } from '../composables/useDraftClose'
+import { usePreviewResult } from '../composables/usePreviewResult'
 import ConditionEditor from './ConditionEditor.vue'
 import TextStepsEditor from './TextStepsEditor.vue'
 
@@ -22,8 +24,9 @@ const condition = computed(() => document.value?.conditions.find(item => item.id
 const view = computed(() => document.value?.views.find(item => item.id === viewId.value))
 const sample = ref({ text: '', sender_name: '', source_title: '', contact: false, contact_name: '', direct: false })
 type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[] }
-const result = ref<{ before: Preview; after: Preview; changed: boolean } | null>(null)
+const { result, run: runPreview, invalidate } = usePreviewResult<{ before: Preview; after: Preview; changed: boolean }>(() => [document.value, sample.value, props.groupId, props.open])
 const dirty = computed(() => !!baseline.value && JSON.stringify(document.value) !== JSON.stringify(baseline.value.document))
+const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value)
 let revision = 0
 async function load() {
   const current = ++revision
@@ -33,13 +36,11 @@ async function load() {
     baseline.value = response; document.value = structuredClone(response.document)
     stageId.value = response.document.stages.find(item => item.id === 'advertising')?.id || response.document.stages[0]?.id || ''
     conditionId.value = response.document.conditions[0]?.id || ''; viewId.value = response.document.views[0]?.id || ''
-    ruleId.value = stage.value?.rules[0]?.id || ''; result.value = null
+    ruleId.value = stage.value?.rules[0]?.id || ''; invalidate()
   })
 }
 watch(() => props.open, open => { if (open) { baseline.value = null; document.value = null; error.value = ''; tab.value = 'rules'; void load() } else revision++ })
 watch(stageId, () => { ruleId.value = stage.value?.rules[0]?.id || '' })
-watch(document, () => { result.value = null }, { deep: true })
-watch(sample, () => { result.value = null }, { deep: true })
 function addRule() {
   if (!stage.value) return
   const item: BusinessRule = { id: 'rule-' + crypto.randomUUID(), title: '新规则', reason: '新规则命中', enabled: true,
@@ -69,8 +70,7 @@ function moveRule(delta: number) {
 async function preview() {
   await safe(async () => {
     const payload = JSON.stringify({ group_id: props.groupId, document: document.value, ...sample.value })
-    const response = await api<typeof result.value>('/api/settings/business-policy/preview', { method: 'POST', body: payload })
-    if (payload === JSON.stringify({ group_id: props.groupId, document: document.value, ...sample.value })) result.value = response
+    await runPreview(() => api('/api/settings/business-policy/preview', { method: 'POST', body: payload }))
   })
 }
 async function save() {
@@ -90,7 +90,7 @@ function conclusion(value: Preview) {
 </script>
 
 <template>
-<el-dialog v-model="dialog" title="业务组合规则" class="business-policy-dialog" top="3vh" width="min(1120px, 96vw)" :close-on-click-modal="false" destroy-on-close>
+<el-dialog v-model="dialog" title="业务组合规则" class="business-policy-dialog form-dialog" top="3vh" width="min(1120px, 96vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
 <p>这些规则对所有群生效。群内的“明确广告引流永久封禁”开关继续控制广告检查；聊天排除规则只影响聊天。保存前可比较当前规则和草稿的结果。</p>
 <el-alert v-if="error" :title="error" type="error" show-icon @close="error = ''"/>
 <div v-if="document" v-loading="busy">
@@ -134,7 +134,7 @@ function conclusion(value: Preview) {
 <div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p></div></div>
 </section>
 </div>
-<template #footer><span v-if="dirty" class="unsaved">草稿尚未保存</span><el-button @click="dialog = false">关闭</el-button><el-button type="primary" :disabled="!document || !dirty" :loading="busy" @click="save">保存业务规则</el-button></template>
+<template #footer><span v-if="dirty" class="unsaved">草稿尚未保存</span><el-button :disabled="busy" @click="requestClose">关闭</el-button><el-button type="primary" :disabled="!document || !dirty" :loading="busy" @click="save">保存业务规则</el-button></template>
 </el-dialog>
 </template>
 <style scoped>

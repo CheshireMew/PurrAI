@@ -29,7 +29,7 @@ async function changeSelected(enabled: boolean, scope = 'local') {
 }
 const editorOpen = ref(false), editingRule = ref<Rule | null>(null)
 const businessOpen = ref(false)
-const { input: previewInput, reasons: previewReasons, preview: runPreview } = usePreview(() => props.groupId)
+const { input: previewInput, reasons: previewReasons, preview: runPreview } = usePreview(() => props.groupId, () => [rows.value, props.refreshKey])
 function edit(row: Rule | null = null) { editingRule.value = row; editorOpen.value = true }
 async function preview() { await safe(() => runPreview()) }
 useRefresh(load, () => props.refreshKey)
@@ -87,11 +87,11 @@ useRefresh(load, () => props.refreshKey)
 <el-checkbox v-model="previewInput.contact">包含联系人</el-checkbox>
 <el-checkbox v-model="previewInput.forwarded">用户或频道转发</el-checkbox>
 <span>窗口内重复次数</span>
-<el-input-number v-model="previewInput.repeats" :min="0" :max="100"/>
+<el-input-number v-model="previewInput.repeats" aria-label="窗口内重复次数" :min="0" :max="100"/>
 <span>近似内容次数</span>
-<el-input-number v-model="previewInput.similar" :min="0" :max="100"/>
+<el-input-number v-model="previewInput.similar" aria-label="近似内容次数" :min="0" :max="100"/>
 <span>连续发送次数</span>
-<el-input-number v-model="previewInput.burst" :min="0" :max="100"/>
+<el-input-number v-model="previewInput.burst" aria-label="连续发送次数" :min="0" :max="100"/>
 <el-button type="primary" :loading="busy" @click="preview">测试规则</el-button>
 </div>
 <el-alert v-if="previewReasons !== null" :type="previewReasons.length ? 'warning' : 'success'" :title="previewReasons.length ? previewReasons.join('；') : '未命中当前规则'" :closable="false"/>

@@ -4,11 +4,19 @@
   "purpose": "Authorized migration of all three legacy business modules to editable SharedPolicy data; adapters contain no business patterns.",
   "adapter_ast": {
     "src/purrai/advertising_patterns.py": "aaafba97f8a1a9f57aa1096ab74b44e0f80533413fc2063cf2a061f26cdd12c6",
-    "src/purrai/chat_input.py": "e8dbe4bf4b1cf41c851568c72c1f97f028626197788d7b38f44b86ca20f5ecb5",
+    "src/purrai/chat_input.py": "2e647b8ecdd00f67fe8da6ac071fafb94016ce0fb1458958e5e79140e06f5398",
     "src/purrai/solicitation_rules.py": "6d97d744ab13e14b302bb479ddde1074987f631e13bb50acc3a1558a210e02ea"
   },
   "seed_sha256": "df26d9ad3ab704dbb3c5ee91ffbfec3aa39c3c13b14f37e8928b136a45e90165",
   "entries": [
+    {
+      "path": "src/purrai/advertising_constants.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "8388a76f4693a71a087702b0d31c1ca895c7b2956ea04ef00f4b173488090f22",
+      "line": 10,
+      "examples": ["消息附带内联按钮，删除消息并永久封禁"]
+    },
     {
       "path": "src/purrai/bot_auto_reply_panels.py",
       "scope": "AutoReplyPanels.route",
@@ -1175,10 +1183,10 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "524eee2ce56c58556d48a89ef8516a595806ae7f8727a5122367b9a616028852",
+      "digest": "60bf3be909eb0e8d7248c781660fc950911a6fa0a3e7e5c78d44ccd907ee9351",
       "line": 24,
       "examples": [
-        "AI最近3天累计3次广告永久禁言",
+        "AI广告永久禁言",
         "临时封禁",
         "临时应急保护",
         "临时禁言",
@@ -1189,7 +1197,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "39bfd25589f031447841d07257eec5edaded1dce163efc6e0a86de860302b892",
+      "digest": "ea2bcf65daa8bb00f7d188716f679244c116fc0e515fc5a86059ab0b64688be3",
       "line": 90,
       "examples": [
         "全员拦截钱包及代币合约地址",

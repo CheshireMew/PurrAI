@@ -878,6 +878,48 @@ test('正文关键词可保存删消息并永久禁言并在预览显示', async
   await expect(page.getByText('正文命中删除消息并永久禁言', { exact: true })).toBeVisible()
 })
 
+test('带按钮消息可单独开启删除并永久封禁', async ({ page }) => {
+  await mock(page); await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: '防广告', exact: true }).click()
+  const toggle = dialog.getByRole('switch', { name: '带按钮消息删除并永久封禁', exact: true })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.press('Space')
+  const saved = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await saved).postDataJSON().settings.inline_buttons_ban).toBe(true)
+})
+
+test('AI确认关键词处置可保存且预览不冒充模型判断', async ({ page }) => {
+  await mock(page)
+  await page.route('**/api/groups/-1001/rules/preview', async route => {
+    expect(route.request().postDataJSON().draft.penalty).toBe('ai_confirmed_mute')
+    await route.fulfill({ json: { reasons: [], delete_message: false, mute_member: false, ban_member: false,
+      ai_confirmation_required: true, notes: ['命中AI确认关键词；需模型实际确认广告，本次预览未调用AI。'] } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '防广告规则', exact: true }).click()
+  await page.getByRole('button', { name: '添加规则', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('关键词，或 example.com 形式的域名').fill('纸飞机')
+  await dialog.locator('.el-form-item').filter({ hasText: '正文命中处理' }).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: 'AI确认广告后删消息并永久禁言', exact: true }).click()
+    await dialog.locator('.el-form-item').filter({ hasText: '检查范围' }).locator('.el-select__wrapper').click()
+    await page.getByRole('option', { name: '昵称或正文，任一处命中', exact: true }).click()
+  await expect(dialog.getByText('关键词本身不处罚。', { exact: false })).toBeVisible()
+  await dialog.getByPlaceholder('输入消息，测试这次修改后的规则').fill('纸飞机内容')
+  await dialog.getByRole('button', { name: '预览当前草稿', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('本次预览未调用AI')
+  await expect(dialog.getByRole('alert')).not.toContainText('将删除消息')
+  await expect(dialog.getByRole('alert')).not.toContainText('将禁言成员')
+  const saved = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith('/rules'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    expect((await saved).postDataJSON()).toMatchObject({ value: '纸飞机', scope: 'either', penalty: 'ai_confirmed_mute' })
+  await expect(dialog).not.toBeVisible()
+})
+
 test('发图文字门槛默认三条并可以逐群关闭', async ({ page }) => {
   await mock(page); await page.goto('/')
   await page.getByRole('button', { name: '群管理', exact: true }).click()
@@ -1042,14 +1084,31 @@ test('超级管理员可以保存通用人设，群管理员只能修改本群',
   await expect(page.getByRole('button', { name: '通用设置', exact: true })).toHaveCount(0)
 })
 
-test('本群可以恢复通用设置', async ({ page }) => {
+test('恢复全部设置先进入草稿，保存时保留之后手动修改的项目', async ({ page }) => {
   await mock(page); await page.goto('/')
+  const writes: any[] = []
+  await page.route('**/api/groups/-1001/settings', route => {
+    writes.push(route.request().postDataJSON()); return route.fulfill({json: {}})
+  })
   await page.getByRole('button', { name: '群管理', exact: true }).click()
   await page.getByRole('button', { name: '群设置', exact: true }).first().click()
-  const reset = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/api/groups/-1001/settings'))
-  await page.getByRole('dialog').getByRole('button', { name: '恢复通用设置', exact: true }).click()
-  const keys = (await reset).postDataJSON().reset
-  expect(keys).toContain('chat_persona'); expect(keys).toContain('emoji_status_blocked_packs')
+  const dialog = page.getByRole('dialog', {name: '群设置', exact: true})
+  await dialog.getByRole('button', { name: '全部恢复通用设置', exact: true }).click()
+  await expect(dialog.getByText('已将全部分页恢复为通用设置，保存后生效。随后改动的项目将作为本群设置。')).toBeVisible()
+  expect(writes).toHaveLength(0)
+  await dialog.getByRole('button', {name: '取消', exact: true}).click()
+  await page.getByRole('button', {name: '放弃修改', exact: true}).click()
+  expect(writes).toHaveLength(0)
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  await dialog.getByRole('button', { name: '全部恢复通用设置', exact: true }).click()
+  await dialog.getByRole('tab', {name: '群聊天', exact: true}).click()
+  await dialog.getByLabel('性格与说话习惯', {exact: true}).fill('保存前调整的人设')
+  await dialog.getByRole('button', {name: '保存', exact: true}).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0].reset).toContain('emoji_status_blocked_packs')
+  expect(writes[0].reset).not.toContain('chat_persona')
+  expect(writes[0].settings.chat_persona).toBe('保存前调整的人设')
+  expect(writes[0].baseline).toHaveProperty('chat_persona')
   await expect(page.getByRole('dialog')).not.toBeVisible()
 })
 
@@ -1395,4 +1454,107 @@ test('功能完善：归档额度可查看逐群用量并保存', async ({ page 
   await expect.poll(() => body?.group_mb).toBe(128)
   expect(body.global_mb).toBe(512)
   await expect(dialog.getByRole('button', {name: '整理选中导出的归档', exact: true})).toBeDisabled()
+})
+
+for (const [section, title] of [['verifications', '入群验证'], ['violations', '违规记录'], ['operations', '操作记录'], ['messages', '消息归档']]) {
+  test(`修复审查：${title}窄屏日期弹层完整可用`, async ({page}) => {
+    await mock(page); await page.setViewportSize({width: 390, height: 844})
+    await page.goto(`/#/${section}?group=-1001`)
+    for (const placeholder of ['开始（北京时间）', '结束（北京时间）']) {
+      const input = page.getByPlaceholder(placeholder)
+      await input.click()
+      const popup = page.locator('.date-filter-popup:visible')
+      await expect(popup.getByRole('button', {name: '确定', exact: true})).toBeVisible()
+      await expect.poll(async () => {
+        const box = await popup.boundingBox(), confirm = await popup.getByRole('button', {name: '确定', exact: true}).boundingBox()
+        return !!box && !!confirm && box.x >= 0 && box.x + box.width <= 391 && confirm.y >= 0 && confirm.y + confirm.height <= 845
+      }).toBe(true)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await popup.getByRole('gridcell', {name: '13', exact: true}).click()
+      await popup.getByRole('textbox', {name: '选择时间', exact: true}).click()
+      const timePanel = popup.locator('.el-time-panel')
+      await expect(timePanel).toBeVisible()
+      const timeBox = (await timePanel.boundingBox())!, popupBox = (await popup.boundingBox())!
+      expect(timeBox.x + timeBox.width).toBeLessThanOrEqual(popupBox.x + popupBox.width)
+      await timePanel.getByRole('button', {name: '确定', exact: true}).click()
+      if (section === 'verifications' && placeholder.startsWith('开始')) await page.screenshot({path: test.info().outputPath('date-popup-390.png')})
+      await input.press('Escape')
+    }
+  })
+}
+
+test('修复审查：规则及样本改动后旧结果失效，迟到响应不能恢复旧结果', async ({page}) => {
+  await mock(page); await page.goto('/#/rules?group=-1001')
+  await page.getByRole('button', {name: '添加规则', exact: true}).click()
+  const dialog = page.getByRole('dialog', {name: '广告规则', exact: true})
+  await dialog.getByLabel('规则内容', {exact: true}).fill('任意样本甲')
+  await dialog.getByLabel('保存前测试', {exact: true}).fill('任意样本甲')
+  await dialog.getByRole('button', {name: '预览当前草稿', exact: true}).click()
+  await expect(dialog.getByText('关键词：广告', {exact: true})).toBeVisible()
+  await dialog.getByLabel('规则内容', {exact: true}).fill('任意样本乙')
+  await expect(dialog.getByText('关键词：广告', {exact: true})).toHaveCount(0)
+  let release!: () => void
+  const blocked = new Promise<void>(resolve => {release = resolve})
+  await page.route('**/api/groups/-1001/rules/preview', async route => { await blocked; await route.fulfill({json: {reasons: ['迟到的旧结果']}}) })
+  const requested = page.waitForRequest('**/api/groups/-1001/rules/preview')
+  await dialog.getByRole('button', {name: '预览当前草稿', exact: true}).click(); await requested
+  await dialog.getByLabel('保存前测试', {exact: true}).fill('新输入')
+  const responded = page.waitForResponse('**/api/groups/-1001/rules/preview')
+  release(); await responded
+  await expect(dialog.getByRole('button', {name: '预览当前草稿', exact: true})).not.toHaveClass(/is-loading/)
+  await expect(dialog.getByText('迟到的旧结果', {exact: true})).toHaveCount(0)
+})
+
+for (const editor of ['业务组合规则', '广告规则', '群设置', '添加自动回复']) {
+  test(`修复审查：${editor}的 Escape、关闭与放弃草稿`, async ({page}) => {
+    await mock(page)
+    const warnings: string[] = []
+    page.on('console', message => {if (message.text().includes('Failed to resolve component')) warnings.push(message.text())})
+    await page.route('**/api/settings/business-policy', route => route.fulfill({json: {document: businessSeed, version: 'v1'}}))
+    await page.route('**/api/groups/-1001/auto-replies?*', route => route.fulfill({json: {items: [], total: 0}}))
+    const section = editor === '群设置' ? 'groups' : editor === '添加自动回复' ? 'auto-replies' : 'rules'
+    await page.goto(`/#/${section}?group=-1001`)
+    const entry = page.getByRole('button', {name: editor === '业务组合规则' ? '管理业务规则' : editor === '广告规则' ? '添加规则' : editor, exact: true}).first()
+    await entry.click()
+    const dialog = page.getByRole('dialog', {name: editor, exact: true})
+    if (editor === '业务组合规则') {
+      const header = dialog.locator('.el-collapse-item__header')
+      await expect(header).toHaveAttribute('aria-expanded', 'false')
+      await header.click(); await expect(header).toHaveAttribute('aria-expanded', 'true')
+    }
+    if (editor === '添加自动回复') await expect(dialog.locator('.el-divider')).toHaveCount(1)
+    const input = editor === '群设置' ? dialog.getByRole('spinbutton').first() : editor === '业务组合规则' ? dialog.getByLabel('业务规则名称', {exact: true}) : editor === '广告规则' ? dialog.getByLabel('规则内容', {exact: true}) : dialog.getByLabel('自动回复关键词', {exact: true})
+    const original = await input.inputValue(), changed = editor === '群设置' ? String(Number(original) + 1) : '待保存修改'
+    await input.fill(changed); await input.press('Tab'); await page.keyboard.press('Escape')
+    const confirm = page.getByRole('dialog', {name: '保留当前草稿？', exact: true})
+    await expect(confirm).toBeVisible()
+    await confirm.getByRole('button', {name: '继续编辑', exact: true}).click()
+    await expect(input).toHaveValue(changed)
+    await dialog.locator('.el-dialog__headerbtn').click()
+    await confirm.getByRole('button', {name: '放弃修改', exact: true}).click()
+    await expect(dialog).not.toBeVisible(); await entry.click()
+    await expect(input).toHaveValue(original)
+    expect(warnings).toEqual([])
+  })
+}
+
+test('修复审查：封禁前展示对象与实际时长，切群后回执仍有原群信息', async ({page}) => {
+  await mock(page); await page.goto('/#/verifications?group=-1001')
+  let sent: any
+  await page.route('**/api/verifications/v1/actions', route => {sent = route.request().postDataJSON(); return route.fulfill({json: {id: 'a1', state: 'pending', reason: sent.reason}})})
+  await page.getByRole('button', {name: '封禁', exact: true}).click()
+  const confirm = page.getByRole('dialog', {name: '临时封禁', exact: true})
+  await expect(confirm).toContainText('PurrAI 开发讨论（-1001）')
+  await expect(confirm).toContainText('新成员 · 42')
+  await expect(confirm).toContainText('本次 600 秒')
+  await confirm.getByRole('textbox').fill('核实后临时处理')
+  await confirm.getByRole('button', {name: '提交操作', exact: true}).click()
+  await expect.poll(() => sent?.duration_seconds).toBe(600)
+  await page.getByRole('combobox', {name: '选择群', exact: true}).click()
+  await page.getByRole('option', {name: '猫咪摄影交流', exact: true}).click()
+  const results = page.locator('.action-results')
+  await expect(results).toContainText('PurrAI 开发讨论（-1001）')
+  await expect(results).toContainText('新成员 · 42')
+  await expect(results).toContainText('本次 600 秒')
+  await page.screenshot({path: test.info().outputPath('action-context.png'), fullPage: true})
 })

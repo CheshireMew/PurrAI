@@ -7,6 +7,7 @@ import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 import { useTask } from '../composables/useTask'
+import { useDraftClose } from '../composables/useDraftClose'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const { mutations } = useWorkspace()
@@ -17,8 +18,10 @@ const busy = computed(() => records.busy.value || actions.busy.value)
 const error = computed({ get: () => actions.error.value || records.error.value,
   set: value => { actions.error.value = value; records.error.value = value } })
 const dialog = ref(false)
+const original = ref('')
 const form = reactive<Omit<Whitelist, 'user_id'> & { user_id: string | number }>({ user_id: '', verification: true, moderation: true, note: '' })
-function edit(row?: Whitelist) { Object.assign(form, { user_id: '', version: undefined, verification: true, moderation: true, note: '' }, row); error.value = ''; dialog.value = true }
+const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => { dialog.value = false }, () => busy.value)
+function edit(row?: Whitelist) { Object.assign(form, { user_id: '', version: undefined, verification: true, moderation: true, note: '' }, row); original.value = JSON.stringify(form); error.value = ''; dialog.value = true }
 async function save() {
   if (await safe(async () => {
     if (!/^\d+$/.test(String(form.user_id))) throw new Error('请填写有效的 Telegram 用户 ID')
@@ -60,7 +63,7 @@ useRefresh(load, () => props.refreshKey)
 </el-table-column>
 </el-table>
 </section>
-<el-dialog v-model="dialog" title="白名单成员" width="min(620px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<el-dialog v-model="dialog" title="白名单成员" class="form-dialog" width="min(620px, 94vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
 <el-form label-position="top" @submit.prevent="save">
 
 <el-form-item label="Telegram 用户 ID">
@@ -79,7 +82,7 @@ useRefresh(load, () => props.refreshKey)
 </el-form>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <template #footer>
-<el-button @click="dialog = false">取消</el-button>
+<el-button :disabled="busy" @click="requestClose">取消</el-button>
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>
 </template>
 </el-dialog>

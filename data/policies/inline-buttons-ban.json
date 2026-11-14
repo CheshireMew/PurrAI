@@ -1,0 +1,8 @@
+{
+  "group_id": -1002274900898,
+  "group_title": "柴宝养成计划（主动私聊你的都是骗子）",
+  "endpoint": "PATCH /api/groups/-1002274900898/settings",
+  "body": {"settings": {"inline_buttons_ban": true}},
+  "purpose": "通过管理入口保存的目标配置；此文件不会自动加载，是否在线生效以数据库配置为准。",
+  "behavior": "收到本条消息附带的内联按钮时，删除该消息并永久封禁发送者；访客机器人代发时按Telegram提供的guest_bot_caller_user归属。不要求入群记录，不要求按钮文字命中关键词或AI确认。管理员、防广告白名单、自身机器人及关联频道自动转发保留现有豁免。"
+}

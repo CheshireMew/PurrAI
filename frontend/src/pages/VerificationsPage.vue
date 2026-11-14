@@ -7,11 +7,13 @@ import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 import { statusTone } from '../presentation'
 import BatchReleaseDialog from '../components/BatchReleaseDialog.vue'
+import DateRangeFilter from '../components/DateRangeFilter.vue'
+import { actionContext } from '../actionContext'
 import { applyBeijingDates } from '../query'
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
-const { catalog, confirmAction: submitAction } = useWorkspace()
+const { catalog, groups, confirmAction: submitAction } = useWorkspace()
 const operationNames = computed(() => catalog.value!.operations)
 const { rows, total, pagination, statusFilter, userFilter, dates, busy, error, safe, load: loadRecords, filters, appliedFilters } = useRecords<Verification>(() => props.groupId, 'verifications')
 const history = ref<Operation[]>([])
@@ -33,7 +35,12 @@ async function load(change: boolean | number = false) {
     if (current === version) history.value = result.items
   })])
 }
-async function confirmAction(path: string, action: string, title: string) { await submitAction(path, action, title); await load() }
+async function confirmAction(row: Verification, action: string, title: string) {
+  const group = groups.value.find(item => item.id === props.groupId)
+  if (!group) return
+  await submitAction(`/api/verifications/${row.id}/actions`, action, title, actionContext(group, action, row.user_id, row.user_name))
+  await load()
+}
 useRefresh(load, () => props.refreshKey, () => !busy.value)
 </script>
 
@@ -42,16 +49,16 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <section class="panel" v-loading="busy">
 <div class="panel-title">
 <h2>验证记录</h2>
-<el-button @click="previewBatch('all')">批量放行</el-button>
+<div class="panel-actions"><el-button @click="previewBatch('all')">批量放行</el-button>
 <el-button @click="previewBatch('filtered')">预览筛选中的待验证成员</el-button>
-<el-button v-if="chosen.length" @click="previewBatch('selected')">放行所选 {{ chosen.length }} 人</el-button>
+<el-button v-if="chosen.length" @click="previewBatch('selected')">放行所选 {{ chosen.length }} 人</el-button></div>
 </div>
 <form class="filterbar" aria-label="筛选验证记录" @submit.prevent="filters">
 <el-input v-model="userFilter" placeholder="Telegram 用户 ID" aria-label="筛选用户 ID" clearable/>
 <el-select v-model="statusFilter" placeholder="全部状态" clearable aria-label="筛选验证状态">
 <el-option v-for="s in ['pending', 'muting', 'releasing', 'removing', 'failing', 'passed', 'failed', 'left']" :key="s" :value="s" :label="label(s)"/>
 </el-select>
-<el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
+<DateRangeFilter v-model="dates"/>
 <el-button type="primary" native-type="submit">查询</el-button>
 </form>
 <el-table :data="rows" empty-text="暂无验证记录" row-key="id" @selection-change="chosen = $event">
@@ -75,10 +82,10 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </el-table-column>
 <el-table-column label="操作" width="180" fixed="right">
 <template #default="{ row }">
-<el-button v-if="row.allowed_operations.includes('reissue')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'reissue', '重新出题')">重出题</el-button>
-<el-button v-if="row.allowed_operations.includes('release')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'release', '人工放行')">放行</el-button>
-<el-button v-if="row.allowed_operations.includes('ban')" size="small" type="danger" plain @click="confirmAction(`/api/verifications/${row.id}/actions`, 'ban', '临时封禁')">封禁</el-button>
-<el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(`/api/verifications/${row.id}/actions`, 'unban', '解除 PurrAI 入群限制')">解除入群限制</el-button>
+<el-button v-if="row.allowed_operations.includes('reissue')" size="small" @click="confirmAction(row, 'reissue', '重新出题')">重出题</el-button>
+<el-button v-if="row.allowed_operations.includes('release')" size="small" @click="confirmAction(row, 'release', '人工放行')">放行</el-button>
+<el-button v-if="row.allowed_operations.includes('ban')" size="small" type="danger" plain @click="confirmAction(row, 'ban', '临时封禁')">封禁</el-button>
+<el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(row, 'unban', '解除 PurrAI 入群限制')">解除入群限制</el-button>
 <span v-if="!row.allowed_operations.length" class="muted">{{ row.failure_action === 'kick' ? '已踢出，可重新加入' : '已结束' }}</span>
 </template>
 </el-table-column>

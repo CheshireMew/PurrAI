@@ -1,6 +1,6 @@
 """Telegram panels for archive panels."""
 
-from purrai.bot_common import button, clock
+from purrai.bot_common import button, clock, text_pages
 from purrai.schemas import (
     ArchiveFilter,
 )
@@ -85,21 +85,41 @@ class ArchivePanels:
         if row.get("recording_gap"):
             gap = row["recording_gap"]
             text += f"归档不完整：{gap['reason']}，至少 {gap['omitted_at_least']} 次更新未保存；展示内容可能不是最新版本。\n"
-        for revision in row["revisions"][-3:]:
+        revisions = row["revisions"]
+        version = max(0, min(int(data.get("version", len(revisions) - 1)), len(revisions) - 1))
+        if revisions:
+            revision = revisions[version]
             body = (
                 revision["payload"].get("text")
                 or revision["payload"].get("caption")
                 or "（无文字，媒体元数据见导出）"
             )
-            text += f"\n{'编辑' if revision['is_edit'] else '收到'} · {clock(revision['event_at'])}\n{body[:650]}\n"
+            text += f"\n{'编辑' if revision['is_edit'] else '收到'} · {clock(revision['event_at'])}\n{body}\n"
             if revision["reasons"]:
-                text += "命中：" + "；".join(revision["reasons"])[:400] + "\n"
+                text += "命中：" + "；".join(revision["reasons"]) + "\n"
         if row["violation"]:
-            text += "\n累计命中原因：" + "；".join(row["violation"]["reasons"])[:400]
+            text += "\n累计命中原因：" + "；".join(row["violation"]["reasons"])
+        if not revisions:
+            text += "\n未保存可读取的消息版本。"
+        pages = text_pages(text)
+        part = max(0, min(int(data.get("part", 0)), len(pages) - 1))
+        context = {"id": data["id"], "filters": data.get("filters", {}), "page": data.get("page", 0)}
+        buttons = []
+        if part:
+            buttons.append(button("上一页正文", "archive_detail", **context, version=version, part=part - 1))
+        if part + 1 < len(pages):
+            buttons.append(button("下一页正文", "archive_detail", **context, version=version, part=part + 1))
+        if version:
+            buttons.append(button("更早版本", "archive_detail", **context, version=version - 1))
+        if version + 1 < len(revisions):
+            buttons.append(button("更新版本", "archive_detail", **context, version=version + 1))
+        buttons.append(button("返回归档列表", "archive", filters=context["filters"], page=context["page"]))
+        heading = f"归档消息 {row.get('origin_message_id', row['message_id'])} · 版本 {version + 1 if revisions else 0}/{len(revisions)} · 正文 {part + 1}/{len(pages)} 页\n"
         await self.panel(
             actor,
-            text,
-            [button("返回归档列表", "archive", filters=data.get("filters", {}), page=data.get("page", 0))],
+            heading + pages[part],
+            buttons,
             group_id,
             message_id,
+            resume={"action": "archive_detail", "data": {**context, "version": version, "part": part}},
         )

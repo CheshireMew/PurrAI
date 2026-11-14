@@ -129,11 +129,16 @@ class PolicyPanels:
             buttons += [button("匹配改为" + MODES[modes[(modes.index(item["mode"]) + 1) % len(modes)]],
                                "policy_rule_change", baseline=original,
                                changes={"mode": modes[(modes.index(item["mode"]) + 1) % len(modes)]}),
-                        button("范围改为" + SCOPES[scope], "policy_rule_change", baseline=original, changes={"scope": scope}),
+                        button("范围改为" + SCOPES[scope], "policy_rule_change", baseline=original,
+                               changes={"scope": scope}),
                         button("设置昵称＋正文组合", "policy_prompt", kind="policy_rule_context", baseline=original),
                         button("正文改为只删消息" if item["penalty"] == "permanent_mute" else "正文改为永久禁言",
                                "policy_rule_change", baseline=original,
                                changes={"penalty": "delete" if item["penalty"] == "permanent_mute" else "permanent_mute"})]
+            if item["penalty"] != "ai_confirmed_mute":
+                buttons.append(button("改为AI确认广告后删消息并永久禁言", "policy_rule_change", baseline=original,
+                                      changes={"scope": "either" if item["scope"] == "name_and_message" else item["scope"],
+                                               "penalty": "ai_confirmed_mute"}))
         buttons.append(button("返回通用规则", "policy_rules"))
         await self.panel(actor, f"{item['kind_label']}：{item['value']}\n{item['matching_label']}\n{item['consequence']}\n"
                          "此处修改通用规则；各群已有的单独覆盖保留。", buttons, message_id=message_id,
@@ -176,6 +181,8 @@ class PolicyPanels:
             draft = {**baseline} if baseline else {"kind": data["rule_kind"], "value": text}
             if data["kind"] == "policy_rule_context":
                 draft.update(scope="name_and_message", context_value=text)
+                if draft.get("penalty") == "ai_confirmed_mute":
+                    draft["penalty"] = "delete"
             else:
                 draft["value"] = text
             await self.save_rule(actor, draft, baseline, request_id)

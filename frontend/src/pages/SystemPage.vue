@@ -41,8 +41,8 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <section class="panel" v-loading="reads.busy.value">
 <div class="panel-title">
 <h2>运行状态</h2>
-<el-button :loading="actions.busy.value" @click="systemAction('/api/system/backup')">生成数据库备份</el-button>
-<el-button @click="backupsOpen = true">备份计划与文件</el-button>
+<div class="panel-actions"><el-button :loading="actions.busy.value" @click="systemAction('/api/system/backup')">生成数据库备份</el-button>
+<el-button @click="backupsOpen = true">备份计划与文件</el-button></div>
 </div>
 <div class="system-grid">
 <div>

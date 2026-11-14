@@ -6,6 +6,7 @@ import type { Rule, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
 import { usePreview } from '../composables/usePreview'
+import { useDraftClose } from '../composables/useDraftClose'
 import ArchiveRulePreviewDialog from './ArchiveRulePreviewDialog.vue'
 
 const props = defineProps<{ open: boolean; rule: Rule | null; rules: Rule[]; groupId: number }>()
@@ -17,14 +18,20 @@ let revision = 0
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
 const { busy, error, safe } = useTask()
 const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true })
-const { input: previewInput, reasons: previewReasons, preview } = usePreview(() => props.groupId)
+const original = ref('')
+const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => emit('close'), () => busy.value)
+watch(() => [form.kind, form.scope], () => {
+  if (form.penalty === 'ai_confirmed_mute' && (form.kind !== 'keyword' || form.scope === 'name_and_message')) form.penalty = 'delete'
+})
+const { input: previewInput, reasons: previewReasons, preview, invalidate } = usePreview(() => props.groupId, () => [form, props.open])
 watch(() => props.open, async open => {
   const current = ++revision
   sharedBaseline.value = null
   if (!open) return
   samplesOpen.value = false
   Object.assign(form, { id: undefined, version: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true }, props.rule || {})
-  previewReasons.value = null; previewInput.text = ''; previewInput.sender_name = ''; error.value = ''
+  original.value = JSON.stringify(form)
+  invalidate(); previewInput.text = ''; previewInput.sender_name = ''; error.value = ''
   if (me.value?.root) {
     try {
       const baseline = await api<SharedPolicy>('/api/settings/defaults')
@@ -66,7 +73,7 @@ async function inheritRule() {
 </script>
 
 <template>
-<el-dialog v-model="dialog" title="广告规则" width="min(620px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<el-dialog v-model="dialog" title="广告规则" class="form-dialog" width="min(620px, 94vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
 <el-form label-position="top" @submit.prevent="save">
 
 <el-form-item label="规则类型">
@@ -93,21 +100,23 @@ async function inheritRule() {
 <el-form-item v-if="form.kind === 'keyword'" label="检查范围">
 <el-select v-model="form.scope">
 <el-option value="message" label="正文（按所选处置处理）"/>
-<el-option value="name" label="昵称及用户名（删消息并永久禁言）"/>
-<el-option value="either" label="昵称或正文，各自处置"/>
+<el-option value="name" :label="form.penalty === 'ai_confirmed_mute' ? '昵称及用户名' : '昵称及用户名（删消息并永久禁言）'"/>
+<el-option value="either" :label="form.penalty === 'ai_confirmed_mute' ? '昵称或正文，任一处命中' : '昵称或正文，各自处置'"/>
 <el-option value="name_and_message" label="昵称＋正文必须同时命中"/>
 </el-select>
 </el-form-item>
-<el-form-item v-if="form.kind === 'keyword'" label="正文命中处理">
-<el-select v-model="form.penalty" aria-label="正文命中处理">
+<el-form-item v-if="form.kind === 'keyword'" :label="form.penalty === 'ai_confirmed_mute' ? '关键词命中处理' : '正文命中处理'">
+<el-select v-model="form.penalty" aria-label="关键词命中处理">
 <el-option value="delete" label="只删消息"/>
 <el-option value="permanent_mute" label="删消息并永久禁言"/>
+<el-option value="ai_confirmed_mute" label="AI确认广告后删消息并永久禁言" :disabled="form.scope === 'name_and_message'"/>
 </el-select>
 </el-form-item>
 <el-form-item v-if="form.kind === 'keyword' && form.scope === 'name_and_message'" label="正文还需同时命中的关键词">
 <el-input v-model="form.context_value" maxlength="250"/>
 </el-form-item>
-<p class="muted">只匹配你配置的词。谐音匹配兼容简繁体、分隔符和汉字间夹入的字母数字。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
+<p v-if="form.penalty === 'ai_confirmed_mute'" class="muted">关键词本身不处罚。沿用现有AI聊天开关、参与条件、冷却和额度；实际判定为广告后，首次命中即删除消息并永久禁言。谐音匹配可识别同音写法。</p>
+<p v-else class="muted">只匹配你配置的词。谐音匹配兼容简繁体、分隔符和汉字间夹入的字母数字。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
 <el-form-item label="启用">
 <el-switch v-model="form.enabled" aria-label="启用规则"/>
 </el-form-item>
@@ -127,7 +136,7 @@ async function inheritRule() {
 <template #footer>
 <el-button v-if="props.rule?.inherited_from && !props.rule.inherited" :loading="busy" @click="inheritRule">恢复通用规则</el-button>
 <el-button v-if="me?.root" :loading="busy" :disabled="!sharedBaseline" @click="saveShared">保存为通用规则</el-button>
-<el-button @click="dialog = false">取消</el-button>
+<el-button :disabled="busy" @click="requestClose">取消</el-button>
 <el-button type="primary" :loading="busy" @click="save">保存</el-button>
 </template>
 </el-dialog>

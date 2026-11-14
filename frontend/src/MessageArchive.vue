@@ -6,6 +6,7 @@ import { useLatestRequest } from './composables/useLatestRequest'
 import { useRefresh } from './composables/useRefresh'
 import type { ArchivedDetail, ArchivedMessage, ArchivePage, ArchiveRecording } from './types'
 import ArchiveStorageDialog from './components/ArchiveStorageDialog.vue'
+import DateRangeFilter from './components/DateRangeFilter.vue'
 import ArchiveRulePreviewDialog from './components/ArchiveRulePreviewDialog.vue'
 import { route, savedFilters, saveFilters } from './navigation'
 
@@ -71,7 +72,7 @@ useRefresh(() => load(false), () => props.refreshKey)
 
 <template>
   <section class="panel archive-panel" v-loading="busy">
-    <div class="panel-title"><h2>消息归档</h2><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag><el-button @click="storageOpen = true">容量与整理</el-button></div>
+    <div class="panel-title"><el-tag :type="recording.state === 'active' ? 'success' : recording.state === 'capacity_paused' ? 'warning' : 'info'">{{ recordingLabel }}</el-tag><el-button @click="storageOpen = true">容量与整理</el-button></div>
     <el-alert v-if="recording.reason" :title="recording.reason" type="warning" :closable="false"/>
     <p class="muted">保存机器人收到的群消息、编辑版本和处置结果，关闭记录不会清除已有数据。发送者及媒体信息保存在详情和导出中，图片、视频原文件不会自动下载。</p>
     <form class="filterbar" aria-label="筛选归档消息" @submit.prevent="load(true)">
@@ -79,7 +80,7 @@ useRefresh(() => load(false), () => props.refreshKey)
       <el-input v-model="filters.sender_id" aria-label="归档发送者 ID" placeholder="用户或频道数字 ID" clearable/>
       <el-select v-model="filters.message_type" aria-label="归档消息类型" placeholder="全部消息类型" clearable><el-option v-for="(name, key) in types" :key="key" :value="key" :label="name"/></el-select>
       <el-select v-model="filters.deletion" aria-label="归档删除状态" placeholder="全部删除状态" clearable><el-option v-for="(name, key) in states" :key="key" :value="key" :label="name"/></el-select>
-      <el-date-picker v-model="filters.dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
+      <DateRangeFilter v-model="filters.dates"/>
       <el-checkbox v-model="filters.flagged">只看命中规则</el-checkbox>
       <el-button type="primary" native-type="submit">查询归档</el-button>
       <a class="archive-download" :href="exportUrl">导出当前查询 JSONL</a>

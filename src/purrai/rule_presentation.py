@@ -25,5 +25,7 @@ def describe_rule(rule):
             "either": f"昵称或用户名命中永久禁言；正文命中{body}",
             "name_and_message": "昵称与正文同时命中才永久禁言并删除消息",
         }.get(rule.get("scope", "message"), "")
+        if rule.get("penalty") == "ai_confirmed_mute":
+            consequence = "所选范围内任一关键词命中且AI确认广告，删除消息并永久禁言；关键词本身不处罚，沿用AI聊天调用条件"
     return {**rule, "kind_label": KINDS.get(kind, kind), "matching_label": matching,
             "scope_label": SCOPES.get(rule.get("scope"), "正文"), "consequence": consequence}

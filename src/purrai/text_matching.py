@@ -24,21 +24,23 @@ def compact(text: str) -> str:
 
 @lru_cache(maxsize=2048)
 def matching_text(value: str, mode: str):
-    if mode == "pinyin":
+    if mode in ("pinyin", "pinyin_literal"):
         from pypinyin import lazy_pinyin
 
-        # Ignore Latin letters and digits inserted between Han characters.
-        # This applies to any configured keyword, never to a built-in word list.
-        han = re.sub(r"(?<=[\u4e00-\u9fff])[a-z0-9]+(?=[\u4e00-\u9fff])", "", compact(value))
-        tokens = lazy_pinyin(han)
+        han = compact(value)
+        if mode == "pinyin":
+            # Also examine a view without letters/digits inserted between Han.
+            # The literal view preserves intentionally configured mixed terms.
+            han = re.sub(r"(?<=[\u4e00-\u9fff])[a-z0-9]+(?=[\u4e00-\u9fff])", "", han)
+        tokens = lazy_pinyin(han, errors=lambda value: list(value))
         return "\0" + "\0".join(tokens) + "\0" if tokens else ""
     return compact(value) if mode == "compact" else normalize(value)
 
 
 def matches(text: str, value: str, mode: str) -> bool:
     if mode == "pinyin":
-        needle, haystack = matching_text(value, mode), matching_text(text, mode)
-        return bool(needle) and needle in haystack
+        needle = matching_text(value, "pinyin_literal")
+        return bool(needle) and any(needle in matching_text(text, view) for view in ("pinyin_literal", "pinyin"))
     if mode == "compact":
         needle = matching_text(value, mode)
         return bool(needle) and needle in matching_text(text, mode)

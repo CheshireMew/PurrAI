@@ -1,6 +1,6 @@
 import { createApp, h } from 'vue'
 import {
-  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElConfigProvider, ElDatePicker, ElDialog, ElDrawer,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElConfigProvider, ElDatePicker, ElDialog, ElDivider, ElDrawer,
   ElEmpty, ElForm, ElFormItem, ElIcon, ElInput, ElInputNumber, ElLoading, ElOption,
   ElPagination, ElRadio, ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn,
   ElTabPane, ElTabs, ElTag, ElTooltip,
@@ -9,6 +9,9 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/checkbox/style/css'
+import 'element-plus/es/components/collapse/style/css'
+import 'element-plus/es/components/collapse-item/style/css'
+import 'element-plus/es/components/divider/style/css'
 import 'element-plus/es/components/date-picker/style/css'
 import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/drawer/style/css'
@@ -38,7 +41,7 @@ import './style.css'
 
 const app = createApp({ render: () => h(ElConfigProvider, { locale: zhCn }, () => h(App)) })
 for (const component of [
-  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElDatePicker, ElDialog, ElDrawer, ElEmpty, ElForm,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElDatePicker, ElDialog, ElDivider, ElDrawer, ElEmpty, ElForm,
   ElFormItem, ElIcon, ElInput, ElInputNumber, ElOption, ElPagination, ElRadio,
   ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTabPane, ElTabs, ElTag, ElTooltip,
 ]) app.use(component)

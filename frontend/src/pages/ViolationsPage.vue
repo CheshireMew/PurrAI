@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import ViolationCorrectionDialog from '../components/ViolationCorrectionDialog.vue'
+import DateRangeFilter from '../components/DateRangeFilter.vue'
+import { actionContext } from '../actionContext'
 import type { Violation } from '../types'
 import { useRecords } from '../composables/useRecords'
 import { api, label, time } from '../api'
@@ -10,10 +12,15 @@ import { useRefresh } from '../composables/useRefresh'
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
 const correcting = ref<Violation | null>(null)
-const { catalog, confirmAction: submitAction } = useWorkspace()
+const { catalog, groups, confirmAction: submitAction } = useWorkspace()
 const operationNames = computed(() => catalog.value!.operations)
 const { rows, total, pagination, userFilter, dates, busy, error, load, filters } = useRecords<Violation>(() => props.groupId, 'violations')
-async function confirmAction(path: string, action: string, title: string) { await submitAction(path, action, title); await load() }
+async function confirmAction(row: Violation, action: string, title: string) {
+  const group = groups.value.find(item => item.id === props.groupId)
+  if (!group) return
+  await submitAction(`/api/groups/${group.id}/violations/${row.id}/actions`, action, title, actionContext(group, action, row.user_id, row.sender_name))
+  await load()
+}
 useRefresh(load, () => props.refreshKey)
 </script>
 
@@ -26,7 +33,7 @@ useRefresh(load, () => props.refreshKey)
 </div>
 <form class="filterbar" aria-label="筛选违规记录" @submit.prevent="filters">
 <el-input v-model="userFilter" placeholder="Telegram 用户 ID" aria-label="违规用户 ID" clearable/>
-<el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
+<DateRangeFilter v-model="dates"/>
 <el-button type="primary" native-type="submit">查询</el-button>
 </form>
 <el-table :data="rows" empty-text="暂无违规记录">
@@ -49,9 +56,9 @@ useRefresh(load, () => props.refreshKey)
 <el-table-column label="纠正操作" width="120" fixed="right">
 <template #default="{ row }">
 <el-button size="small" @click="correcting = row">{{ row.correction ? '查看纠正' : '纠正误判' }}</el-button>
-<el-button v-if="row.allowed_operations.includes('revoke_warning')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'revoke_warning', '撤销警告')">撤销警告</el-button>
-<el-button v-if="row.allowed_operations.includes('unmute')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>
-<el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(`/api/groups/${selected}/violations/${row.id}/actions`, 'unban', '解除 PurrAI 封禁')">解封禁</el-button>
+<el-button v-if="row.allowed_operations.includes('revoke_warning')" size="small" @click="confirmAction(row, 'revoke_warning', '撤销警告')">撤销警告</el-button>
+<el-button v-if="row.allowed_operations.includes('unmute')" size="small" @click="confirmAction(row, 'unmute', '解除 PurrAI 禁言')">解禁言</el-button>
+<el-button v-if="row.allowed_operations.includes('unban')" size="small" @click="confirmAction(row, 'unban', '解除 PurrAI 封禁')">解封禁</el-button>
 </template>
 </el-table-column>
 </el-table>

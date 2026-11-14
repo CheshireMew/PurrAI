@@ -84,7 +84,7 @@ class ChatContext:
                 names[identifier] = profile_name({"first_name": name, "username": username})
             if payload:
                 source_metadata[identifier] = channel_sources(payload)
-                if has_link(*message_content(payload)):
+                if has_link(*message_content(payload), rules=rules):
                     links.add(identifier)
         context = [{**row, "name": names[row["id"]]} if row["id"] in names else row for row in context]
         linked_channel_id = await own_channel_id(session, group_id)
@@ -119,7 +119,7 @@ class ChatContext:
         if cfg.chat_advertiser_cooldown:
             excluded.update(row["id"] for row in records if not row.get("bot")
                             and chat_commands.advertiser_blocked(command_state, row.get("speaker_id")))
-        links.update(row["id"] for row in records if has_link(row["text"]))
+        links.update(row["id"] for row in records if has_link(row["text"], rules=rules))
         excluded.update(links)
         excluded.update(row["id"] for row in records if row.get("reply_to") in links)
         excluded.update(row["id"] for row in records if (

@@ -63,6 +63,11 @@ class MemberRestrictions:
             )
         if is_admin(current) or member.restriction_conflict:
             raise ValueError("成员身份或权限已变化，需要人工处理")
+        if "message_evidence" in action.payload:
+            from purrai.rule_evaluation import message_penalty_applies
+            from purrai.action_execution import ActionSuperseded
+            if not await message_penalty_applies(session, action, group):
+                raise ActionSuperseded(reason="消息内容或审核配置已变化，取消旧处罚", before_request=True)
         owned = member.owned_restriction or {}
         reconciled = bool(
             owned.get("kind") == "ban" and owned.get("source_action") == action.id
@@ -165,6 +170,11 @@ class MemberRestrictions:
         active = await active_verifications(session, member)
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         recovered = already_muted and owned.get("source_action") == action.id
+        if kind == "ai_ad" and "ai_keyword_evidence" in action.payload and not recovered:
+            from purrai.ai_advertising import keyword_penalty_applies
+            if not await keyword_penalty_applies(session, action, group):
+                action.state, action.error = "cancelled", "AI广告证据或关键词规则已变化，取消旧处罚"
+                return
         if kind in ("profile", "rule") and not recovered and not await rule_penalty_applies(session, action, group):
             action.state, action.error = "cancelled", "审核规则已变化，不再执行永久禁言"
             return
@@ -183,7 +193,8 @@ class MemberRestrictions:
             "pack": action.payload.get("pack", ""),
             **({"verification_id": active[0].id} if active else {}),
         }
-        violation_label = "AI最近3天累计3次广告" if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
+        ai_label = "AI确认广告且命中关键词" if "ai_keyword_evidence" in action.payload else "AI最近3天累计3次判定广告"
+        violation_label = ai_label if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
         begin_penalty(active, violation_label, "permanent_mute")
         if not already_muted:
             await self.action_call(
@@ -201,7 +212,7 @@ class MemberRestrictions:
         if kind == "ai_ad":
             name = display_name(current.get("user") or {}, fallback=action.payload.get("user_name") or "未命名成员")
             await enqueue(session, "warn", f"ai-ad-notice:{action.id}", group.id, member.user_id,
-                {"text": f"用户{name}：AI最近3天累计3次判定广告，已永久禁言。"})
+                {"text": f"用户{name}：{ai_label}，已永久禁言。"})
         if kind != "emoji_status":
             return
         await self.record_emoji_violation(session, group, member, action, "永久禁言")

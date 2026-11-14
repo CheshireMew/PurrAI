@@ -76,6 +76,7 @@ class GroupSettings(BaseModel):
     mute_seconds: int = Field(default=259200, ge=30, le=2592000)
     block_invites: bool = False
     advertising_ban: bool = True
+    inline_buttons_ban: bool = False
     contact_ads_only: bool = False
     external_group_ban: bool = True
     external_invite_ban: bool = True
@@ -199,7 +200,7 @@ class RuleInput(BaseModel):
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
     scope: Literal["message", "name", "either", "name_and_message"] = "message"
     context_value: str = Field(default="", max_length=250)
-    penalty: Literal["delete", "permanent_mute"] = "delete"
+    penalty: Literal["delete", "permanent_mute", "ai_confirmed_mute"] = "delete"
     enabled: bool = True
 
     @field_validator("value")
@@ -211,6 +212,8 @@ class RuleInput(BaseModel):
 
     @model_validator(mode="after")
     def safe_matching(self):
+        if self.penalty == "ai_confirmed_mute" and (self.kind != "keyword" or self.scope == "name_and_message"):
+            raise ValueError("AI确认后处罚仅用于独立关键词，不使用昵称与正文组合")
         if self.kind == "keyword":
             if self.scope == "name_and_message" and not self.context_value.strip():
                 raise ValueError("组合规则需要同时填写昵称关键词和正文关键词")
@@ -240,6 +243,7 @@ class SharedPolicyPatch(BaseModel):
 
 class PreviewInput(BaseModel):
     text: str = Field(max_length=10000)
+    inline_buttons: bool = False
     newcomer: bool = False
     contact: bool = False
     contact_name: str = Field(default="", max_length=250)

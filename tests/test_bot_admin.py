@@ -499,3 +499,25 @@ async def test_failed_inbox_can_be_requeued_from_bot_system_panel(env):
     async with database.sessions() as session:
         row = await session.get(Inbox, 20)
         assert row.state == "pending" and row.attempts == 0 and not row.error
+
+
+async def test_restore_all_group_settings_requires_review_and_keeps_cancelled_changes(env):
+    _, database, telegram, service = env
+    runtime = Runtime(database, telegram, service)
+    async with database.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "verification_timeout": 321}
+        group.setting_overrides = ["verification_timeout"]
+    await open_group(runtime, telegram)
+    await click(runtime, telegram, "恢复通用设置")
+    assert "测试群（-1001）" in markup(telegram)["text"]
+    assert "恢复本群全部设置" in markup(telegram)["text"]
+    async with database.sessions() as session:
+        assert (await session.get(Group, -1001)).settings["verification_timeout"] == 321
+    await click(runtime, telegram, "取消，返回群管理")
+    await click(runtime, telegram, "恢复通用设置")
+    await click(runtime, telegram, "确认恢复全部设置")
+    async with database.sessions() as session:
+        group = await session.get(Group, -1001)
+        assert group.settings["verification_timeout"] == default_settings()["verification_timeout"]
+        assert group.setting_overrides == []

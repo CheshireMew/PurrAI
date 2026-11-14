@@ -1,6 +1,7 @@
 import { inject, type InjectionKey, type Ref } from 'vue'
 import type { ActionTracker } from './actionTracker'
 import type { ActionBody, ActionRequest, ActionRequests } from './actionRequests'
+import type { ActionContext } from './actionContext'
 import type { AdminCatalog, Group, User } from './types'
 import type { MutationRequest, MutationRequests } from './mutationRequests'
 
@@ -12,11 +13,11 @@ export interface Workspace {
   actionRequests: Pick<ActionRequests, 'items'>
   mutations: Pick<MutationRequests, 'items' | 'submit'>
   retryMutation(request: MutationRequest): Promise<void>
-  submitAction(path: string, body: ActionBody): Promise<void>
+  submitAction(path: string, body: ActionBody, context?: ActionContext): Promise<void>
   retryAction(request: ActionRequest): Promise<void>
   reloadGroups(): Promise<void>
   expireSession(): void
-  confirmAction(path: string, action: string, title: string): Promise<void>
+  confirmAction(path: string, action: string, title: string, context: ActionContext): Promise<void>
 }
 export const workspaceKey: InjectionKey<Workspace> = Symbol('workspace')
 export function useWorkspace() {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue'
+import { describeAction, type ActionContext } from './actionContext'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Grid, ChatDotRound, Key, Filter, Warning, User as UserIcon, Setting, Refresh, SwitchButton, CircleCheck, Menu, Close, Document } from '@element-plus/icons-vue'
 import { api, ApiError, post, setCsrf } from './api'
@@ -36,19 +37,19 @@ const actionTracker = reactive(new ActionTracker())
 const actionRequests = reactive(new ActionRequests())
 const mutations = reactive(new MutationRequests())
 const nav = [
-  { id: 'overview', name: '总览', icon: Grid, detail: '看看群里发生了什么' },
-  { id: 'groups', name: '群管理', icon: ChatDotRound, detail: '让每个群都有合适的保护' },
-  { id: 'members', name: '成员管理', icon: UserIcon, detail: '查询成员当前状态、历史与处置' },
-  { id: 'operations', name: '操作记录', icon: Document, detail: '查询人工操作、自动处置和核实结果' },
-  { id: 'chat', name: '聊天状态', icon: ChatDotRound, detail: '查看回复、静默、等待和模型用量' },
-  { id: 'auto-replies', name: '自动回复', icon: ChatDotRound, detail: '设置关键词和固定回复内容' },
-  { id: 'verifications', name: '入群验证', icon: Key, detail: '从进群的第一步开始把关' },
-  { id: 'rules', name: '防广告规则', icon: Filter, detail: '把规则讲清楚，把打扰挡下来' },
-  { id: 'violations', name: '违规记录', icon: Warning, detail: '每次处理，都有原因可查' },
-  { id: 'messages', name: '消息归档', icon: Document, detail: '保留消息与编辑版本，方便查询和后续分析' },
-  { id: 'whitelist', name: '白名单', icon: CircleCheck, detail: '给信任的成员留一条通道' },
-  { id: 'admins', name: '权限说明', icon: UserIcon, detail: '群管理员自动管理本群，超级管理员负责全局维护' },
-  { id: 'system', name: '系统状态', icon: Setting, detail: '连接、任务和备份，一眼看清' },
+  { id: 'overview', name: '总览', icon: Grid },
+  { id: 'groups', name: '群管理', icon: ChatDotRound },
+  { id: 'members', name: '成员管理', icon: UserIcon },
+  { id: 'operations', name: '操作记录', icon: Document },
+  { id: 'chat', name: '聊天状态', icon: ChatDotRound },
+  { id: 'auto-replies', name: '自动回复', icon: ChatDotRound },
+  { id: 'verifications', name: '入群验证', icon: Key },
+  { id: 'rules', name: '防广告规则', icon: Filter },
+  { id: 'violations', name: '违规记录', icon: Warning },
+  { id: 'messages', name: '消息归档', icon: Document },
+  { id: 'whitelist', name: '白名单', icon: CircleCheck },
+  { id: 'admins', name: '权限说明', icon: UserIcon },
+  { id: 'system', name: '系统状态', icon: Setting },
 ]
 const navigation = computed(() => nav.filter(item => me.value?.root || !['admins', 'system'].includes(item.id)))
 const current = computed(() => nav.find(item => item.id === page.value)!)
@@ -75,16 +76,16 @@ async function reloadGroups() {
   if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value.find(group => group.previous_ids?.includes(selected.value!))?.id ?? groups.value[0]?.id ?? null
 }
 function expireSession() { me.value = null }
-function acceptAction({ receipt, reason }: AcceptedAction) {
-  actionTracker.accept(receipt, reason)
+function acceptAction({ receipt, reason, context }: AcceptedAction) {
+  actionTracker.accept(receipt, reason, context)
   if ('action_ids' in receipt) ElMessage.success(`已提交 ${receipt.action_ids.length} 个放行任务`)
   else if (receipt.state === 'cancelled') ElMessage.info('操作已取消，请查看下方结果')
   else if (receipt.state === 'failed') ElMessage.warning('操作未完成，请查看下方原因')
   else ElMessage.success(receipt.state === 'succeeded' ? '操作已完成' : '操作已提交，执行结果将在下方更新')
   void refreshActions()
 }
-async function submitAction(path: string, body: ActionBody) {
-  await safe(async () => acceptAction(await actionRequests.submit(path, body)))
+async function submitAction(path: string, body: ActionBody, context?: ActionContext) {
+  await safe(async () => acceptAction(await actionRequests.submit(path, body, context)))
 }
 async function retryAction(request: ActionRequest) {
   await safe(async () => acceptAction(await actionRequests.retry(request)))
@@ -94,12 +95,12 @@ async function retryMutation(request: MutationRequest) {
     await reloadGroups(); refreshKey.value++
   }
 }
-async function confirmAction(path: string, action: string, title: string) {
+async function confirmAction(path: string, action: string, title: string, context: ActionContext) {
   let reason: string
-  try { reason = (await ElMessageBox.prompt('请填写处理原因，操作会保留记录。', title,
+  try { reason = (await ElMessageBox.prompt(`${describeAction(context, catalog.value!.operations)}\n请填写处理原因，操作会保留记录。`, title,
     { inputValidator: (value: string) => Boolean(value?.trim()) || '请填写原因', confirmButtonText: '提交操作', cancelButtonText: '取消' })).value }
   catch { return }
-  await submitAction(path, { action, reason })
+  await submitAction(path, { action, reason, ...(context.duration_seconds !== undefined ? {duration_seconds: context.duration_seconds} : {}) }, context)
 }
 provide(workspaceKey, { me, groups, catalog, actionTracker, actionRequests, mutations, retryMutation, submitAction, retryAction, reloadGroups, expireSession, confirmAction })
 async function refreshView() {
@@ -179,7 +180,6 @@ onUnmounted(() => { clearInterval(timer); stopNavigation() })
 </aside>
 <div class="main-area">
 <header class="topbar">
-<span class="breadcrumb">工作台 <span class="slash">/</span> {{ current.name }}</span>
 <div class="top-actions">
 <el-select v-model="selected" placeholder="选择群" aria-label="选择群" class="group-selector" filterable :disabled="!groups.length">
 <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="g.title"/>
@@ -192,7 +192,6 @@ onUnmounted(() => { clearInterval(timer); stopNavigation() })
 <div class="page-heading">
 <div>
 <h1>{{ current.name }}</h1>
-<p>{{ current.detail }}</p>
 </div>
 </div>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>

@@ -1,10 +1,14 @@
 import { api, ApiError } from './api'
+import type { ActionContext } from './actionContext'
 
 export type ActionRow = {
   id: string
   state: string
   reason: string
   kind?: string
+  group_id?: number
+  user_id?: number
+  context?: ActionContext
   error?: string
   tracking_error?: string
   payload?: Record<string, any>
@@ -34,13 +38,14 @@ export class ActionTracker {
     })
   }
 
-  accept(receipt: ActionRow | BatchReceipt, reason: string) {
+  accept(receipt: ActionRow | BatchReceipt, reason: string, context?: ActionContext) {
     const row: ActionRow = 'action_ids' in receipt ? {
       id: receipt.batch_id, kind: 'batch_release', reason,
       state: receipt.action_ids.length ? 'pending' : 'succeeded',
       summary: { total: receipt.action_ids.length, pending: receipt.action_ids.length,
         succeeded: 0, failed: 0, cancelled: 0 },
     } : { ...receipt, reason: receipt.reason || reason }
+    if (context) row.context = { ...context }
     const existing = this.items.find(item => item.id === row.id)
     if (existing) Object.assign(existing, row)
     else this.items.unshift(row)

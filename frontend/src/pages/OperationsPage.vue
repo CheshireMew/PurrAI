@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import DeliveryReviewDialog from '../components/DeliveryReviewDialog.vue'
+import DateRangeFilter from '../components/DateRangeFilter.vue'
 import { useRecords } from '../composables/useRecords'
 import { useRefresh } from '../composables/useRefresh'
 import { useWorkspace } from '../workspace'
@@ -29,7 +30,7 @@ useRefresh(load, () => props.refreshKey)
 <el-select v-model="extra.kind" aria-label="筛选操作类型" placeholder="全部类型" clearable><el-option v-for="(name, kind) in catalog!.operations" :key="kind" :value="kind" :label="name"/></el-select>
 <el-select v-model="statusFilter" aria-label="筛选操作状态" placeholder="全部状态" clearable><el-option v-for="state in ['pending', 'succeeded', 'failed', 'cancelled', 'reviewed']" :key="state" :value="state" :label="label(state)"/></el-select>
 <el-select v-model="source" aria-label="筛选操作来源" placeholder="全部来源" clearable><el-option value="auto" label="自动操作"/><el-option value="manual" label="人工操作"/></el-select>
-<el-date-picker v-model="dates" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始（北京时间）" end-placeholder="结束（北京时间）"/>
+<DateRangeFilter v-model="dates"/>
 <el-button type="primary" native-type="submit">查询操作记录</el-button>
 </form>
 <el-alert v-if="error" :title="error" type="error" :closable="false"/>

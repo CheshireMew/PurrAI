@@ -18,6 +18,7 @@ from purrai.text_matching import (
 )
 
 from purrai.advertising_constants import (
+    BUTTON_REASON,
     CONTACT_REASON as CONTACT_REASON,
     CONTACT_REASONS as CONTACT_REASONS,
     LEGACY_CONTACT_REASON as LEGACY_CONTACT_REASON,
@@ -39,12 +40,16 @@ def assess(
     forwarded: bool = False,
     mentioned_users: list[dict] | None = None,
     source_titles: list[str] | None = None,
+    inline_buttons: bool = False,
 ) -> dict:
     reasons, names, mute_reasons, hit_ids = [], [], [], []
     engine = BusinessEngine(rules)
     body_text = engine.view("s_auth", text)
     body_discussion = engine.condition("communication_context", text)
     ban_reasons = []
+    if inline_buttons and settings.get("inline_buttons_ban", False):
+        reasons.append(BUTTON_REASON)
+        ban_reasons.append(BUTTON_REASON)
     if settings.get("advertising_ban", True):
         hits = [(hit, True) for hit in engine.run("profile", sender_name)]
         hits += [(hit, False) for stage in ("short", "advertising")
@@ -69,7 +74,7 @@ def assess(
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]
     for rule in active:
         value = rule["value"]
-        if rule["kind"] == "keyword" and value:
+        if rule["kind"] == "keyword" and value and rule.get("penalty") != "ai_confirmed_mute":
             mode, scope = rule.get("mode", "contains"), rule.get("scope", "message")
             body_hit = scope in ("message", "either") and not body_discussion and matches(body_text, value, mode)
             name_hit = scope != "message" and matches(sender_name, value, mode)
@@ -163,6 +168,16 @@ def assess(
     return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
             "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
             "rule_ids": list(dict.fromkeys(hit_ids))}
+
+
+def ai_keyword_rules(text, rules, sender_name=""):
+    """Candidates only: a keyword never supplies the model's advertising verdict."""
+    return [rule for rule in rules if rule.get("enabled", True) and rule["kind"] == "keyword"
+            and rule.get("penalty") == "ai_confirmed_mute"
+            and ((rule.get("scope", "message") in ("message", "either")
+                  and matches(text, rule["value"], rule.get("mode", "contains")))
+                 or (rule.get("scope") in ("name", "either")
+                     and matches(sender_name, rule["value"], rule.get("mode", "contains"))))]
 
 
 def activity_reasons(settings, repeats, similar, burst):

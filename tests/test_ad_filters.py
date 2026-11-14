@@ -237,6 +237,12 @@ def test_pinyin_and_compact_are_explicit_modes_and_short_homophones_are_rejected
     assert not matches("童城", "同城", "contains")
     assert matches("童🌷城", "同城", "pinyin")
     assert matches("推💚-广", "推广", "compact")
+    # Mixed configured words retain their letters while arbitrary Han words can
+    # still be found through separators, zero-width characters and insertions.
+    assert matches("纸.x飞\u200b1机", "纸飞机", "pinyin")
+    assert matches("这是指A1飞机内容", "纸A1飞机", "pinyin")
+    assert not matches("这是纸飞机内容", "纸A1飞机", "pinyin")
+    assert matches("某个BC.DE服务", "bcde", "pinyin")
     with pytest.raises(ValidationError):
         RuleInput(kind="keyword", value="同", mode="pinyin")
     result = assess(

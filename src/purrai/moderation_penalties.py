@@ -14,6 +14,7 @@ from purrai.models import (
 )
 from purrai.rules import CONTACT_REASON, CONTACT_REASONS, message_content
 from purrai.advertising_patterns import is_ban_reason
+from purrai.advertising_constants import BUTTON_REASON
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 
@@ -28,6 +29,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
     message = (evidence or {}).get("message")
     text, urls = message_content(message) if message else (violation.excerpt if violation.message_violation else "", [])
     rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name}
+    message_evidence = {"message_evidence": evidence} if BUTTON_REASON in violation.reasons and evidence else {}
     identifiers = []
     if violation.message_violation:
         action = await enqueue(
@@ -37,6 +39,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             group.id,
             violation.user_id,
             {"message_id": violation.message_id, "violation_id": violation.id,
+             **message_evidence,
              **({"spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}}
                 if set(violation.reasons) <= SPAM_REASONS else {})},
             1,
@@ -58,6 +61,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             group.id,
             violation.user_id,
             {"violation_id": violation.id, "generation": member.generation,
+             **message_evidence,
              **({"contact_evidence": evidence} if contact and evidence else {}),
              **({"ad_evidence": evidence} if advertising and evidence else {})},
             0,

@@ -34,6 +34,16 @@ class ActionTransport:
         execution = session.info["action_execution"]
         if not method.startswith("get_"):
             await self.authorize_actor(session, action)
+            if "message_evidence" in action.payload:
+                from purrai.rule_evaluation import message_penalty_applies
+                from purrai.models import Group
+                if not await message_penalty_applies(session, action, await session.get(Group, action.group_id)):
+                    raise ActionSuperseded(reason="消息内容或审核配置已变化，取消旧处罚", before_request=True)
+            if "ai_keyword_evidence" in action.payload:
+                from purrai.ai_advertising import keyword_penalty_applies
+                from purrai.models import Group
+                if not await keyword_penalty_applies(session, action, await session.get(Group, action.group_id)):
+                    raise ActionSuperseded(reason="AI广告证据或关键词规则已变化，取消旧处罚", before_request=True)
         if await self.policy.moderation_paused(session, action):
             raise ActionSuperseded(before_request=True)
         try:

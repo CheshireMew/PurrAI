@@ -239,6 +239,38 @@ async def test_export_rechecks_admin_identity_before_sending(env):
     assert not any(method == "send_document" for method, _ in tg.calls)
 
 
+async def test_bot_archive_reads_every_character_and_older_versions(env):
+    _, db, tg, service = env
+    runtime = Runtime(db, tg, service)
+    original = message(51, "初始正文")
+    bodies = [f"版本 {index} 开头\n" + "测试😀" * 1000 + f"\n版本 {index} 末尾" for index in range(4)]
+    for index, body in enumerate(bodies):
+        payload = {**original, "text": body}
+        if index:
+            payload["edit_date"] = original["date"] + index
+        await service.message(payload, bool(index), 500 + index)
+    await open_group(runtime, tg)
+    await click(runtime, tg, "消息归档与导出")
+    await click(runtime, tg, "· 42 ·")
+    for index in reversed(range(4)):
+        parts = []
+        while True:
+            panel = markup(tg)
+            assert f"版本 {index + 1}/4" in panel["text"]
+            assert len(panel["text"].encode("utf-16-le")) // 2 <= 4096
+            parts.append(panel["text"].split("\n", 1)[1])
+            if not any("下一页正文" == button["text"] for row in panel["reply_markup"]["inline_keyboard"] for button in row):
+                break
+            await click(runtime, tg, "下一页正文")
+        assert bodies[index] in "".join(parts)
+        if index:
+            await click(runtime, tg, "更早版本")
+    await click(runtime, tg, "更新版本")
+    assert "版本 2/4" in markup(tg)["text"]
+    await click(runtime, tg, "返回归档列表")
+    assert "共 1 条" in markup(tg)["text"]
+
+
 async def test_delete_permission_failure_keeps_content_and_reports_failure(env):
     from aiogram.exceptions import TelegramBadRequest
     from aiogram.methods import DeleteMessage

@@ -154,8 +154,23 @@ class BotRoutes:
             await self.inputs.submit(actor, group_id, actor, data, request_id)
         elif action == "settings_inherit":
             from purrai.schemas import GroupSettings
-            await self.management.settings_patch(actor, group_id, SettingsPatch(reset=list(GroupSettings.model_fields)), request_id)
-            await self.panels.group_panel(actor, group_id, message_id)
+            if not data.get("confirmed"):
+                group = await self.management.authorize(actor, group_id)
+                await self.panel(
+                    actor,
+                    f"{group.title}（{group_id}）\n恢复本群全部设置为通用设置？\n"
+                    "包含验证、防广告、聊天、状态表情、消息归档及应急设置；本群不再保留这些项目的单独设置。"
+                    "已有广告规则、白名单、消息归档和成员限制保持不变。",
+                    [button("确认恢复全部设置", "settings_inherit", confirmed=True, baseline=group.settings),
+                     button("取消，返回群管理", "group", id=group_id)],
+                    group_id, message_id,
+                    resume={"action": "settings_inherit", "data": {}},
+                )
+            else:
+                await self.management.settings_patch(actor, group_id, SettingsPatch(
+                    reset=list(GroupSettings.model_fields), baseline=data.get("baseline")
+                ), request_id)
+                await self.panels.group_panel(actor, group_id, message_id)
         elif action == "rule_inherit":
             await self.management.rules.inherit(actor, group_id, data["id"], data.get("version"), request_id)
             await self.panels.detail(actor, group_id, "rule", data["id"], message_id)

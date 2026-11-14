@@ -100,6 +100,9 @@ class RecordPanels:
                 button("修改内容", "prompt", kind="rule", id=row['id'], rule_kind=row['kind']),
             ]
             if row['kind'] == "keyword":
+                if row['scope'] != "name_and_message" and row['penalty'] != "ai_confirmed_mute":
+                    buttons.append(button("处置改为AI确认广告后删消息并永久禁言", "rule_penalty",
+                                          id=row['id'], penalty="ai_confirmed_mute"))
                 buttons.append(
                     button(
                         "正文处置改为"
@@ -119,8 +122,8 @@ class RecordPanels:
                 )
                 scopes = ["message", "name", "either"]
                 target = scopes[(scopes.index(row['scope']) + 1) % 3] if row['scope'] in scopes else "message"
-                buttons += [
-                    button("范围改为" + SCOPES[target], "rule_scope", id=row['id'], scope=target),
+                buttons.append(button("范围改为" + SCOPES[target], "rule_scope", id=row['id'], scope=target))
+                buttons += [] if row['penalty'] == "ai_confirmed_mute" else [
                     button("设置昵称＋正文组合", "prompt", kind="rule_context", id=row['id']),
                 ]
         elif kind == "violation":

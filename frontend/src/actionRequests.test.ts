@@ -20,12 +20,15 @@ describe('未确认的管理请求', () => {
       return accepted.get(request.request_id)
     })
     const before = new ActionRequests(saved, send); before.useUser(1)
-    await expect(before.submit(path, body)).rejects.toThrow('Failed to fetch')
+    const context = {group_id: -1001, group_title: '原群', action: 'reissue', user_id: 42}
+    await expect(before.submit(path, body, context)).rejects.toThrow('Failed to fetch')
     expect(before.items[0]?.error).toContain('提交结果暂未确认')
     const after = new ActionRequests(saved, send); after.useUser(1)
     const result = await after.submit(path, { ...body, reason: '修改过的输入不会变成第二次提交' })
     expect(sent[0]).toEqual(sent[1]); expect(accepted.size).toBe(1)
     expect(result.reason).toBe(body.reason); expect(result.receipt).toMatchObject({ id: 'one-task' })
+    expect(result.context).toEqual(context)
+    expect(sent[0]).not.toHaveProperty('context')
     expect(after.items).toEqual([])
   })
 

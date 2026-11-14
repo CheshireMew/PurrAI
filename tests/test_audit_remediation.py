@@ -117,7 +117,7 @@ async def test_reply_recovery_work_is_linear_and_drains_tail(env, record_propert
         # Create real reply receipts through observation/generation/delivery.
         start = count * 100
         for index in range(count - completed):
-            await chat.observe(message(start + index, "柴郡喵，聊聊周末"))
+            await chat.observe(message(start + index, f"柴郡喵，聊聊周末安排 {start + index}"))
             await chat.run_one()
         async with chat.db.transaction() as session:
             turns = (await session.scalars(select(ChatTurn).where(ChatTurn.message_id >= start))).all()

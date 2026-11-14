@@ -11,7 +11,7 @@ from purrai.models import (
     Whitelist,
     uid,
 )
-from purrai.rules import CONTACT_REASON, assess, domain, message_content
+from purrai.rules import CONTACT_REASON, ai_keyword_rules, assess, domain, message_content
 from purrai.telegram_links import extract_links
 from purrai.schemas import (
     AdminInput,
@@ -131,7 +131,9 @@ class RuleAdministration:
             body.burst,
             body.sender_name,
             forwarded=body.forwarded,
+            inline_buttons=body.inline_buttons,
         )
+        conditional = ai_keyword_rules(text, rules, body.sender_name)
         return {
             "reasons": list(dict.fromkeys(result["reasons"] + result["name_reasons"])),
             "name_reasons": result["name_reasons"],
@@ -139,8 +141,11 @@ class RuleAdministration:
             "mute_member": bool(result["name_reasons"] or result["mute_reasons"]) and not (CONTACT_REASON in result["reasons"] or result["ban_reasons"]),
             "kick_member": bool(CONTACT_REASON in result["reasons"] or result["ban_reasons"]),
             "ban_member": bool(CONTACT_REASON in result["reasons"] or result["ban_reasons"]),
+            "ai_confirmation_required": bool(conditional),
             "notes": (["Telegram 链接发送后会核实：外群或外部私密邀请永久封禁；本群、允许链接和明确举报引用分别处理。"]
-                      if any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) and extract_links(urls) else []),
+                      if any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) and extract_links(urls) else [])
+                     + (["命中AI确认关键词：" + "、".join(rule["value"] for rule in conditional)
+                         + "。仅在原AI调用条件满足且模型确认广告后，删除并永久禁言；本次预览未调用AI。"] if conditional else []),
         }
 
     async def whitelist(self, actor, group_id, body: WhitelistInput, request_id="", remove=False, expected_version=None):

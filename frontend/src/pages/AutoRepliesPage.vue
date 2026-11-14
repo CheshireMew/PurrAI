@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { useRecords } from '../composables/useRecords'
 import { useRefresh } from '../composables/useRefresh'
 import { useWorkspace } from '../workspace'
+import { useDraftClose } from '../composables/useDraftClose'
+import { usePreviewResult } from '../composables/usePreviewResult'
 
 interface AutoReply {
   id: string; version: string; keyword: string; reply: string; mode: 'exact' | 'contains'; enabled: boolean
@@ -19,15 +21,16 @@ const { rows, total, pagination, busy, error, safe, load, filters } = useRecords
 const open = ref(false), editing = ref<AutoReply | null>(null)
 const defaults = () => ({ keyword: '', reply: '', mode: 'exact' as 'exact' | 'contains', enabled: true, priority: 0, cooldown_seconds: 10 })
 const form = reactive(defaults())
-const sample = ref(''), result = ref<Preview | null>(null)
-const draftSample = ref(''), draftResult = ref<Preview | null>(null)
+const sample = ref(''), draftSample = ref(''), original = ref(''), rulesRevision = ref(0)
+const savedPreview = usePreviewResult<Preview>(() => [props.groupId, sample.value, rulesRevision.value, props.refreshKey])
+const draftPreview = usePreviewResult<Preview>(() => [props.groupId, form, draftSample.value, open.value])
+const result = savedPreview.result, draftResult = draftPreview.result
+const { requestClose } = useDraftClose(() => JSON.stringify(body()) !== original.value, () => { open.value = false }, () => busy.value)
 function edit(row: AutoReply | null = null) {
-  editing.value = row; Object.assign(form, defaults(), row || {}); draftSample.value = ''; draftResult.value = null
+  editing.value = row; Object.assign(form, defaults(), row || {}); draftSample.value = ''; draftPreview.invalidate()
+  original.value = JSON.stringify(body())
   error.value = ''; open.value = true
 }
-watch(form, () => { draftResult.value = null })
-watch(sample, () => { result.value = null })
-watch(draftSample, () => { draftResult.value = null })
 function body() {
   return { keyword: form.keyword, reply: form.reply, mode: form.mode, enabled: form.enabled,
     priority: form.priority, cooldown_seconds: form.cooldown_seconds }
@@ -39,7 +42,7 @@ async function save() {
       editing.value ? 'PUT' : 'POST', body(), editing.value?.version, '保存自动回复')
     ElMessage.success('自动回复已保存')
   })
-  if (success) { open.value = false; result.value = null; await load() }
+  if (success) { open.value = false; rulesRevision.value++; await load() }
 }
 async function toggle(row: AutoReply) {
   await safe(async () => {
@@ -47,15 +50,14 @@ async function toggle(row: AutoReply) {
       { ...row, enabled: !row.enabled }, row.version, row.enabled ? '停用自动回复' : '启用自动回复')
     ElMessage.success(row.enabled ? '已停用' : '已启用')
   })
-  result.value = null; await load()
+  rulesRevision.value++; await load()
 }
 async function preview(draft = false) {
   await safe(async () => {
     const value = draft ? draftSample.value : sample.value
     if (!value.trim()) throw new Error('请填写测试消息')
-    const response = await api<Preview>(`/api/groups/${props.groupId}/auto-replies/preview`, {
-      method: 'POST', body: JSON.stringify({ text: value, ...(draft ? { draft: body() } : {}) }) })
-    if (draft) draftResult.value = response; else result.value = response
+    await (draft ? draftPreview : savedPreview).run(() => api<Preview>(`/api/groups/${props.groupId}/auto-replies/preview`, {
+      method: 'POST', body: JSON.stringify({ text: value, ...(draft ? { draft: body() } : {}) }) }))
   })
 }
 useRefresh(load, () => props.refreshKey)
@@ -96,7 +98,7 @@ useRefresh(load, () => props.refreshKey)
     <pre v-if="result.rule" class="reply-preview">{{ result.rule.reply }}</pre>
   </div>
 </section>
-<el-dialog v-model="open" :title="editing ? '编辑自动回复' : '添加自动回复'" width="min(620px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+<el-dialog v-model="open" :title="editing ? '编辑自动回复' : '添加自动回复'" class="form-dialog" width="min(620px, 94vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
   <el-form label-position="top" @submit.prevent="save">
     <el-form-item label="关键词"><el-input v-model="form.keyword" maxlength="250" aria-label="自动回复关键词"/></el-form-item>
     <el-form-item label="回复内容"><el-input v-model="form.reply" type="textarea" :rows="6" maxlength="4000" show-word-limit aria-label="自动回复内容" placeholder="发送的完整文字，支持换行"/></el-form-item>
@@ -111,7 +113,7 @@ useRefresh(load, () => props.refreshKey)
     <div v-if="draftResult" role="status"><p>{{ draftResult.matched ? '将回复：' : '当前草稿未命中（停用的规则不匹配）' }}</p><pre v-if="draftResult.rule" class="reply-preview">{{ draftResult.rule.reply }}</pre></div>
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false"/>
   </el-form>
-  <template #footer><el-button :disabled="busy" @click="open = false">取消</el-button><el-button type="primary" :loading="busy" @click="save">保存</el-button></template>
+  <template #footer><el-button :disabled="busy" @click="requestClose">取消</el-button><el-button type="primary" :loading="busy" @click="save">保存</el-button></template>
 </el-dialog>
 </template>
 

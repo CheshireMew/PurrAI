@@ -3,8 +3,16 @@ import { computed } from 'vue'
 import { label } from '../api'
 import { statusTone } from '../presentation'
 import { useWorkspace } from '../workspace'
-const { actionTracker, actionRequests, retryAction, mutations, retryMutation } = useWorkspace()
+import { describeAction } from '../actionContext'
+import type { ActionRow } from '../actionTracker'
+const { actionTracker, actionRequests, retryAction, mutations, retryMutation, catalog, groups } = useWorkspace()
 const actions = computed(() => actionTracker.items)
+function description(action: ActionRow) {
+  if (action.context) return describeAction(action.context, catalog.value?.operations || {})
+  return [action.group_id ? `${groups.value.find(group => group.id === action.group_id)?.title || '群'}（${action.group_id}）` : '',
+    action.user_id ? `成员 ${action.user_id}` : '', catalog.value?.operations[action.kind || ''] || action.kind,
+    `操作 ${action.id}`].filter(Boolean).join(' · ')
+}
 </script>
 
 <template>
@@ -15,12 +23,14 @@ const actions = computed(() => actionTracker.items)
 <el-button v-if="request.error" size="small" @click="retryMutation(request)">确认提交结果</el-button>
 </div>
 <div v-for="request in actionRequests.items" :key="request.body.request_id" class="action-line">
+<strong class="action-context">{{ request.context ? describeAction(request.context, catalog?.operations || {}) : `${catalog?.operations[request.body.action] || request.body.action} · ${request.path}` }}</strong>
 <span>{{ request.body.reason }}</span>
 <el-tag type="warning">提交结果待确认</el-tag>
 <small>{{ request.error || '正在提交' }}</small>
 <el-button v-if="request.error" size="small" @click="retryAction(request)">确认提交结果</el-button>
 </div>
 <div v-for="a in actions" :key="a.id" class="action-line">
+<strong class="action-context">{{ description(a) }}</strong>
 <span>{{ a.reason }}</span>
 <el-tag :type="statusTone(a.state)">{{ label(a.state) }}</el-tag>
 <small v-if="a.summary">共 {{ a.summary.total }} 项：成功 {{ a.summary.succeeded }}，等待 {{ a.summary.pending }}，失败 {{ a.summary.failed }}，取消 {{ a.summary.cancelled }}</small>

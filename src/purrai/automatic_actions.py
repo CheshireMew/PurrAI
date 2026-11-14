@@ -11,8 +11,10 @@ from purrai.group_link_identity import own_channel_id, own_link_keys
 from purrai.rules import message_content, normalize
 from purrai.telegram_sources import channel_sources, external_channel_reasons
 from purrai.verification_state import matches_action
-from purrai.ai_advertising import advertisement_count, LIMIT
+from purrai.ai_advertising import advertisement_count, keyword_penalty_applies, LIMIT
 from purrai.schemas import GroupSettings
+from purrai.message_buttons import has_inline_buttons
+from purrai.advertising_constants import BUTTON_REASON
 
 
 class AutomaticActions:
@@ -50,14 +52,14 @@ class AutomaticActions:
         evidence = action.payload.get("ad_evidence") or {}
         message = evidence.get("message", {})
         rules = await effective_rules(session, group.id)
-        reasons = []
+        reasons = [BUTTON_REASON] if group.settings.get("inline_buttons_ban", False) and has_inline_buttons(message) else []
         if group.settings.get("advertising_ban", True):
             engine = BusinessEngine(rules)
             text = normalize(message_content(message)[0])
             hits = engine.run("profile", sender_name(message_sender(message), include_username=True))
             hits += [hit for stage in ("short", "advertising") for hit in engine.run(
                 stage, text, source_titles=[normalize(title) for title in source_titles(message)], urls=message_content(message)[1])]
-            reasons = [hit.reason for hit in hits if hit.action == "ban"]
+            reasons += [hit.reason for hit in hits if hit.action == "ban"]
         from purrai.promotion_targets import blacklist_reasons, independent_target_rules
         independent = await independent_target_rules(session, rules, group.id, message.get("message_id"))
         reasons += blacklist_reasons(message, independent, settings=group.settings, evidence=evidence.get("links", []))
@@ -96,9 +98,12 @@ class AutomaticActions:
         await self.restrictions.permanent_profile_mute(session, group, member, action, "rule")
 
     async def ai_ad_mute(self, session, action, group, verification, member):
+        qualifies = (await keyword_penalty_applies(session, action, group)
+                     if "ai_keyword_evidence" in action.payload
+                     else bool(member and await advertisement_count(session, group.id, member.user_id) >= LIMIT))
         if (not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown or not member
                 or not member.present or member.generation != action.payload.get("generation")
-                or await advertisement_count(session, group.id, member.user_id) < LIMIT):
+                or not qualifies):
             action.state, action.error = "cancelled", "AI广告处理已关闭或计数、成员状态已变化"
             return
         await self.restrictions.permanent_profile_mute(session, group, member, action, "ai_ad")

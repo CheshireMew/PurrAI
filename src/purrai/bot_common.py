@@ -52,6 +52,21 @@ def button(label, action, **data):
     return label, action, data
 
 
+def text_pages(text, limit=3500):
+    """Split presentation text without losing characters or exceeding UTF-16 limits."""
+    pages, current, units = [], [], 0
+    for char in text:
+        size = 2 if ord(char) > 0xFFFF else 1
+        if units + size > limit:
+            pages.append("".join(current))
+            current, units = [], 0
+        current.append(char)
+        units += size
+    if current or not pages:
+        pages.append("".join(current))
+    return pages
+
+
 def login_button(label, url):
     return {"text": label[:60], "login_url": {"url": url}, "style": "primary"}
 
