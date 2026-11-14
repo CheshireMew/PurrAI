@@ -51,6 +51,8 @@
       "archive_enabled": true,
       "join_requests": false,
       "verification_enabled": true,
+      "verification_method": "image",
+      "verification_channel": "",
       "verification_timeout": 180,
       "max_attempts": 3,
       "verification_failure_action": "permanent_mute",
@@ -223,6 +225,22 @@
         "default": true,
         "title": "Verification Enabled",
         "type": "boolean"
+      },
+      "verification_method": {
+        "default": "image",
+        "enum": [
+          "image",
+          "text",
+          "channel"
+        ],
+        "title": "Verification Method",
+        "type": "string"
+      },
+      "verification_channel": {
+        "default": "",
+        "maxLength": 128,
+        "title": "Verification Channel",
+        "type": "string"
       },
       "verification_timeout": {
         "default": 180,
@@ -519,7 +537,7 @@
       "raid_enabled": "集中入群时自动应急保护",
       "archive_enabled": "记录群消息归档",
       "join_requests": "申请入群先验证",
-      "verification_enabled": "图片验证",
+      "verification_enabled": "入群验证",
       "newcomer_links": "新成员限制链接",
       "newcomer_mentions": "新成员限制 @账号及群组",
       "newcomer_forwards": "新成员限制用户及频道转发",
@@ -554,7 +572,9 @@
       "chat_antifraud_interval": "防诈提醒最短间隔（秒）",
       "archive_enabled": "记录群消息归档",
       "join_requests": "申请入群先验证",
-      "verification_enabled": "图片验证",
+      "verification_enabled": "入群验证",
+      "verification_method": "验证方式",
+      "verification_channel": "订阅验证频道",
       "verification_timeout": "验证时限（秒）",
       "max_attempts": "最多错误次数",
       "verification_failure_action": "验证失败处理",
@@ -607,6 +627,7 @@
     "paused": "已暂停",
     "error": "需要处理",
     "muting": "正在禁言",
+    "checking": "正在核实订阅",
     "releasing": "等待恢复发言",
     "removing": "正在移出",
     "failing": "正在执行失败处理",
@@ -625,6 +646,7 @@
     "emergency": "临时应急保护",
     "release": "放行",
     "reissue": "重新出题",
+    "subscription_check": "自动核实频道订阅",
     "ban": "临时封禁",
     "mute": "临时禁言",
     "unmute": "解除 PurrAI 禁言",
@@ -683,6 +705,7 @@
   "active_verifications": [
     "muting",
     "pending",
+    "checking",
     "releasing",
     "removing",
     "failing"

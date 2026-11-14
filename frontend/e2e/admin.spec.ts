@@ -796,6 +796,25 @@ test('消息归档可筛选、查看编辑版本并导出，窄屏无横向溢�
   await page.screenshot({ path: test.info().outputPath('archive-mobile.png'), fullPage: true, animations: 'disabled' })
 })
 
+test('验证方式可选择文字或自动订阅并保存频道', async ({ page }) => {
+  await mock(page); await page.goto('/')
+  await page.getByRole('button', { name: '群管理', exact: true }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  const selection = dialog.locator('.el-form-item').filter({ has: page.getByLabel('验证方式', { exact: true }) }).locator('.el-select__wrapper')
+  await expect(selection).toContainText('图片验证')
+  await selection.click()
+  await page.getByRole('option', { name: '文字算术验证', exact: true }).click()
+  await expect(dialog).toContainText('随机加减法题')
+  await selection.click()
+  await page.getByRole('option', { name: '订阅频道自动验证', exact: true }).click()
+  await expect(dialog).toContainText('无需点击检查')
+  await dialog.getByLabel('订阅验证频道', { exact: true }).fill('@ExampleChannel')
+  const saved = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await saved).postDataJSON().settings).toMatchObject({ verification_method: 'channel', verification_channel: '@ExampleChannel' })
+})
+
 test('群设置提供永久禁言与踢出两个验证失败选项并保存所选值', async ({ page }) => {
   await mock(page); await page.goto('/')
   await page.getByRole('button', { name: '群管理', exact: true }).click()

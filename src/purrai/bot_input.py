@@ -48,6 +48,7 @@ class BotInput:
             "archive_sender": "请发送用户或频道的数字 ID，发送 - 清除发送者筛选。",
             "archive_dates": "请发送北京时间范围，例如 2026-10-01 00:00 / 2026-10-20 00:00；发送 - 清除时间筛选。",
             "setting": f"请发送新的 {NUMBERS.get(data.get('key'), '数值')}。",
+            "verification_channel": "请发送公开频道的 @用户名或 t.me 链接。机器人须为频道管理员。用户订阅后自动放行，无需点击检查。发送 - 清空（请先改用图片或文字验证）。",
             "telegram_links": "请发送完整的允许链接名单，每行一个 Telegram 群组、频道或邀请链接；发送 - 清空。名单只豁免链接本身，明确广告招揽仍会处罚。当前名单：\n" + "\n".join(group.settings.get("telegram_allowed_links", [])),
             "chat_setting": f"请发送新的{CHAT_FIELDS.get(data.get('key'), '聊天设置')}。性格直接用自然语言描述即可。",
             "rule": "请发送一条规则内容。域名只填主机名，例如 example.com；关键词默认包含匹配。",
@@ -240,6 +241,10 @@ class BotInput:
             await self.management.setting(actor, group_id, "telegram_allowed_links", values, request_id)
             await self.send(actor, "允许链接名单已保存。")
             await self.panels.settings_panel(actor, group_id, "moderation")
+        elif kind == "verification_channel":
+            await self.management.setting(actor, group_id, "verification_channel", "" if text.strip() == "-" else text, request_id)
+            await self.send(actor, "订阅验证频道已保存。")
+            await self.panels.settings_panel(actor, group_id, "verification")
         elif kind == "setting":
             if not text.isdecimal():
                 raise ManagementError(422, "请发送有效的非负整数；发送 /cancel 可取消")

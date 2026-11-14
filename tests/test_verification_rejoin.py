@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from conftest import drain, join
-from purrai.models import Action, Member, Verification
+from purrai.models import Action, Group, Member, Verification, Whitelist
 from purrai.service import Service
 from test_verification import enter_code, fixed_challenge, latest
 
@@ -15,6 +15,33 @@ def restricted_transition(telegram, *, entering, date):
     for field, present in (("old_chat_member", not entering), ("new_chat_member", entering)):
         event[field].update(copy.deepcopy(permissions), is_member=present)
     return event
+
+
+@pytest.mark.parametrize("exemption", ["disabled", "whitelist", "superadmin"])
+async def test_exempt_rejoin_restores_only_inherited_verification_mute(env, monkeypatch, exemption):
+    original = await fixed_challenge(env, monkeypatch)
+    settings, db, tg, service = env
+    async with db.transaction() as session:
+        (await session.get(Verification, original.id)).deadline = 0
+    await service.scan_timeouts()
+    await drain(service)
+    date = int(original.created_at) + 1
+    await service.member_event(restricted_transition(tg, entering=False, date=date), event_id=60001)
+    async with db.transaction() as session:
+        if exemption == "disabled":
+            group = await session.get(Group, -1001)
+            group.settings = {**group.settings, "verification_enabled": False}
+        elif exemption == "whitelist":
+            session.add(Whitelist(group_id=-1001, user_id=42, verification=True, moderation=False))
+        else:
+            settings.superadmin_ids.append(42)
+    await service.member_event(restricted_transition(tg, entering=True, date=date + 1), event_id=60002)
+    await drain(service)
+    async with db.sessions() as session:
+        member = await session.get(Member, (-1001, 42))
+        assert member.present and member.passed_at > 0 and member.owned_restriction is None
+    assert (await latest(db)).state == "passed"
+    assert tg.members[(-1001, 42)]["can_send_messages"] is True
 
 
 @pytest.mark.parametrize("failed", [False, True])

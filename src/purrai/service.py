@@ -56,8 +56,8 @@ class Service:
     async def join_request(self, event, event_id=0):
         return await self.verification.join_request(event, event_id)
 
-    async def callback(self, query, *, acknowledge=True):
-        return await self.verification.callback(query, acknowledge=acknowledge)
+    async def callback(self, query, *, acknowledge=True, received_at=None):
+        return await self.verification.callback(query, acknowledge=acknowledge, received_at=received_at)
 
     async def acknowledge(self, identifier, answer):
         return await self.verification.acknowledge(identifier, answer)

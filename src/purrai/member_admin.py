@@ -77,6 +77,8 @@ class MemberAdministration:
                 await cleanup(session, row)
                 row.message_id = None
                 group = await session.get(Group, row.group_id)
+                row.method = group.settings.get("verification_method", "image")
+                row.challenge = {"channel": group.settings.get("verification_channel", "")}
                 row.attempts, row.failure_action, row.error = 0, "", ""
                 row.updated_at = now()
                 row.deadline = now() + group.settings["verification_timeout"]

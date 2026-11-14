@@ -90,7 +90,8 @@ class PolicyPanels:
         if isinstance(value, bool):
             buttons = [button("改为" + shown(not value), "policy_set", key=key, value=not value, baseline=value)]
         elif "enum" in field:
-            names = {"kick": "踢出（允许重新加入）", "permanent_mute": "永久禁言（留群）"}
+            names = {"kick": "踢出（允许重新加入）", "permanent_mute": "永久禁言（留群）",
+                     "image": "图片验证", "text": "文字算术验证", "channel": "订阅频道自动验证"}
             buttons = [button(names.get(item, item), "policy_set", key=key, value=item, baseline=value)
                        for item in field["enum"]]
         else:

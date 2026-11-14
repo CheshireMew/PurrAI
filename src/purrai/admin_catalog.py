@@ -15,6 +15,7 @@ def admin_catalog():
             "labels": {**{key: field.title or key for key, field in GroupSettings.model_fields.items()},
                        **BOOLEANS, **NUMBERS, **CHAT_FIELDS,
                        "verification_failure_action": "验证失败处理", "chat_enabled": "群聊天",
+                       "verification_method": "验证方式", "verification_channel": "订阅验证频道",
                        "chat_proactive": "主动参与讨论", "chat_stickers": "聊天贴纸",
                        "chat_antifraud": "防诈贴纸提醒", "chat_command_learning": "自动识别口令",
                        "emoji_status_blocked_packs": "状态表情包黑名单", "telegram_allowed_links": "允许的 Telegram 链接",

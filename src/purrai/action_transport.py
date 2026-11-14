@@ -71,7 +71,8 @@ class ActionTransport:
         except ActionSuperseded as exc:
             # A sent challenge can finish after an administrator replaced it.
             # Remove that exact stale prompt without writing into the new generation.
-            if method == "send_photo" and isinstance(exc.result, dict) and exc.result.get("message_id"):
+            if (action.kind == "challenge" and method in ("send_photo", "send_message")
+                    and isinstance(exc.result, dict) and exc.result.get("message_id")):
                 await enqueue(
                     session,
                     "delete",

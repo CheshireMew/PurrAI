@@ -11,6 +11,7 @@ from purrai.action_queue import enqueue
 from purrai.diagnostics import failure
 from purrai.models import (
     Group,
+    Inbox,
     Member,
     Meta,
     Verification,
@@ -21,6 +22,7 @@ from purrai.models import (
 from purrai.verification_cleanup import cleanup, observe_callback_prompt
 from purrai.verification_progress import queue_progress
 from purrai.verification_state import ACTIVE
+from purrai.subscription_verification import schedule_check
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,8 @@ class VerificationService:
                 user_name=user.get("first_name", str(user["id"])),
                 generation=member.generation,
                 flow="join_request",
+                method=group.settings.get("verification_method", "image"),
+                challenge={"channel": group.settings.get("verification_channel", "")},
                 prompt_chat_id=event["user_chat_id"],
                 request_date=event["date"],
                 deadline=deadline,
@@ -103,7 +107,7 @@ class VerificationService:
                 session, kind, f"{key}:start", group.id, user["id"], {"verification_id": verification.id}, 0
             )
 
-    async def callback(self, query: dict, *, acknowledge=True):
+    async def callback(self, query: dict, *, acknowledge=True, received_at=None):
         answer = "验证已失效，请联系管理员重新出题。"
         parts = query.get("data", "").split(":")
         if len(parts) == 4 and parts[0] == "v":
@@ -113,17 +117,17 @@ class VerificationService:
                 if receipt:
                     answer = receipt.value
                 else:
-                    answer = await self.apply_callback(session, query, identifier, nonce, key)
+                    answer = await self.apply_callback(session, query, identifier, nonce, key, received_at=received_at)
                     session.add(Meta(key=f"callback:{query['id']}", value=answer, expires_at=now() + 7 * 86400))
         if acknowledge:
             await self.acknowledge(query["id"], answer)
         return answer
 
-    async def apply_callback(self, session, query, identifier, nonce, key):
+    async def apply_callback(self, session, query, identifier, nonce, key, *, received_at=None):
         answer = "验证已失效，请联系管理员重新出题。"
         verification = await session.get(Verification, identifier)
         if verification:
-            await observe_callback_prompt(session, verification, query, nonce, self.tg.user_id)
+            await observe_callback_prompt(session, verification, query, nonce, self.tg.user_id, received_at=received_at)
         if verification and verification.user_id != query["from"]["id"]:
             answer = "只有被验证者本人能够操作。"
         elif verification and verification.state == "pending" and verification.nonce == nonce:
@@ -134,16 +138,20 @@ class VerificationService:
             ):
                 return answer
             group = await session.get(Group, verification.group_id)
-            if verification.deadline <= now():
+            receipt_time = received_at if received_at is not None else now()
+            if verification.deadline <= receipt_time:
                 await self.fail_verification(session, verification, "验证超时")
                 answer = "验证已超时。"
+            elif verification.method == "channel":
+                await schedule_check(session, verification, immediate=True)
+                answer = "正在核实订阅，符合条件后会自动放行。"
             elif verification.choices or key == "ok":
                 if verification.choices:
                     if key not in {f"c{index}" for index in range(len(verification.choices))}:
-                        return "请点击当前图片下方的完整答案按钮。"
+                        return "请点击当前题目下方的完整答案按钮。"
                     verification.input_digits = verification.choices[int(key[1:])]
                     verification.updated_at = now()
-                if len(verification.input_digits) != 6:
+                if not verification.choices and len(verification.input_digits) != 6:
                     answer = "请先输入完整的 6 位数字。"
                 elif secrets.compare_digest(
                     captcha.digest(verification.input_digits, nonce), verification.answer_hash
@@ -181,6 +189,7 @@ class VerificationService:
                     else:
                         await cleanup(session, verification)
                         verification.message_id = None
+                        verification.challenge = {}
                         verification.state = "muting"
                         await enqueue(
                             session,
@@ -191,7 +200,7 @@ class VerificationService:
                             {"verification_id": verification.id},
                             1,
                         )
-                        answer = "答案不正确，正在更换图片；新图片送达后重新计时。"
+                        answer = "答案不正确，正在更换题目；新题目送达后重新计时。"
             elif (key in "0123456789" and len(key) == 1) or key == "back":
                 before = verification.input_digits
                 verification.input_digits = (
@@ -203,6 +212,15 @@ class VerificationService:
                 answer = f"已输入 {len(verification.input_digits)} / 6 位"
         return answer
 
+    @staticmethod
+    async def queued_answer(session, verification):
+        return await session.scalar(select(Inbox.id).where(
+            Inbox.state.in_(("pending", "failed")), Inbox.received_at > 0,
+            Inbox.received_at < verification.deadline,
+            Inbox.payload["callback_query"]["from"]["id"].as_integer() == verification.user_id,
+            Inbox.payload["callback_query"]["data"].as_string().startswith(f"v:{verification.id}:{verification.nonce}:"),
+        ).limit(1)) is not None
+
     async def acknowledge(self, identifier, answer):
         try:
             await self.tg.call(
@@ -212,10 +230,15 @@ class VerificationService:
             # The durable answer has already been applied; a lost toast must not replay a keypress.
             failure(logger, self.settings, exc, "验证提示回执失败（输入已保存）", f"callback={identifier}")
 
-    async def fail_verification(self, session, verification, reason):
+    async def fail_verification(self, session, verification, reason, *, subscription_confirmed=False):
         if verification.state not in ("muting", "pending"):
             return
         if not verification.message_id:
+            return
+        if verification.method == "channel" and reason == "验证超时" and not subscription_confirmed:
+            await schedule_check(session, verification)
+            return
+        if reason == "验证超时" and await self.queued_answer(session, verification):
             return
         verification.state = "failing"
         verification.error = reason

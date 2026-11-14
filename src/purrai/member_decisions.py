@@ -5,7 +5,7 @@ from sqlalchemy import select
 from purrai.models import Action, Meta, now
 
 MEMBER_DECISIONS = (
-    "verify_mute", "challenge", "release", "ban", "manual_ban", "manual_mute", "unmute", "unban",
+    "verify_mute", "challenge", "subscription_check", "release", "ban", "manual_ban", "manual_mute", "unmute", "unban",
 )
 
 

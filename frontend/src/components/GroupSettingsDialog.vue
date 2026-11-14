@@ -179,7 +179,18 @@ async function save() {
 </template>
 <el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
 <section v-show="activeTab === 'verification'" aria-label="入群验证设置">
-
+<el-form-item label="验证方式">
+<el-select v-model="form.verification_method" aria-label="验证方式">
+<el-option value="image" label="图片验证"/>
+<el-option value="text" label="文字算术验证"/>
+<el-option value="channel" label="订阅频道自动验证"/>
+</el-select>
+</el-form-item>
+<el-form-item v-if="form.verification_method === 'channel'" label="订阅验证频道">
+<el-input v-model="form.verification_channel" aria-label="订阅验证频道" placeholder="@频道用户名或 t.me 频道链接"/>
+</el-form-item>
+<p v-if="form.verification_method === 'channel'" class="muted">机器人须为频道管理员。已订阅者自动通过；其他成员订阅后自动放行，无需点击检查。</p>
+<p v-else-if="form.verification_method === 'text'" class="muted">随机加减法题，点击四个选项中的正确答案。仅入群者本人可作答，无需发送文字。</p>
 <el-form-item label="已入群成员验证失败处理">
 <el-select v-model="form.verification_failure_action" aria-label="验证失败处理">
 <el-option value="permanent_mute" label="永久禁言（留在群里）"/>

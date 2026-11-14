@@ -131,6 +131,8 @@ class Verification(Base):
     prompt_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     request_date: Mapped[float] = mapped_column(Float, default=0)
     failure_action: Mapped[str] = mapped_column(String, default="")
+    method: Mapped[str] = mapped_column(String, default="image", server_default="image")
+    challenge: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
 
 class Rule(Base):
@@ -313,6 +315,7 @@ class Inbox(Base):
     state: Mapped[str] = mapped_column(String, default="pending", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[float] = mapped_column(Float, default=now)
+    received_at: Mapped[float] = mapped_column(Float, default=now, server_default="0")
     error: Mapped[str] = mapped_column(Text, default="")
     completed_at: Mapped[float] = mapped_column(Float, default=0, server_default="0", index=True)
 

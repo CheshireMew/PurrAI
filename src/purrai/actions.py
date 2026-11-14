@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter, TelegramNetworkError
 from sqlalchemy import and_, literal_column, select
 
 from purrai.action_execution import ActionExecution, ActionSuperseded, ChallengeDeliveryRetry, RestrictionPreserved
@@ -48,6 +48,7 @@ class ActionRunner:
         self.handlers = {
             "verify_mute": ActionHandler(verification_actions.mute, verification_actions.prepare, verification_actions.requires_member_check),
             "challenge": ActionHandler(verification_actions.challenge, verification_actions.prepare, verification_actions.requires_member_check),
+            "subscription_check": ActionHandler(verification_actions.subscription_check, verification_actions.prepare, verification_actions.requires_member_check),
             "release": ActionHandler(verification_actions.release, verification_actions.prepare, verification_actions.requires_member_check),
             "ban": ActionHandler(verification_actions.fail, verification_actions.prepare, verification_actions.requires_member_check),
             "verification_failure": ActionHandler(verification_actions.fail, verification_actions.prepare, verification_actions.requires_member_check),
@@ -203,14 +204,19 @@ class ActionRunner:
                     exc,
                     "任务执行重试",
                     f"action={action.id} kind={action.kind} group={action.group_id} attempt={action.attempts}",
-                    terminal=action.attempts >= 8,
+                    terminal=action.attempts >= 8 and not self.recovery_retry(action, exc),
                 )
-                if action.attempts >= 8:
+                if action.attempts >= 8 and not self.recovery_retry(action, exc):
                     action.state = "failed"
                 await self.report_error(session, action)
             action.updated_at = now()
             await deletion_result(session, action)
             return True
+
+    @staticmethod
+    def recovery_retry(action, exc):
+        return action.kind in ("release", "subscription_check") and isinstance(
+            exc, (TelegramNetworkError, TimeoutError, ConnectionError, OSError))
 
     async def action_loop(self, lane=None):
         while True:

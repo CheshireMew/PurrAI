@@ -48,6 +48,10 @@ class GroupConfiguration:
         ):
             await self.validate_status_packs(changes["emoji_status_blocked_packs"])
         reset_defaults = (await self.read_defaults()) if body.reset else {}
+        if {"verification_method", "verification_channel"} & (changes.keys() | set(body.reset)):
+            candidate = {**current.settings, **changes, **{key: reset_defaults[key] for key in body.reset}}
+            await self.validate_verification(candidate, check_target="verification_channel" in changes
+                                             and changes["verification_channel"] != current.settings.get("verification_channel"))
         if changes.get("join_requests") or "join_requests" in body.reset and reset_defaults.get("join_requests"):
             await self.context.access.require_join_right(group_id)
         if body.enabled is True:
@@ -171,6 +175,15 @@ class GroupConfiguration:
             for group in groups:
                 if "join_requests" not in (group.setting_overrides or []):
                     await self.context.access.require_join_right(group.id)
+        if body.settings and {"verification_method", "verification_channel"} & body.settings.keys():
+            async with self.context.db.sessions() as session:
+                defaults = (await policy(session)).settings
+                groups = (await session.scalars(select(Group).where(Group.approved.is_(True)))).all()
+            await self.validate_verification({**defaults, **body.settings}, check_target="verification_channel" in body.settings)
+            for group in groups:
+                inherited = {key: value for key, value in body.settings.items() if key not in (group.setting_overrides or [])}
+                if {"verification_method", "verification_channel"} & inherited.keys():
+                    await self.validate_verification({**group.settings, **inherited}, check_target="verification_channel" in inherited)
         if body.rules is not None:
             for rule in body.rules:
                 RuleAdministration.validate(rule)
@@ -186,3 +199,15 @@ class GroupConfiguration:
             except ValueError as exc:
                 raise ManagementError(422, str(exc)) from exc
             return await self.context.record(session, actor, None, "settings", "修改通用配置", result, body.request_id, intent)
+
+    async def validate_verification(self, values, *, check_target=False):
+        from purrai.verification_prompts import resolve_channel
+        settings = GroupSettings.model_validate(values)
+        if settings.verification_method != "channel" and not (check_target and settings.verification_channel):
+            return
+        try:
+            await resolve_channel(self.context.tg.call, settings.verification_channel, self.context.tg.user_id)
+        except ValueError as exc:
+            raise ManagementError(422, str(exc)) from exc
+        except Exception as exc:
+            raise ManagementError(503, "暂时无法核实频道及机器人权限，请稍后再试；配置尚未修改") from exc

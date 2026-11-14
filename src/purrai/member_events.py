@@ -255,14 +255,17 @@ class MemberEvents:
             prior.state = "superseded"
             await cleanup(session, prior)
         white = await session.get(Whitelist, (group.id, user["id"]))
-        if is_admin(new) or user["id"] in self.settings.superadmin_ids:
+        privileged = is_admin(new) or user["id"] in self.settings.superadmin_ids
+        if privileged and not inherited_mute:
             member.passed_at = now()
             return
-        if not white or not white.moderation:
+        if not privileged and (not white or not white.moderation):
             await self.emoji_status.queue(session, group, user)
-        if await self.moderation.profile_on_join(session, group, member, user, profile):
+        if not privileged and await self.moderation.profile_on_join(session, group, member, user, profile):
             return
-        if (white and white.verification) or not (group.settings["verification_enabled"] or emergency.get("active")):
+        exempt = bool(privileged or (white and white.verification)
+                      or not (group.settings["verification_enabled"] or emergency.get("active")))
+        if exempt and not inherited_mute:
             member.passed_at = now()
             return
         verification = Verification(
@@ -271,7 +274,9 @@ class MemberEvents:
             user_id=user["id"],
             user_name=user.get("first_name", str(user["id"])),
             generation=member.generation,
-            state="muting",
+            state="releasing" if exempt else "muting",
+            method=group.settings.get("verification_method", "image"),
+            challenge={"channel": group.settings.get("verification_channel", "")},
             nonce=secrets.token_hex(4),
             attempts=0,
             input_digits="",
@@ -291,7 +296,7 @@ class MemberEvents:
             }
         await enqueue(
             session,
-            "verify_mute",
+            "release" if exempt else "verify_mute",
             f"mute:{verification.id}",
             group.id,
             user["id"],

@@ -10,6 +10,7 @@ from aiogram.types import Update
 from purrai.diagnostics import failure
 from purrai.telegram import telegram_data
 from purrai.auto_replies import AutoReplies
+from purrai.models import Inbox
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,15 @@ class TelegramEvents:
         await self.dispatcher.feed_update(bot, update)
 
     async def member(self, event):
+        if event.chat.type == "channel":
+            from purrai.subscription_verification import membership_changed
+            return await membership_changed(self.service.db, telegram_data(event))
         await self.service.member_event(telegram_data(event), event_id=self.current_update_id.get())
 
     async def bot_member(self, event):
+        if event.chat.type == "channel":
+            from purrai.subscription_verification import membership_changed
+            return await membership_changed(self.service.db, telegram_data(event), bot_event=True)
         await self.service.member_event(telegram_data(event), True)
 
     async def join_request(self, event):
@@ -46,7 +53,10 @@ class TelegramEvents:
     async def callback(self, event):
         query = telegram_data(event)
         if not await self.admin.callback(query):
-            answer = await self.service.callback(query, acknowledge=False)
+            async with self.service.db.sessions() as session:
+                receipt = await session.get(Inbox, self.current_update_id.get())
+                received_at = receipt.received_at if receipt else None
+            answer = await self.service.callback(query, acknowledge=False, received_at=received_at)
             # Input is committed before acknowledgement, but slow toasts never
             # hold up the next digit. Bound both the task count and HTTP lifetime.
             if len(self.ack_tasks) < 64:

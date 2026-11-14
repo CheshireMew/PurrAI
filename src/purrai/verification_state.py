@@ -1,6 +1,6 @@
 """Verification states shared by moderation, administration and chat."""
 
-ACTIVE = ("muting", "pending", "releasing", "removing", "failing")
+ACTIVE = ("muting", "pending", "checking", "releasing", "removing", "failing")
 
 
 def confirm_prompt(verification, group, message_id):

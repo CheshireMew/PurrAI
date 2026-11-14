@@ -25,6 +25,7 @@ class UpdateReceiver:
     async def persist(self, updates: list[dict]):
         if not updates:
             return
+        received_at = now()
         async with self.db.transaction() as session:
             previous_offset = await session.get(Meta, "poll_offset")
             highwater = int(previous_offset.value) if previous_offset else -1
@@ -38,6 +39,10 @@ class UpdateReceiver:
                 if payload["update_id"] < highwater and received_event.get("date", now()) < now() - 7 * 86400:
                     continue  # Do not resurrect expired receipts; recent delayed originals still record normally.
                 bot_event = payload.get("my_chat_member")
+                from purrai.subscription_verification import channel_event, subscriptions_for_event
+                subscription_event = channel_event(payload)
+                if subscription_event and not await subscriptions_for_event(session, subscription_event, bot_event=bool(bot_event)):
+                    continue
                 if bot_event:
                     await discover(session, bot_event["chat"], self.settings.pending_group_limit)
                 group_id = await update_group_id(session, payload)
@@ -63,6 +68,7 @@ class UpdateReceiver:
                             state="pending",
                             attempts=0,
                             available_at=now(),
+                            received_at=received_at,
                         )
                     )
             offset = await session.get(Meta, "poll_offset")

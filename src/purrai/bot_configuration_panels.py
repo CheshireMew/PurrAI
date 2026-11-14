@@ -138,6 +138,11 @@ class ConfigurationPanels:
         )
         buttons = []
         if section == "verification":
+            method = group.settings.get("verification_method", "image")
+            buttons += [button(f"{'●' if method == key else '○'} {label}", "verification_method", value=key)
+                        for key, label in (("image", "图片验证"), ("text", "文字算术验证"), ("channel", "订阅频道自动验证"))]
+            buttons.append(button(f"订阅频道：{group.settings.get('verification_channel') or '未设置'}",
+                                  "prompt", kind="verification_channel"))
             choice = group.settings.get("verification_failure_action", "permanent_mute")
             buttons += [
                 button(
@@ -176,7 +181,7 @@ class ConfigurationPanels:
             f"{group.title} · {'验证设置' if section == 'verification' else '防广告设置'}\n"
             "点击开关可直接切换，点击数值后发送新数字。修改立即生效并保留记录。"
             + (
-                "\n已入群成员验证失败按所选方式处理；申请入群者尚未入群，失败仅拒绝申请。"
+                "\n文字验证为算术选择题；频道验证需机器人是频道管理员，用户订阅后自动放行。先设置频道再选择订阅验证。\n已入群成员验证失败按所选方式处理；申请入群者尚未入群，失败仅拒绝申请。"
                 if section == "verification"
                 else "\n开启“只拦截广告联系人名片”时，普通名片可以分享，广告名片和黑名单联系方式会删除消息并永久封禁；关闭时，普通成员分享任何联系人都会封禁。群主、管理员及防广告白名单豁免。\n明确广告招揽、确认的外群链接和外部私密邀请不限入群时长，删消息并永久封禁；本群已知链接和允许名单豁免链接检查。明确举报或防骗引用只删除外群链接。\n观察期默认 3 天且检查前 3 条消息，限制链接、@账号或群组、用户及频道转发；命中删除消息。钱包及代币合约地址拦截对所有普通成员生效，不限入群时间，命中只删消息。\n发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除；没有入群记录的成员免除此门槛。广告检测继续生效。"
             ),

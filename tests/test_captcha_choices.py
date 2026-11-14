@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from conftest import drain
 from purrai import captcha
-from purrai.models import Action, Verification, now, uid
+from purrai.models import Action, Inbox, Verification, now, uid
 from purrai.runtime import Runtime
 from purrai.service import Service
 from test_verification import fixed_challenge, latest
@@ -32,6 +32,31 @@ def test_choices_are_unique_six_digits_and_include_leading_zero_answer():
     assert [len(row) for row in rows] == [2, 2, 2]
     assert [button["text"] for row in rows for button in row] == choices
     assert max(len(button["callback_data"].encode()) for row in rows for button in row) <= 64
+
+
+async def test_received_answer_survives_timeout_scan_and_delayed_processing(env, monkeypatch):
+    verification = await fixed_challenge(env, monkeypatch)
+    _, db, tg, service = env
+    runtime = Runtime(db, tg, service)
+    try:
+        await runtime.persist([{"update_id": 50001, "callback_query": choice_query(verification)}])
+        async with db.transaction() as session:
+            receipt = await session.get(Inbox, 50001)
+            row = await session.get(Verification, verification.id)
+            row.deadline = receipt.received_at + 0.01
+            after_deadline = row.deadline + 0.01
+        monkeypatch.setattr("purrai.verification.now", lambda: after_deadline)
+        monkeypatch.setattr("purrai.verification_cleanup.now", lambda: after_deadline)
+        await service.scan_timeouts()
+        assert await service.reconcile_verification_cleanup() == 0
+        assert (await latest(db)).state == "pending"
+        await runtime.process_one("verification")
+        await drain(service)
+        assert (await latest(db)).state == "passed"
+        assert tg.members[(-1001, 42)]["can_send_messages"] is True
+    finally:
+        await runtime.events.close()
+        await runtime.chat.close()
 
 
 async def test_new_challenge_sends_six_complete_choices_and_no_progress(env, monkeypatch):

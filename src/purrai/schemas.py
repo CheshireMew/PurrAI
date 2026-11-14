@@ -34,9 +34,17 @@ class GroupSettings(BaseModel):
     archive_enabled: bool = True
     join_requests: bool = False
     verification_enabled: bool = True
+    verification_method: Literal["image", "text", "channel"] = "image"
+    verification_channel: str = Field(default="", max_length=128)
     verification_timeout: int = Field(default=180, ge=30, le=3600)
     max_attempts: int = Field(default=3, ge=1, le=10)
     verification_failure_action: Literal["kick", "permanent_mute"] = "permanent_mute"
+
+    @field_validator("verification_channel")
+    @classmethod
+    def normalize_verification_channel(cls, value):
+        from purrai.verification_prompts import channel_username
+        return channel_username(value)
     # Legacy key retained for explicit manual bans and join-request retry intervals.
     failure_ban_seconds: int = Field(default=600, ge=30, le=86400)
     newcomer_seconds: int = Field(default=259200, ge=0, le=259200)

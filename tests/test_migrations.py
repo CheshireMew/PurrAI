@@ -6,9 +6,9 @@ import subprocess
 import sys
 import time
 
-from sqlalchemy import create_engine, insert
+from sqlalchemy import MetaData, Table, create_engine, insert
 
-from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, MemberText, Verification, default_settings
+from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, MemberText, default_settings
 from purrai.db import schema_head
 
 
@@ -27,7 +27,9 @@ def test_keyword_auto_reply_migration_keeps_existing_data(tmp_path):
         before = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
     upgrade("head")
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone() == before
+        after = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
+        assert after[1:] == before[1:]
+        assert json.loads(after[0]) == {**json.loads(before[0]), "verification_method": "image", "verification_channel": ""}
         assert connection.execute("SELECT count(*) FROM auto_replies").fetchone()[0] == 0
         columns = {row[1] for row in connection.execute("PRAGMA table_info(auto_replies)")}
         assert columns == {"id", "group_id", "keyword", "reply", "mode", "enabled", "priority", "cooldown_seconds",
@@ -54,7 +56,7 @@ def test_business_policy_migration_preserves_existing_rules_and_does_not_reseed_
     upgrade("head")
     with sqlite3.connect(database) as connection:
         settings, rules, business = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
-        assert settings == original_settings
+        assert json.loads(settings) == {**json.loads(original_settings), "verification_method": "image", "verification_channel": ""}
         assert json.loads(rules) == original_rules
         assert json.loads(business) == default_business_rules()
         document = json.loads(business)
@@ -226,9 +228,11 @@ def test_moderation_retention_migration_preserves_credit_history_and_recovers_st
         ))
         for identifier, state in (("stranded-release", "releasing"), ("stranded-failure", "failing"),
                                   ("current-failure", "failing")):
-            connection.execute(insert(Verification).values(
+            connection.execute(insert(Table("verifications", MetaData(), autoload_with=connection)).values(
                 id=identifier, group_id=-1001, user_id=42, generation="current", state=state,
                 nonce="current-nonce", error="验证超时", deadline=time.time() - 1,
+                user_name="", answer_hash="", input_digits="", attempts=0, previous_permissions={},
+                created_at=time.time(), updated_at=time.time(),
             ))
             kind = "release" if state == "releasing" else "verification_failure"
             prefix = "release" if state == "releasing" else "verification-failure"
@@ -242,9 +246,13 @@ def test_moderation_retention_migration_preserves_credit_history_and_recovers_st
             group_id=-1001, user_id=42, state="failed", error="等待管理员处理",
             payload={"verification_id": "current-failure", "expected_nonce": "current-nonce"},
         ))
+        connection.exec_driver_sql(
+            "INSERT INTO inbox (id,payload,state,attempts,available_at,error) VALUES (9001,'{}','pending',0,123.5,'')")
     engine.dispose()
     run("-m", "purrai.cli", "init-db")
     with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT received_at FROM inbox WHERE id=9001").fetchone()[0] == 123.5
+        assert connection.execute("SELECT DISTINCT method,challenge FROM verifications").fetchall() == [("image", "{}")]
         assert connection.execute("SELECT count(*),min(message_id),max(message_id) FROM member_texts").fetchone() == (100, 1, 100)
         assert connection.execute("SELECT count(*) FROM fingerprints").fetchone()[0] == 600
         assert connection.execute("SELECT sequence FROM fingerprints WHERE message_id=1").fetchone()[0] == 1

@@ -70,9 +70,9 @@ class BotRoutes:
             await self.management.reset_chat(actor, group_id, request_id)
             await self.send(actor, "已重新开始聊天；历史归档仍然保留。")
             await self.panels.chat_panel(actor, group_id, message_id)
-        elif action == "failure_policy":
+        elif action in ("failure_policy", "verification_method"):
             await self.management.setting(
-                actor, group_id, "verification_failure_action", data["value"], request_id
+                actor, group_id, "verification_failure_action" if action == "failure_policy" else "verification_method", data["value"], request_id
             )
             await self.panels.settings_panel(actor, group_id, "verification", message_id)
         elif action == "archive":

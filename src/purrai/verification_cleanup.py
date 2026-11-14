@@ -1,6 +1,6 @@
 """Durable cleanup of exact CAPTCHA prompts."""
 
-from sqlalchemy import String, literal_column, or_, select
+from sqlalchemy import String, and_, literal_column, or_, select
 
 from purrai.action_queue import enqueue
 from purrai.models import (
@@ -28,7 +28,7 @@ async def cleanup(session, verification):
         )
 
 
-async def observe_callback_prompt(session, verification, query, nonce, bot_id):
+async def observe_callback_prompt(session, verification, query, nonce, bot_id, *, received_at=None):
     """Recover a lost send receipt or remove an exact stale prompt seen in a callback."""
     message = query.get("message") or {}
     message_id = message.get("message_id")
@@ -40,8 +40,8 @@ async def observe_callback_prompt(session, verification, query, nonce, bot_id):
     ):
         return
     if (
-        verification.message_id and verification.deadline <= now()
-        or verification.state not in ("muting", "pending")
+        verification.message_id and verification.deadline <= (received_at if received_at is not None else now())
+        or verification.state not in ("muting", "pending", "checking")
         or verification.nonce != nonce
         or verification.message_id and verification.message_id != message_id
     ):
@@ -82,13 +82,20 @@ class VerificationCleanup:
                     .outerjoin(Action, Action.dedupe_key == key)
                     .where(
                         Verification.message_id > 0,
-                        or_(Verification.deadline <= now(), Verification.state.not_in(("muting", "pending"))),
+                        or_(Verification.state.not_in(("muting", "pending", "checking")),
+                            and_(Verification.state.in_(("muting", "pending")), Verification.method != "channel",
+                                 Verification.deadline <= now())),
                         Action.id.is_(None),
                     )
                     .order_by(Verification.created_at, Verification.id)
                     .limit(limit)
                 )
             ).all()
+            processed = 0
             for verification in rows:
+                from purrai.verification import VerificationService
+                if verification.state in ("muting", "pending") and await VerificationService.queued_answer(session, verification):
+                    continue
                 await cleanup(session, verification)
-            return len(rows)
+                processed += 1
+            return processed

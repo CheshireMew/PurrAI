@@ -19,6 +19,7 @@ MODERATION = ActionPolicySpec(True, True, True, "moderation")
 ACTION_POLICIES = {
     "verify_mute": VERIFICATION,
     "challenge": VERIFICATION,
+    "subscription_check": VERIFICATION,
     "progress": VERIFICATION,
     "verification_failure": VERIFICATION,
     "ban": VERIFICATION,

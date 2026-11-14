@@ -8,6 +8,28 @@ from purrai.schemas import ActionInput
 from test_verification import fixed_challenge
 
 
+async def test_release_keeps_retrying_after_eight_network_failures_and_restart(env, monkeypatch):
+    from purrai.service import Service
+    from test_verification import enter_code, latest
+
+    verification = await fixed_challenge(env, monkeypatch)
+    cfg, db, tg, service = env
+    await enter_code(service, verification, "123456")
+    tg.fail["restrict_chat_member"] = 8
+    for _ in range(8):
+        async with db.transaction() as session:
+            task = await session.scalar(select(Action).where(Action.kind == "release"))
+            task.available_at = 0
+        await service.run_one_action(include_progress=False)
+    async with db.transaction() as session:
+        task = await session.scalar(select(Action).where(Action.kind == "release"))
+        assert task.state == "pending" and task.attempts == 8
+        task.available_at = 0
+    await drain(Service(db, tg, cfg))
+    assert (await latest(db)).state == "passed"
+    assert tg.members[(-1001, 42)]["can_send_messages"] is True
+
+
 async def test_initial_mute_checks_member_once_before_restriction(env):
     _, _, telegram, service = env
     await service.member_event(join())

@@ -20,6 +20,8 @@ export interface GroupSettings {
   archive_enabled: boolean
   join_requests: boolean
   verification_enabled: boolean
+  verification_method: "image" | "text" | "channel"
+  verification_channel: string
   verification_timeout: number
   max_attempts: number
   verification_failure_action: "kick" | "permanent_mute"

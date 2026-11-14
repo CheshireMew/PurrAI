@@ -18,6 +18,8 @@ from purrai.models import (
 from purrai.telegram import is_present
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import matches_action, confirm_prompt, ACTIVE
+from purrai import verification_prompts
+from purrai.subscription_verification import schedule_check
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ class VerificationActions:
         expected = {
             "verify_mute": ("muting", "pending"), "challenge": ("muting", "pending"),
             "release": ("releasing",), "ban": ("removing",), "verification_failure": ("failing",),
+            "subscription_check": ("pending", "checking"),
         }
         if verification and verification.state not in expected[action.kind]:
             action.state = "cancelled"
@@ -99,6 +102,80 @@ class VerificationActions:
         await cleanup(session, verification)
         prepared = now()
         generation_started = perf_counter()
+        if verification.method == "channel":
+            async def call(method, **kwargs):
+                return await self.action_call(session, action, method, **kwargs)
+            try:
+                channel = await verification_prompts.resolve_channel(
+                    call, verification.challenge.get("channel", ""), self.verification.tg.user_id)
+                verification.challenge = {**verification.challenge, **channel}
+                current = await call("get_chat_member", chat_id=channel["channel_id"], user_id=verification.user_id)
+            except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
+                raise ChallengeDeliveryRetry("暂时无法核实订阅，将自动重试；未开始验证倒计时") from exc
+            if is_present(current):
+                await self.subscription_passed(session, verification)
+                return
+            image = None
+        elif verification.method == "text":
+            if not verification.challenge.get("question"):
+                question, code, choices = verification_prompts.text_question()
+                verification.challenge = {"question": question}
+                verification.answer_hash = captcha.digest(code, verification.nonce)
+                verification.input_digits, verification.choices = "", choices
+            image = None
+        else:
+            image = self.prepare_image(action, verification)
+        verification.message_id = None
+        verification.state = "pending"
+        # Persist the exact prompt and answer before I/O so retries/restarts keep
+        # the same buttons valid, including a prompt whose receipt was lost.
+        started = now()
+        attempt = action.payload.get("timing", {})
+        timing = {
+            **attempt,
+            "preparation_seconds": round(max(0, prepared - attempt.get("attempt_started_at", prepared)), 3),
+            "image_seconds": round(perf_counter() - generation_started, 3) if image else 0,
+            "send_started_at": started,
+        }
+        action.payload = {**action.payload, "challenge_delivery": "preparing",
+                          "challenge_nonce": verification.nonce, "timing": timing}
+        if image:
+            action.payload = {**action.payload, "challenge_image": base64.b64encode(image).decode("ascii")}
+        send_started = None
+
+        def sending():
+            nonlocal send_started
+            send_started = perf_counter()
+            timing["send_started_at"] = now()
+            action.payload = {**action.payload, "challenge_delivery": "sending", "timing": dict(timing)}
+
+        content = {"photo": image, "caption": captcha.caption(
+            verification.user_name, "", verification.attempts, group.settings["max_attempts"],
+            verification.deadline, join_request=verification.flow == "join_request", group_title=group.title,
+            failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
+            multiple_choice=bool(verification.choices), timeout_seconds=group.settings["verification_timeout"],
+        )} if image else {"text": verification_prompts.text_prompt(verification, group)}
+        try:
+            response = await self.action_call(
+                session, action, "send_photo" if image else "send_message", before_send=sending,
+                request_timeout=30, chat_id=verification.prompt_chat_id or group.id,
+                reply_markup=verification_prompts.keyboard(verification), **content,
+            )
+        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
+            self.delivery_result(action, timing, send_started, "rejected")
+            raise
+        except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
+            verification.state = "pending"
+            self.delivery_result(action, timing, send_started, "rejected" if isinstance(exc, ActionPreflightError) else "uncertain")
+            raise ChallengeDeliveryRetry("验证码尚未确认送达，将自动重试；送达前不计算答题超时") from exc
+        self.delivery_result(action, timing, send_started, "confirmed")
+        action.payload = {key: value for key, value in action.payload.items() if key != "challenge_image"}
+        confirm_prompt(verification, group, response["message_id"])
+        if verification.method == "channel":
+            await schedule_check(session, verification)
+
+    @staticmethod
+    def prepare_image(action, verification):
         saved_image = action.payload.get("challenge_image")
         if saved_image and action.payload.get("challenge_nonce") == verification.nonce:
             image = base64.b64decode(saved_image)
@@ -116,62 +193,38 @@ class VerificationActions:
                 verification.answer_hash = captcha.digest(code, verification.nonce)
                 verification.input_digits = ""
                 verification.choices = captcha.make_choices(code)
-        verification.message_id = None
-        verification.state = "pending"
-        # Persist the exact image and answer before I/O so retries/restarts keep
-        # the same buttons valid, including a prompt whose receipt was lost.
-        started = now()
-        attempt = action.payload.get("timing", {})
-        timing = {
-            **attempt,
-            "preparation_seconds": round(max(0, prepared - attempt.get("attempt_started_at", prepared)), 3),
-            "image_seconds": round(perf_counter() - generation_started, 3),
-            "send_started_at": started,
-        }
-        action.payload = {**action.payload, "challenge_delivery": "preparing",
-                          "challenge_nonce": verification.nonce, "timing": timing,
-                          "challenge_image": base64.b64encode(image).decode("ascii")}
-        send_started = None
+        return image
 
-        def sending():
-            nonlocal send_started
-            send_started = perf_counter()
-            timing["send_started_at"] = now()
-            action.payload = {**action.payload, "challenge_delivery": "sending", "timing": dict(timing)}
+    @staticmethod
+    async def subscription_passed(session, verification):
+        verification.state, verification.error = "releasing", ""
+        verification.nonce = secrets.token_hex(4)
+        await enqueue(session, "release", f"release:{verification.id}:{verification.nonce}",
+                      verification.group_id, verification.user_id, {"verification_id": verification.id}, 0)
 
-        try:
-            response = await self.action_call(
-                session,
-                action,
-                "send_photo",
-                before_send=sending,
-                request_timeout=30,
-                chat_id=verification.prompt_chat_id or group.id,
-                photo=image,
-                caption=captcha.caption(
-                    verification.user_name,
-                    "",
-                    verification.attempts,
-                    group.settings["max_attempts"],
-                    verification.deadline,
-                    join_request=verification.flow == "join_request",
-                    group_title=group.title,
-                    failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
-                    multiple_choice=bool(verification.choices),
-                    timeout_seconds=group.settings["verification_timeout"],
-                ),
-                reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
-            )
-        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
-            self.delivery_result(action, timing, send_started, "rejected")
-            raise
-        except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
-            verification.state = "pending"
-            self.delivery_result(action, timing, send_started, "rejected" if isinstance(exc, ActionPreflightError) else "uncertain")
-            raise ChallengeDeliveryRetry("验证码尚未确认送达，将自动重试；送达前不计算答题超时") from exc
-        self.delivery_result(action, timing, send_started, "confirmed")
-        action.payload = {key: value for key, value in action.payload.items() if key != "challenge_image"}
-        confirm_prompt(verification, group, response["message_id"])
+    async def subscription_check(self, session, action, group, verification, member):
+        verification.state = "checking"
+        if "remaining_seconds" not in action.payload:
+            action.payload = {**action.payload, "remaining_seconds": max(0, verification.deadline - now())}
+
+        async def call(method, **kwargs):
+            return await self.action_call(session, action, method, **kwargs)
+
+        await verification_prompts.channel_rights(call, verification.challenge["channel_id"], self.verification.tg.user_id)
+        current = await call("get_chat_member", chat_id=verification.challenge["channel_id"], user_id=verification.user_id)
+        if is_present(current):
+            await self.subscription_passed(session, verification)
+            return
+        remaining = action.payload["remaining_seconds"]
+        verification.state, verification.error = "pending", ""
+        verification.deadline = now() + remaining
+        if remaining <= 0:
+            await self.verification.fail_verification(session, verification, "验证超时", subscription_confirmed=True)
+            return
+        action.payload = {key: value for key, value in action.payload.items() if key != "remaining_seconds"}
+        action.attempts, action.error = 0, ""
+        action.available_at = min(verification.deadline, now() + 15)
+        return False
 
     @staticmethod
     def delivery_result(action, timing, started, delivery):
@@ -180,7 +233,7 @@ class VerificationActions:
         action.payload = {**action.payload, "challenge_delivery": delivery, "timing": timing}
         if elapsed >= 3:
             logger.warning(
-                "验证码图片发送较慢 action=%s group=%s queue=%.3fs prepare=%.3fs image=%.3fs send=%.3fs delivery=%s",
+                "验证消息发送较慢 action=%s group=%s queue=%.3fs prepare=%.3fs image=%.3fs send=%.3fs delivery=%s",
                 action.id, action.group_id, timing.get("queue_seconds", 0),
                 timing["preparation_seconds"], timing["image_seconds"], elapsed, delivery,
             )

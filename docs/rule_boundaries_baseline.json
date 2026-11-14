@@ -45,7 +45,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "791e956216059d5217ee4ff7bc669c6c326d1792516dac38ce0a5a85217b4b9c",
+      "digest": "bc8b9f603136d681ab1ce0774a7e48bda7837d8b24dd9a727780e0e8af3aeb68",
       "line": 3,
       "examples": [
         "保护中",
@@ -53,7 +53,8 @@
         "已人工核实",
         "已升级为超级群",
         "已取消"
-      ]
+      ],
+      "review": "2026-11-14: Explicitly requested verification methods. admin_labels.STATE: display label for checking subscription state; no message matching."
     },
     {
       "path": "src/purrai/admin_labels.py",
@@ -236,7 +237,7 @@
       "path": "src/purrai/bot_input.py",
       "scope": "BotInput.prompt",
       "kind": "matching-data",
-      "digest": "82c82aa8fd9e44cb3fab38d8d8af07eafaed8fbcd7328329ba612acf40f88563",
+      "digest": "a7d0a6515e7400bc80b47b601e4b4ebefc43e231fe8dee9d2a85f4e2de4d58f0",
       "line": 44,
       "examples": [
         " 个，可返回面板查看。",
@@ -244,7 +245,8 @@
         "当前已有 ",
         "当前已有  个，可返回面板查看。",
         "现有规则内容作为昵称关键词。请发送正文中还需同时命中的关键词。昵称和正文同时命中时永久禁言并删消息。"
-      ]
+      ],
+      "review": "2026-11-14: Explicitly requested verification methods. BotInput.prompt: administrator instructions for entering a subscription channel; the actual target is saved in GroupSettings."
     },
     {
       "path": "src/purrai/bot_input.py",
@@ -337,12 +339,16 @@
       "path": "src/purrai/bot_policy_panels.py",
       "scope": "PolicyPanels.field",
       "kind": "matching-data",
-      "digest": "9ebf6182ee4ae81e6bddfcaae41713105b9eac93b3bf8dc2e418197a4ed1c53f",
+      "digest": "8fddb7b167908bf80cfe5e1e796c60e64451c84d1ab076f63b240a7d4927c7cb",
       "line": 93,
       "examples": [
+        "图片验证",
+        "文字算术验证",
         "永久禁言（留群）",
+        "订阅频道自动验证",
         "踢出（允许重新加入）"
-      ]
+      ],
+      "review": "2026-11-14: Explicitly requested verification methods. PolicyPanels.field: UI labels for image, text and channel enum choices; no content filtering."
     },
     {
       "path": "src/purrai/bot_record_panels.py",
@@ -1183,29 +1189,31 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "60bf3be909eb0e8d7248c781660fc950911a6fa0a3e7e5c78d44ccd907ee9351",
-      "line": 24,
+      "digest": "5eb188cb0197944f39c5c05d397d489f64cbc9fd2d6d3240fded3a6b46e4aafd",
+      "line": 25,
       "examples": [
         "AI广告永久禁言",
         "临时封禁",
         "临时应急保护",
         "临时禁言",
         "人工核实发送结果"
-      ]
+      ],
+      "review": "2026-11-14: Explicitly requested verification methods. admin_labels.OPERATIONS: display label for subscription_check action; no ad keywords."
     },
     {
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "ea2bcf65daa8bb00f7d188716f679244c116fc0e515fc5a86059ab0b64688be3",
-      "line": 90,
+      "digest": "f8a244beb390a3ec238090f7a14a90e077b1d90b6cab357a03bdf742f492b165",
+      "line": 92,
       "examples": [
+        "入群验证",
         "全员拦截钱包及代币合约地址",
         "只拦截广告联系人名片",
-        "图片验证",
         "外群链接、外部频道引用及转发永久封禁",
         "外部私密邀请统一封禁"
-      ]
+      ],
+      "review": "2026-11-14: Explicitly requested verification methods. admin_labels.BOOLEANS: rename image verification switch to entry verification to cover three requested methods."
     },
     {
       "path": "src/purrai/chat_input.py",
@@ -1292,6 +1300,39 @@
         "使用帮助",
         "查看我的 Telegram 数字 ID"
       ]
+    },
+    {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.shared",
+      "kind": "comparison",
+      "digest": "85a6126f34469568e632cc70bab9b14513ebecff1a4ce4e0832f349fc83c2831",
+      "line": 182,
+      "examples": [
+        "verification_channel"
+      ],
+      "review": "2026-11-14: Explicitly requested verification repair. GroupConfiguration.shared: verification_channel is a settings protocol key, checked for changed configuration, never against messages."
+    },
+    {
+      "path": "src/purrai/verification.py",
+      "scope": "VerificationService.fail_verification",
+      "kind": "comparison",
+      "digest": "1486d75d18713e0afd4062ce5547fcc73cdf08c5615e0a42c1f38e0f88fcb830",
+      "line": 238,
+      "examples": [
+        "验证超时"
+      ],
+      "review": "2026-11-14: Explicitly requested verification repair. VerificationService.fail_verification: internal timeout reason selects final subscription lookup and timely inbox callback protection; not user text or an ad rule."
+    },
+    {
+      "path": "src/purrai/verification.py",
+      "scope": "VerificationService.fail_verification",
+      "kind": "comparison",
+      "digest": "1486d75d18713e0afd4062ce5547fcc73cdf08c5615e0a42c1f38e0f88fcb830",
+      "line": 241,
+      "examples": [
+        "验证超时"
+      ],
+      "review": "2026-11-14: Explicitly requested verification repair. VerificationService.fail_verification: internal timeout reason selects final subscription lookup and timely inbox callback protection; not user text or an ad rule."
     }
   ]
 }

@@ -90,7 +90,7 @@ async def test_bot_settings_validate_persist_across_runtime_restart_and_cancel_n
     runtime = Runtime(database, telegram, service)
     await open_group(runtime, telegram)
     await click(runtime, telegram, "验证设置")
-    toggle = await click(runtime, telegram, "图片验证")
+    toggle = await click(runtime, telegram, "入群验证")
     await deliver(runtime, {"callback_query": toggle})
     async with database.sessions() as session:
         assert (await session.get(Group, -1001)).settings["verification_enabled"] is False
@@ -156,11 +156,11 @@ async def test_bot_authorization_checks_scoped_grants_and_current_telegram_role(
     with pytest.raises(ManagementError, match="不是此群"):
         await runtime.management.authorize(2, -1002)
     await click(runtime, telegram, "验证设置", 2)
-    await click(runtime, telegram, "图片验证", 2)
+    await click(runtime, telegram, "入群验证", 2)
     async with database.sessions() as session:
         assert not (await session.get(Group, -1001)).settings["verification_enabled"]
     telegram.members[(-1001, 2)] = {"status": "member"}
-    await click(runtime, telegram, "图片验证", 2)
+    await click(runtime, telegram, "入群验证", 2)
     assert "不是此群的 Telegram 管理员" in texts(telegram)[-1]
     async with database.sessions() as session:
         assert not (await session.get(Group, -1001)).settings["verification_enabled"]
@@ -269,7 +269,7 @@ async def test_bot_pending_members_cannot_bypass_message_cleanup_using_commands(
     assert any(method == "delete_message" and p["message_id"] == 77 for method, p in telegram.calls)
 
 
-async def test_bot_execution_notice_waits_for_retry_and_reports_actual_failure(env):
+async def test_bot_execution_notice_waits_for_retry_and_reports_preserved_restriction(env):
     _, database, telegram, service = env
     runtime = Runtime(database, telegram, service)
     telegram.fail["restrict_chat_member"] = 1
@@ -284,7 +284,7 @@ async def test_bot_execution_notice_waits_for_retry_and_reports_actual_failure(e
     telegram.members[(-1001, 43)] = {"status": "restricted", "is_member": True, "until_date": 0}
     await deliver(runtime, {"message": message(91, "/mute 43 请核实", 1)})
     await drain(service)
-    assert "失败" in texts(telegram)[-1] and "管理员已有禁言" in texts(telegram)[-1]
+    assert "已取消" in texts(telegram)[-1] and "保留当前成员权限" in texts(telegram)[-1]
 
 
 async def test_bot_whitelist_and_automatic_permission_instructions_without_web(env):
