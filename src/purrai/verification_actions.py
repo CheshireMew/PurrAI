@@ -1,13 +1,15 @@
 """Telegram effects of verification decisions."""
 
+import base64
 import logging
+import secrets
 from time import perf_counter
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter
 
 from purrai import captcha
 from purrai.action_queue import enqueue
-from purrai.action_execution import ActionPreflightError
+from purrai.action_execution import ActionPreflightError, ChallengeDeliveryRetry
 from purrai.action_delivery import deliver_once, uncertain_delivery
 from purrai.models import (
     Verification,
@@ -15,7 +17,7 @@ from purrai.models import (
 )
 from purrai.telegram import is_present
 from purrai.verification_cleanup import cleanup
-from purrai.verification_state import matches_action
+from purrai.verification_state import matches_action, confirm_prompt, ACTIVE
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +44,19 @@ class VerificationActions:
         if verification and verification.state not in expected[action.kind]:
             action.state = "cancelled"
             return False
-        if verification and action.kind in ("verify_mute", "challenge") and verification.deadline <= now():
+        if verification and action.kind in ("verify_mute", "challenge") and verification.message_id and verification.deadline <= now():
             await self.verification.fail_verification(session, verification, "验证超时")
             action.state = "cancelled"
+            return False
+        if (verification and action.kind == "challenge" and not verification.message_id
+                and verification.flow == "join_request" and verification.request_date + 240 <= now()):
+            raise ValueError("入群申请私聊窗口已过期，请重新申请；未确认验证码送达，不执行验证处罚")
+        if verification and action.kind == "verification_failure" and not verification.message_id:
+            verification.state, verification.failure_action = "muting", ""
+            verification.error = "验证码尚未确认送达，取消超时处罚并重新发送"
+            action.state, action.error = "cancelled", verification.error
+            await enqueue(session, "challenge", f"challenge:{verification.id}:{verification.nonce}",
+                          group.id, member.user_id, {"verification_id": verification.id}, 1)
             return False
         return True
 
@@ -63,6 +75,14 @@ class VerificationActions:
             if verification:
                 verification.error = action.error
 
+    @staticmethod
+    async def preserve_restriction(session, action):
+        verification = await session.get(Verification, action.payload.get("verification_id")) if action.payload.get("verification_id") else None
+        if (verification and verification.state in ACTIVE
+                and action.payload.get("expected_nonce") in (None, verification.nonce)):
+            verification.state, verification.error = "superseded", action.error
+            await cleanup(session, verification)
+
     async def mute(self, session, action, group, verification, member):
         await self.restrictions.verification_mute(session, action, group, verification, member)
         await enqueue(
@@ -76,20 +96,30 @@ class VerificationActions:
         )
 
     async def challenge(self, session, action, group, verification, member):
-        if action.payload.get("challenge_delivery") in ("sending", "uncertain"):
-            verification.state = "pending"
-            action.payload = {**action.payload, "challenge_delivery": "uncertain"}
-            raise ValueError("验证码发送结果未确认，未重复出题；原图片仍可验证，也可请管理员重新出题")
         await cleanup(session, verification)
         prepared = now()
         generation_started = perf_counter()
-        code, image = captcha.make_image()
-        verification.answer_hash = captcha.digest(code, verification.nonce)
-        verification.input_digits = ""
-        verification.choices = captcha.make_choices(code)
+        saved_image = action.payload.get("challenge_image")
+        if saved_image and action.payload.get("challenge_nonce") == verification.nonce:
+            image = base64.b64decode(saved_image)
+        else:
+            legacy_retry = action.payload.get("challenge_delivery") in ("sending", "uncertain")
+            code = next((value for value in verification.choices
+                         if captcha.digest(value, verification.nonce) == verification.answer_hash), None) if legacy_retry else None
+            if code:
+                image = captcha.render_image(code)
+            else:
+                if legacy_retry:
+                    verification.nonce = secrets.token_hex(4)
+                    action.payload = {**action.payload, "expected_nonce": verification.nonce}
+                code, image = captcha.make_image()
+                verification.answer_hash = captcha.digest(code, verification.nonce)
+                verification.input_digits = ""
+                verification.choices = captcha.make_choices(code)
         verification.message_id = None
-        # Persist before Telegram I/O. A lost receipt or restart must not send a
-        # second picture and forget the first one's message ID.
+        verification.state = "pending"
+        # Persist the exact image and answer before I/O so retries/restarts keep
+        # the same buttons valid, including a prompt whose receipt was lost.
         started = now()
         attempt = action.payload.get("timing", {})
         timing = {
@@ -99,7 +129,8 @@ class VerificationActions:
             "send_started_at": started,
         }
         action.payload = {**action.payload, "challenge_delivery": "preparing",
-                          "challenge_nonce": verification.nonce, "timing": timing}
+                          "challenge_nonce": verification.nonce, "timing": timing,
+                          "challenge_image": base64.b64encode(image).decode("ascii")}
         send_started = None
 
         def sending():
@@ -127,20 +158,20 @@ class VerificationActions:
                     group_title=group.title,
                     failure_action=group.settings.get("verification_failure_action", "permanent_mute"),
                     multiple_choice=bool(verification.choices),
+                    timeout_seconds=group.settings["verification_timeout"],
                 ),
                 reply_markup=captcha.keyboard(verification.id, verification.nonce, verification.choices),
             )
-        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError, ActionPreflightError):
+        except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
             self.delivery_result(action, timing, send_started, "rejected")
             raise
         except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
             verification.state = "pending"
-            self.delivery_result(action, timing, send_started, "uncertain")
-            raise ValueError("验证码发送结果未确认，未重复出题；原图片仍可验证，也可请管理员重新出题") from exc
+            self.delivery_result(action, timing, send_started, "rejected" if isinstance(exc, ActionPreflightError) else "uncertain")
+            raise ChallengeDeliveryRetry("验证码尚未确认送达，将自动重试；送达前不计算答题超时") from exc
         self.delivery_result(action, timing, send_started, "confirmed")
-        verification.message_id = response["message_id"]
-        verification.state = "pending"
-        verification.error = ""
+        action.payload = {key: value for key, value in action.payload.items() if key != "challenge_image"}
+        confirm_prompt(verification, group, response["message_id"])
 
     @staticmethod
     def delivery_result(action, timing, started, delivery):

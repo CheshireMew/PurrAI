@@ -5,9 +5,11 @@ from sqlalchemy import String, literal_column, or_, select
 from purrai.action_queue import enqueue
 from purrai.models import (
     Action,
+    Group,
     Verification,
     now,
 )
+from purrai.verification_state import confirm_prompt
 
 
 async def cleanup(session, verification):
@@ -38,7 +40,7 @@ async def observe_callback_prompt(session, verification, query, nonce, bot_id):
     ):
         return
     if (
-        verification.deadline <= now()
+        verification.message_id and verification.deadline <= now()
         or verification.state not in ("muting", "pending")
         or verification.nonce != nonce
         or verification.message_id and verification.message_id != message_id
@@ -56,12 +58,13 @@ async def observe_callback_prompt(session, verification, query, nonce, bot_id):
             Action.user_id == verification.user_id,
             Action.payload["verification_id"].as_string() == verification.id,
         ).order_by(Action.created_at.desc(), literal_column("actions.rowid").desc()).limit(1))
-        if (action and action.payload.get("challenge_delivery") == "uncertain"
+        if (action and action.payload.get("challenge_delivery") in ("uncertain", "sending")
                 and action.payload.get("challenge_nonce", nonce) == nonce):
             # Old persisted actions have no challenge_nonce. A current, bot-owned
             # callback carrying the current nonce remains valid upgrade evidence.
-            verification.message_id, verification.error, verification.updated_at = message_id, "", now()
-            action.payload = {**action.payload, "challenge_delivery": "recovered"}
+            confirm_prompt(verification, await session.get(Group, verification.group_id), message_id)
+            action.payload = {**{key: value for key, value in action.payload.items() if key != "challenge_image"},
+                              "challenge_delivery": "recovered"}
             action.state, action.error, action.updated_at = "succeeded", "", now()
 
 

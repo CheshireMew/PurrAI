@@ -1,6 +1,7 @@
 """Explicit administrator restrictions, restoration and ownership checks."""
 
 from purrai.action_queue import enqueue
+from purrai.action_execution import RestrictionPreserved
 from purrai.message_identity import display_name
 from purrai.models import (
     Action,
@@ -80,7 +81,7 @@ class RestrictionActions:
         )
         owned = member.owned_restriction
         if member.restriction_conflict or not is_present(current) or is_admin(current):
-            raise ValueError("成员权限已被其他管理员修改，需要人工处理")
+            raise RestrictionPreserved()
         already_released = bool(
             owned.get("release_permissions") is not None
             and (
@@ -95,11 +96,7 @@ class RestrictionActions:
         if not already_released and (
             current.get("status") == "restricted" and (not restriction_matches(current, owned))
         ):
-            action.state = "failed"
-            action.error = "成员权限已被其他管理员修改，需要人工处理"
-            if verification:
-                verification.error = action.error
-            return
+            raise RestrictionPreserved()
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         defaults = chat.get("permissions", {})
         previous = verification.previous_permissions if verification else owned.get("previous", {})
@@ -145,14 +142,14 @@ class RestrictionActions:
             session, action, "get_chat_member", chat_id=group.id, user_id=action.user_id
         )
         if is_admin(current) or member and member.restriction_conflict:
-            raise ValueError("成员身份或权限已变化，需要人工处理")
+            raise RestrictionPreserved()
         owned = member.owned_restriction if member else None
         reconciled = bool(
             owned and owned.get("source_action") == action.id and ban_matches(current, owned["until_date"])
         )
         if not reconciled:
             if current.get("status") == "kicked":
-                raise ValueError("成员已有其他封禁，需要人工处理")
+                raise RestrictionPreserved("成员已有其他封禁，保留当前封禁")
             until = (
                 owned["until_date"]
                 if owned and owned.get("source_action") == action.id
@@ -215,16 +212,16 @@ class RestrictionActions:
             or action.payload.get("generation")
             and member.generation != action.payload["generation"]
         ):
-            raise ValueError("成员权限或入群批次已变化，需要人工处理")
+            raise RestrictionPreserved()
         if current.get("status") == "restricted" and not (member and member.owned_restriction):
-            raise ValueError("保留管理员已有禁言，需要人工处理")
+            raise RestrictionPreserved()
         if (
             current.get("status") == "restricted"
             and member
             and member.owned_restriction
             and (not restriction_matches(current, member.owned_restriction))
         ):
-            raise ValueError("成员权限已经改变，需要人工处理")
+            raise RestrictionPreserved()
         if member is None:
             member = Member(group_id=group.id, user_id=action.user_id, joined_at=now())
             session.add(member)
@@ -307,7 +304,7 @@ class RestrictionActions:
             member.owned_restriction = None
             return
         if member.restriction_conflict or not ban_matches(current, member.owned_restriction["until_date"]):
-            raise ValueError("封禁状态已改变，需要人工处理")
+            raise RestrictionPreserved()
         member.owned_restriction = {**member.owned_restriction, "unban_action": action.id}
         await self.action_call(
             session,

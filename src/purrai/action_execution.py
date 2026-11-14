@@ -19,6 +19,15 @@ class ActionPreflightError(ConnectionError):
     """A retryable check failed before the Telegram effect was attempted."""
 
 
+class ChallengeDeliveryRetry(ConnectionError):
+    """Keep retrying a persisted CAPTCHA without treating delivery as user failure."""
+
+
+class RestrictionPreserved(ActionSuperseded):
+    def __init__(self, reason="其他管理员已处理，保留当前成员权限"):
+        super().__init__(reason=reason, before_request=True)
+
+
 class ActionExecution:
     def __init__(self, db):
         self.db = db

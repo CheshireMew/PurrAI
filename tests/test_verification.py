@@ -130,10 +130,10 @@ async def test_manual_restriction_is_never_overridden(env, monkeypatch):
     await enter_code(service, verification, "123456")
     telegram.members[(-1001, 42)]["until_date"] = int(time.time() + 3600)
     await drain(service)
-    assert (await latest(database)).state == "releasing"
+    assert (await latest(database)).state == "superseded"
     async with database.sessions() as session:
         action = await session.scalar(select(Action).where(Action.kind == "release"))
-        assert action.state == "failed" and "管理员" in action.error
+        assert action.state == "cancelled" and "管理员" in action.error
 
 
 async def test_release_network_failure_not_reported_as_passed(env, monkeypatch):

@@ -12,6 +12,10 @@ def digest(code: str, salt: str) -> str:
 
 def make_image() -> tuple[str, bytes]:
     code = "".join(secrets.choice("0123456789") for _ in range(6))
+    return code, render_image(code)
+
+
+def render_image(code: str) -> bytes:
     image = Image.new("RGB", (360, 130), "#f2f5fa")
     draw = ImageDraw.Draw(image)
     for _ in range(12):
@@ -29,7 +33,7 @@ def make_image() -> tuple[str, bytes]:
     image = image.filter(ImageFilter.SMOOTH)
     output = io.BytesIO()
     image.save(output, "PNG")
-    return code, output.getvalue()
+    return output.getvalue()
 
 
 def make_choices(code: str) -> list[str]:
@@ -66,6 +70,7 @@ def caption(
     group_title="",
     failure_action="permanent_mute",
     multiple_choice=True,
+    timeout_seconds=None,
 ) -> str:
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -80,7 +85,9 @@ def caption(
             f"已输入：{'●' * len(digits)}{'○' * (6 - len(digits))}\n"
             "请等按钮回应后继续输入，满 6 位后点提交。\n"
         )
-        + f"剩余作答次数：{maximum - attempts} · 截止 {time_text}（北京时间）\n"
+        + f"剩余作答次数：{maximum - attempts} · "
+        + (f"图片送达后 {timeout_seconds} 秒内完成\n" if timeout_seconds is not None
+           else f"截止 {time_text}（北京时间）\n")
         + (
             "完成验证后批准入群。只有你本人能够操作。"
             if join_request

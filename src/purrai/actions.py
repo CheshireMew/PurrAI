@@ -6,7 +6,7 @@ import logging
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import and_, literal_column, select
 
-from purrai.action_execution import ActionExecution, ActionSuperseded
+from purrai.action_execution import ActionExecution, ActionSuperseded, ChallengeDeliveryRetry, RestrictionPreserved
 from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy
 from purrai.action_preparation import ActionHandler, ActionPreparation
 from purrai.action_transport import ActionTransport
@@ -44,6 +44,7 @@ class ActionRunner:
         self.notifications = NotificationActions(db, transport)
         self.preparation = ActionPreparation(transport, self.policy)
         self.report_error = verification_actions.record_error
+        self.preserve_restriction = verification_actions.preserve_restriction
         self.handlers = {
             "verify_mute": ActionHandler(verification_actions.mute, verification_actions.prepare, verification_actions.requires_member_check),
             "challenge": ActionHandler(verification_actions.challenge, verification_actions.prepare, verification_actions.requires_member_check),
@@ -163,6 +164,13 @@ class ActionRunner:
                 if action.state == "pending":
                     action.state = "cancelled"
                     action.error = str(exc)
+                if isinstance(exc, RestrictionPreserved):
+                    action.payload = {**action.payload, "outcome": "external_restriction_preserved"}
+                    await self.preserve_restriction(session, action)
+            except ChallengeDeliveryRetry as exc:
+                action.available_at = now() + min(300, 2 ** min(action.attempts, 9))
+                action.error = str(exc)
+                await self.report_error(session, action)
             except TelegramRetryAfter as exc:
                 failure(
                     logger,

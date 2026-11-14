@@ -44,8 +44,8 @@ async def test_permanent_penalty_failure_does_not_leave_expired_prompt(env, monk
 
     async with database.sessions() as session:
         penalty = await session.scalar(select(Action).where(Action.kind == "verification_failure"))
-        assert penalty.state == "failed" and "管理员" in penalty.error
-        assert (await session.get(Verification, verification.id)).state == "failing"
+        assert penalty.state == "cancelled" and "管理员" in penalty.error
+        assert (await session.get(Verification, verification.id)).state == "superseded"
     assert any(method == "delete_message" and data["message_id"] == verification.message_id
                for method, data in telegram.calls)
 
@@ -268,14 +268,20 @@ async def lost_challenge_receipt(env, monkeypatch):
     return verification, sent["message_id"]
 
 
-async def test_lost_send_receipt_does_not_retry_or_replace_the_question(env, monkeypatch):
+async def test_lost_send_receipt_retries_same_question_after_restart(env, monkeypatch):
     verification, _ = await lost_challenge_receipt(env, monkeypatch)
     settings, database, telegram, _ = env
     assert verification.state == "pending" and verification.message_id is None
-    assert "未重复出题" in verification.error
+    assert "自动重试" in verification.error
     restarted = Service(database, telegram, settings)
-    assert not await restarted.run_one_action()
-    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+    async with database.transaction() as session:
+        task = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        task.available_at = 0
+    assert await restarted.run_one_action()
+    photos = [data for method, data in telegram.calls if method == "send_photo"]
+    assert len(photos) == 2
+    assert photos[0]["photo"] == photos[1]["photo"]
+    assert photos[0]["reply_markup"] == photos[1]["reply_markup"]
 
 
 async def test_callback_recovers_lost_receipt_and_completion_cleans_original_picture(env, monkeypatch):
@@ -294,18 +300,18 @@ async def test_callback_recovers_lost_receipt_and_completion_cleans_original_pic
     assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
 
 
-async def test_expired_unknown_picture_is_cleaned_when_its_buttons_reveal_message_id(env, monkeypatch):
+async def test_unknown_picture_callback_starts_deadline_even_after_original_deadline(env, monkeypatch):
     verification, message_id = await lost_challenge_receipt(env, monkeypatch)
     _, database, telegram, service = env
     query = choice_query(verification)
     query["message"]["message_id"] = message_id
     await expire(database, service, verification)
     await drain(service)
-    assert "失效" in await service.callback(query)
+    assert "答案正确" in await service.callback(query)
     await drain(service)
     assert any(method == "delete_message" and data["message_id"] == message_id for method, data in telegram.calls)
     async with database.sessions() as session:
-        assert (await session.get(Verification, verification.id)).state == "failed"
+        assert (await session.get(Verification, verification.id)).state == "passed"
 
 
 @pytest.mark.parametrize("origin", ["old_picture", "other_chat", "other_bot"])
@@ -328,7 +334,7 @@ async def test_stale_duplicate_callback_cleans_only_the_exact_bot_picture(env, m
         assert row.state == "pending" and row.attempts == 0 and row.message_id == verification.message_id
 
 
-async def test_crash_during_picture_send_does_not_resend_after_restart(env, monkeypatch):
+async def test_crash_during_picture_send_resends_after_restart(env, monkeypatch):
     verification = await fixed_challenge(env, monkeypatch)
     settings, database, telegram, _ = env
     async with database.transaction() as session:
@@ -338,7 +344,7 @@ async def test_crash_during_picture_send_does_not_resend_after_restart(env, monk
         action.state = "pending"
         action.payload = {**action.payload, "challenge_delivery": "sending"}
     assert await Service(database, telegram, settings).run_one_action()
-    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 2
     async with database.sessions() as session:
         assert (await session.get(Verification, verification.id)).state == "pending"
 

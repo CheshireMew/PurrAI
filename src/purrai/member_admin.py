@@ -22,6 +22,7 @@ from purrai.schemas import (
 )
 from purrai.serialization import row_dict
 from purrai.verification_state import ACTIVE
+from purrai.verification_cleanup import cleanup
 
 
 class MemberAdministration:
@@ -73,6 +74,8 @@ class MemberAdministration:
                 raise ManagementError(409, "该成员已离群、重新入群或限制状态已变化，请刷新记录")
             row.nonce, row.input_digits = secrets.token_hex(4), ""
             if body.action == "reissue":
+                await cleanup(session, row)
+                row.message_id = None
                 group = await session.get(Group, row.group_id)
                 row.attempts, row.failure_action, row.error = 0, "", ""
                 row.updated_at = now()

@@ -3,6 +3,7 @@
 from sqlalchemy import func, select
 
 from purrai.action_queue import enqueue
+from purrai.action_execution import RestrictionPreserved
 from purrai.models import (
     Action,
     Member,
@@ -62,7 +63,7 @@ class MemberRestrictions:
                 session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
             )
         if is_admin(current) or member.restriction_conflict:
-            raise ValueError("成员身份或权限已变化，需要人工处理")
+            raise RestrictionPreserved()
         if "message_evidence" in action.payload:
             from purrai.rule_evaluation import message_penalty_applies
             from purrai.action_execution import ActionSuperseded
@@ -74,7 +75,7 @@ class MemberRestrictions:
             and owned.get("until_date") == 0 and ban_matches(current, 0)
         )
         if not reconciled and current.get("status") == "kicked":
-            raise ValueError("成员已有其他封禁，保留当前封禁")
+            raise RestrictionPreserved("成员已有其他封禁，保留当前封禁")
         active = await active_verifications(session, member)
         violation_label = "广告引流违规" if action.kind == "advertisement_ban" else "状态表情违规"
         member.owned_restriction = {
@@ -99,9 +100,9 @@ class MemberRestrictions:
             session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
         )
         if member.restriction_conflict:
-            raise ValueError("管理员已经修改成员权限，需要人工处理")
+            raise RestrictionPreserved()
         if not is_present(current) or is_admin(current):
-            raise ValueError("成员已经离群或成为管理员，需要人工核实")
+            raise RestrictionPreserved("成员已离群或成为管理员，取消旧验证任务")
         owned = member.owned_restriction
         if (
             owned
@@ -115,7 +116,7 @@ class MemberRestrictions:
                 )
             )
         ):
-            raise ValueError("成员已有其他限制，需要人工处理")
+            raise RestrictionPreserved()
         if not owned:
             before = current
             if current["status"] != "restricted":
@@ -164,9 +165,9 @@ class MemberRestrictions:
             and permission_state_matches(current, owned.get("permissions"), 0, tolerance=0)
         )
         if member.restriction_conflict or current.get("status") == "restricted" and not owned:
-            raise ValueError("成员存在其他管理员限制，保留当前限制")
+            raise RestrictionPreserved()
         if owned and current.get("status") == "restricted" and (not restriction_matches(current, owned)):
-            raise ValueError("成员限制已被其他管理员修改，保留当前限制")
+            raise RestrictionPreserved()
         active = await active_verifications(session, member)
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         recovered = already_muted and owned.get("source_action") == action.id
@@ -261,7 +262,7 @@ class MemberRestrictions:
             session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
         )
         if is_admin(current) or member.restriction_conflict:
-            raise ValueError("成员身份或权限已变化，需要人工处理")
+            raise RestrictionPreserved()
         if is_present(current):
             if action.actor_id is None and not group.enabled:
                 action.state, action.error = "cancelled", "群保护已暂停，已停止移出成员"
@@ -271,7 +272,7 @@ class MemberRestrictions:
                 or current.get("status") != action.payload.get("before_kick_status")
                 or current.get("until_date", 0) != action.payload.get("before_kick_until", 0)
             ):
-                raise ValueError("移出重试前成员状态已变化，不重复踢出")
+                raise RestrictionPreserved("移出重试前成员状态已变化，保留当前状态")
             until = int(now() + 600)
             action.payload = {
                 **action.payload,
@@ -289,7 +290,7 @@ class MemberRestrictions:
                 not action.payload.get("kick_until")
                 or abs(current.get("until_date", 0) - action.payload["kick_until"]) > 2
             ):
-                raise ValueError("成员存在其他封禁，不自动解除")
+                raise RestrictionPreserved("成员存在其他封禁，保留当前封禁")
         # Telegram implements removal as ban + unban. A retry only clears this
         # action's temporary ban; a lost response must never remove a new join.
         if current.get("status") != "left":

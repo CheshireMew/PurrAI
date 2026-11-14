@@ -179,6 +179,8 @@ class VerificationService:
                             else "错误次数已用尽，正在踢出群聊，可重新入群验证。"
                         )
                     else:
+                        await cleanup(session, verification)
+                        verification.message_id = None
                         verification.state = "muting"
                         await enqueue(
                             session,
@@ -189,7 +191,7 @@ class VerificationService:
                             {"verification_id": verification.id},
                             1,
                         )
-                        answer = "答案不正确，正在更换图片；截止时间保持不变。"
+                        answer = "答案不正确，正在更换图片；新图片送达后重新计时。"
             elif (key in "0123456789" and len(key) == 1) or key == "back":
                 before = verification.input_digits
                 verification.input_digits = (
@@ -212,6 +214,8 @@ class VerificationService:
 
     async def fail_verification(self, session, verification, reason):
         if verification.state not in ("muting", "pending"):
+            return
+        if not verification.message_id:
             return
         verification.state = "failing"
         verification.error = reason
@@ -238,6 +242,7 @@ class VerificationService:
                         Group.approved.is_(True),
                         Verification.state.in_(("pending", "muting")),
                         Verification.deadline <= now(),
+                        Verification.message_id.is_not(None),
                     )
                 )
             ).all():
