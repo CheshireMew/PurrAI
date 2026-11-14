@@ -215,7 +215,7 @@ async def test_every_silent_model_attempt_counts_and_budget_does_not_stop_modera
     setattr(settings, limit, 2)
     model.result = None
     for number in range(1, 4):
-        await chat.observe(message(number, "柴郡喵聊聊电影"))
+        await chat.observe(message(number, f"柴郡喵聊聊第 {number} 部电影"))
         await due(chat)
         assert await chat.run_one()
     assert len(model.calls) == 2
@@ -235,10 +235,13 @@ async def test_user_interval_applies_when_model_stays_silent(env):
     env[0].chat_user_interval = 5
     model.result = None
     for number in range(1, 3):
-        await chat.observe(message(number, "柴郡喵聊聊电影"))
+        await chat.observe(message(number, f"柴郡喵聊聊第 {number} 部电影"))
         await due(chat)
         await chat.run_one()
     assert len(model.calls) == 1
+    async with chat.db.sessions() as session:
+        pending = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 2))
+        assert "调用间隔未到" in pending.error
     await chat.close()
 
 
@@ -262,10 +265,13 @@ async def test_token_reservation_and_valid_usage_settlement(env):
     await chat.run_one()
     assert (await chat.budget.status(-1001))["group_tokens"] == 10
     env[0].chat_user_daily_tokens = 1000
-    await chat.observe(message(2, "柴郡喵聊聊电影"))
+    await chat.observe(message(2, "柴郡喵聊聊另一部电影"))
     await due(chat)
     await chat.run_one()
     assert len(model.calls) == 1
+    async with chat.db.sessions() as session:
+        skipped = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 2))
+        assert skipped.state == "skipped" and "额度已用完" in skipped.error
     await chat.close()
 
 

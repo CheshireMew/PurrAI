@@ -119,7 +119,7 @@ async def test_stickers_have_group_wide_cooldown_across_topics(env):
     chat, model = await configured(env)
     await cache(chat, items=[item(1), item(2)])
     model.result = ChatReply("先文字接话", "😸")
-    await chat.observe(message(1, "柴郡喵你好", message_thread_id=77, is_topic_message=True))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样", message_thread_id=77, is_topic_message=True))
     await chat.observe(message(2, "柴郡喵这里也在聊", message_thread_id=88, is_topic_message=True))
     await due(chat)
     await asyncio.gather(chat.run_one(), chat.run_one())
@@ -144,7 +144,7 @@ async def test_sticker_rate_limit_reuses_same_file_and_model_reply_after_restart
         return await original(method, **kwargs)
 
     chat.tg.call = limited
-    await chat.observe(message(1, "柴郡喵你好呀"))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样"))
     await due(chat)
     await chat.run_one()
     restored = GroupChat(chat.db, chat.tg, chat.settings, model=model)
@@ -166,7 +166,7 @@ async def test_telegram_rejects_sticker_falls_back_without_new_model_request(env
         return await original(method, **kwargs)
 
     chat.tg.call = rejected
-    await chat.observe(message(1, "柴郡喵你好呀"))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样"))
     await due(chat)
     await chat.run_one()
     assert len(model.calls) == 1
@@ -179,7 +179,7 @@ async def test_unknown_send_result_is_not_retried(env):
     await cache(chat)
     chat.tg.fail["send_sticker"] = 1
     model.result = ChatReply("备用文字", "😸")
-    await chat.observe(message(1, "柴郡喵你好呀"))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样"))
     await due(chat)
     await chat.run_one()
     await chat.recover()
@@ -192,18 +192,20 @@ async def test_unknown_send_result_is_not_retried(env):
 async def test_removed_target_during_sticker_selection_is_never_sent(env):
     chat, model = await configured(env)
     model.result = ChatReply("不能发送", "😸")
-    original = chat.stickers.choose
+    original, selections = chat.stickers.choose, []
 
     async def choose(*args):
+        selections.append(True)
         async with chat.db.transaction() as session:
             session.add(Violation(group_id=-1001, message_id=1, user_id=42, reasons=["广告"]))
         return await original(*args)
 
     chat.stickers.choose = choose
     await cache(chat)
-    await chat.observe(message(1, "柴郡喵你好呀"))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样"))
     await due(chat)
     await chat.run_one()
+    assert selections and len(model.calls) == 1
     assert not any(method in ("send_sticker", "send_message") for method, _ in chat.tg.calls)
 
 
@@ -414,7 +416,7 @@ async def test_disabling_stickers_during_rate_limit_uses_saved_fallback(env):
         return await original(method, **kwargs)
 
     chat.tg.call = limited
-    await chat.observe(message(1, "柴郡喵你好呀"))
+    await chat.observe(message(1, "柴郡喵今天过得怎么样"))
     await due(chat)
     await chat.run_one()
     async with chat.db.transaction() as session:
