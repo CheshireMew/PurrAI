@@ -72,20 +72,28 @@ async def test_uncertain_delivery_review_is_audited_without_resending(env, clien
     assert any(row['kind'] == 'delivery_review' for row in operations['items'])
 
 
-async def test_alerts_merge_repeated_faults_and_send_recovery_once(env):
+async def test_alerts_wait_for_persistent_fault_and_never_send_recovery(env, monkeypatch):
+    from purrai import runtime_alerts
+    instant = [now()]
+    monkeypatch.setattr(runtime_alerts, "now", lambda: instant[0])
     cfg, db, _, _ = env
     alerts = RuntimeAlerts(db, cfg)
     async with db.transaction() as session:
         (await session.get(Group, -1001)).status = 'error'
     await alerts.cycle()
     await alerts.cycle()
+    async with db.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == 'owner_alert')) == 0
+    instant[0] += cfg.alert_backlog_seconds + 1
+    await alerts.cycle()
+    await RuntimeAlerts(db, cfg).cycle()
     async with db.transaction() as session:
         assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == 'owner_alert')) == 1
         (await session.get(Group, -1001)).status = 'active'
     await alerts.cycle()
     await alerts.cycle()
     async with db.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == 'owner_alert')) == 2
+        assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == 'owner_alert')) == 1
 
 
 async def test_recurring_status_check_and_scheduled_action_do_not_fake_a_backlog(env):
@@ -153,27 +161,52 @@ async def test_failure_alert_names_operations_and_recovery_reports_actual_outcom
     await alerts.cycle()
     async with db.sessions() as session:
         notices = (await session.scalars(select(Action).where(Action.kind == "owner_alert").order_by(Action.created_at))).all()
-        assert len(notices) == 2
-        recovery = notices[-1].payload["text"]
-        assert "提醒已解除" in recovery and "已完成 2 项" in recovery
+        assert len(notices) == 1
+        import json
+        state = json.loads((await session.get(Meta, "runtime-alert:失败操作")).value)
+        recovery = state["resolution"]
+        assert not state["active"] and "已完成 2 项" in recovery
         assert "已取消 1 项" in recovery and "已人工核实 1 项" in recovery
         assert "已恢复" not in recovery
 
 
-async def test_poll_alert_uses_plain_language_and_explains_reconnection(env):
+async def test_persistent_poll_failure_is_explained_once_and_recovery_stays_quiet(env, monkeypatch):
+    from purrai import runtime_alerts
+    instant = [now()]
+    monkeypatch.setattr(runtime_alerts, "now", lambda: instant[0])
     cfg, db, _, _ = env
     status = {"poll_error": "TelegramNetworkError: Request timeout error <- TimeoutError: <- CancelledError:"}
     alerts = RuntimeAlerts(db, cfg, lambda: status)
+    await alerts.cycle()
+    instant[0] += cfg.alert_backlog_seconds + 1
+    await alerts.cycle()
     await alerts.cycle()
     status["poll_error"] = ""
     await alerts.cycle()
     async with db.sessions() as session:
         notices = (await session.scalars(select(Action).where(Action.kind == "owner_alert").order_by(Action.created_at))).all()
-        assert len(notices) == 2
-        assert "获取 Telegram 新消息的请求超时" in notices[0].payload["text"]
-        assert "正在自动重连" in notices[0].payload["text"]
+        assert len(notices) == 1
+        assert "群消息审核持续中断" in notices[0].payload["text"]
+        assert "广告检查和入群验证可能延迟" in notices[0].payload["text"]
+        assert "仍在自动重连" in notices[0].payload["text"]
         assert "TimeoutError" not in notices[0].payload["text"]
-        assert "恢复接收新消息" in notices[1].payload["text"]
+        assert notices[0].payload["occurred_at"] > 0
+
+
+async def test_brief_poll_outage_and_recovery_never_notify_owner(env, monkeypatch):
+    from purrai import runtime_alerts
+    instant = [now()]
+    monkeypatch.setattr(runtime_alerts, "now", lambda: instant[0])
+    cfg, db, _, _ = env
+    status = {"poll_error": "TimeoutError"}
+    alerts = RuntimeAlerts(db, cfg, lambda: status)
+    await alerts.cycle()
+    instant[0] += cfg.alert_backlog_seconds - 1
+    await alerts.cycle()
+    status["poll_error"] = ""
+    await alerts.cycle()
+    async with db.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == "owner_alert")) == 0
 
 
 async def test_archive_export_bound_cleanup_and_quota_isolation(env, client):

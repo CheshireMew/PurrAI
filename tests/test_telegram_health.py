@@ -101,13 +101,46 @@ async def test_partial_fault_survives_receipt_recovery_and_restart_then_clears_o
     assert tg.health.status()["problems"][0]["method"] == "send_message"
     await restarted.alerts.cycle()
     async with db.sessions() as session:
-        assert len((await session.scalars(select(Action).where(Action.kind == "owner_alert"))).all()) == 1
+        assert len((await session.scalars(select(Action).where(Action.kind == "owner_alert"))).all()) == 0
     tg.health.record("send_message", "ok", 0.1, {"phase": "decode"}, 10)
     await restarted.alerts.cycle()
     async with db.sessions() as session:
         marker = json.loads((await session.get(Meta, "runtime-alert:Telegram 接口")).value)
         assert not marker["active"]
-        assert len((await session.scalars(select(Action).where(Action.kind == "owner_alert"))).all()) == 2
+        assert len((await session.scalars(select(Action).where(Action.kind == "owner_alert"))).all()) == 0
+
+
+async def test_only_fresh_repeated_api_failures_notify_and_poll_fault_does_not_duplicate(env, monkeypatch):
+    from purrai.runtime_alerts import RuntimeAlerts
+    from purrai import runtime_alerts
+
+    settings, db, _, _ = env
+    instant = [now()]
+    monkeypatch.setattr(runtime_alerts, "now", lambda: instant[0])
+    problem = {"method": "send_message", "label": "发送文字消息", "seconds": 10, "consecutive_failures": 1,
+               "first_failure": instant[0], "last_failure": instant[0]}
+    status = {"poll_error": "", "telegram_health": {"problems": [problem]}}
+    alerts = RuntimeAlerts(db, settings, lambda: status)
+    await alerts.cycle()
+    instant[0] += settings.alert_backlog_seconds + 1
+    await alerts.cycle()  # An old single failure alone must stay quiet.
+    async with db.sessions() as session:
+        assert not (await session.scalars(select(Action))).all()
+    problem.update(last_failure=instant[0], consecutive_failures=2)
+    status["poll_error"] = "TimeoutError"
+    await alerts.cycle()  # Let the connection alert explain a common outage.
+    async with db.sessions() as session:
+        assert not (await session.scalars(select(Action))).all()
+    status["poll_error"] = ""
+    await alerts.cycle()
+    await RuntimeAlerts(db, settings, lambda: status).cycle()
+    async with db.sessions() as session:
+        notices = (await session.scalars(select(Action))).all()
+        assert len(notices) == 1 and notices[0].payload["alert_key"] == "Telegram 接口"
+    status["telegram_health"]["problems"] = []
+    await alerts.cycle()
+    async with db.sessions() as session:
+        assert len((await session.scalars(select(Action))).all()) == 1
 
 
 async def test_readiness_and_system_show_partial_telegram_failure(env):
