@@ -70,6 +70,14 @@ class ChatObservation:
             )
             ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
             command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
+            review_only = bool(
+                not reasons and not command and allowed and group.enabled and cfg.chat_advertiser_cooldown
+                and sender.get("id") not in self.settings.superadmin_ids
+                and human_message(message, bot_username=getattr(self.tg, "username", ""))
+                and not has_image(message)
+                and (chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender))
+                     or chat_commands.advertiser_blocked(command_state, sender.get("id")))
+            )
             if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender)):
                 reasons.append("聊天广告历史命中")
             if cfg.chat_advertiser_cooldown and any(reason.startswith(("广告招揽：", "明确广告引流：", "聊天广告历史命中")) for reason in reasons):
@@ -105,14 +113,14 @@ class ChatObservation:
                 logger.info("聊天输入已拦截 group=%s message=%s reasons=%s", group_id, message_id, reasons)
             topic = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
             if cfg.chat_enabled and self.settings.chat_ready and sender.get("id"):
-                explanation = ("聊天忽略口令" if command else "；".join(reasons) if reasons else
+                explanation = ("广告后续审查，不参与聊天" if review_only else "聊天忽略口令" if command else "；".join(reasons) if reasons else
                     "目标成员或消息已受限" if not allowed else "图片不可读取，未直接叫到机器人" if image and not direct else
                     "消息已超过处理时限" if now() - message["date"] > 120 else
                     "主动参与已关闭，未直接叫到机器人" if not cfg.chat_proactive and not direct else
                     "编辑或重复收到的消息，不新建回复" if edited or row else
                     "消息不属于可参与的普通文字对话" if not eligible else "已进入聊天调度，等待模型判断")
                 await observation(session, group_id, message_id, topic,
-                                  "queued" if eligible and not (edited or row) and (cfg.chat_proactive or direct)
+                                  "queued" if (eligible or review_only) and not (edited or row) and (cfg.chat_proactive or direct or review_only)
                                   and not (image and not direct) and now() - message["date"] <= 120 else "filtered", explanation)
             if row:
                 row.text, row.eligible = text[:1600], eligible
@@ -120,7 +128,7 @@ class ChatObservation:
                 row.reply_text = reply_snapshot(message, direct=direct)
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
-            if not (eligible or image or reasons and human_message(message)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
+            if not (eligible or image or review_only or reasons and human_message(message)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
                 return
             # Ordinary supergroup replies also carry a thread ID. Only forum
             # topic messages belong to separate conversations and send targets.
@@ -153,13 +161,19 @@ class ChatObservation:
                 .offset(80)
             )
             await session.execute(delete(ChatMessage).where(ChatMessage.id.in_(older)))
-            if not await self.schedule(session, row, cfg, message, direct, image, reasons):
+            if not await self.schedule(session, row, cfg, message, direct, image, reasons, review_only):
                 return
         self.wakeup.set()
 
-    async def schedule(self, session, row, cfg, message, direct, image, reasons):
+    async def schedule(self, session, row, cfg, message, direct, image, reasons, review_only=False):
         group_id, topic_id = row.group_id, row.topic_id
         message_id = row.message_id
+        if review_only:
+            if now() - message["date"] > 120:
+                return
+            session.add(ChatTurn(group_id=group_id, topic_id=topic_id, message_id=message_id,
+                                 review_only=True, available_at=now()))
+            return True
         recent = await self.contexts.recent(session, group_id, topic_id)
         burst = next((items for items in message_bursts(recent) if row in items), [])
         if not burst:

@@ -11,6 +11,7 @@ from purrai.models import (
     now,
 )
 from purrai.verification_state import matches_action
+from purrai.runtime_notice_delivery import send_notice
 
 
 class NotificationActions:
@@ -24,8 +25,7 @@ class NotificationActions:
         return True
 
     async def owner_alert(self, session, action, group, verification, member):
-        await deliver_once(self.action_call, session, action, "send_message",
-                           chat_id=action.payload["chat_id"], text=action.payload["text"][:4000])
+        return await send_notice(self.action_call, session, action)
 
     async def delete_action_message(self, session, action):
         try:

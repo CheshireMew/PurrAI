@@ -101,7 +101,7 @@ class GroupChat:
                     current.error = "请求模型前，聊天任务、群设置或目标消息已失效"
                     logger.info("聊天跳过 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                     return True
-                if not partial:
+                if not partial and not turn.review_only:
                     await self.contexts.remember_sent_context(session, turn, context)
                 sticker_options = await self.stickers.options(session, turn.group_id, cfg)
             generated = await ChatGeneration(self.model, self.budget, self.tg, self.db).generate(

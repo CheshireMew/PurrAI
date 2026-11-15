@@ -12,6 +12,23 @@ from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, M
 from purrai.db import schema_head
 
 
+def test_advertisement_review_migration_preserves_existing_turns(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "advertisement-review.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+    for target in ("0028", "0029"):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+        with sqlite3.connect(database) as connection:
+            if target == "0028":
+                connection.execute("INSERT INTO groups (id,title,type,approved,enabled,status,permissions,settings,setting_overrides,activated_at,created_at) VALUES (-1001,'test','supergroup',1,1,'active','{}','{}','[]',0,1)")
+                connection.execute("INSERT INTO chat_turns (group_id,topic_id,message_id,direct,state,attempts,available_at,created_at,response,error) VALUES (-1001,0,1,0,'pending',0,1,1,'','')")
+            else:
+                assert connection.execute("SELECT message_id,state,review_only FROM chat_turns").fetchall() == [(1, "pending", 0)]
+                assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
 def test_keyword_auto_reply_migration_keeps_existing_data(tmp_path):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "auto-replies.sqlite3"

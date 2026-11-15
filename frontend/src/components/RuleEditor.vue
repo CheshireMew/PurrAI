@@ -115,7 +115,7 @@ async function inheritRule() {
 <el-form-item v-if="form.kind === 'keyword' && form.scope === 'name_and_message'" label="正文还需同时命中的关键词">
 <el-input v-model="form.context_value" maxlength="250"/>
 </el-form-item>
-<p v-if="form.penalty === 'ai_confirmed_mute'" class="muted">关键词本身不处罚。沿用现有AI聊天开关、参与条件、冷却和额度；实际判定为广告后，首次命中即删除消息并永久禁言。谐音匹配可识别同音写法。</p>
+<p v-if="form.penalty === 'ai_confirmed_mute'" class="muted">关键词本身不处罚。AI实际确认广告后，首次命中即删除消息并永久禁言。首次识别沿用AI聊天开关、参与条件和额度；广告账号的聊天冷却不阻止后续审查。谐音匹配可识别同音写法。</p>
 <p v-else class="muted">只匹配你配置的词。谐音匹配兼容简繁体、分隔符和汉字间夹入的字母数字。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>
 <el-form-item label="启用">
 <el-switch v-model="form.enabled" aria-label="启用规则"/>

@@ -1,4 +1,6 @@
 import pytest
+import json
+from pathlib import Path
 from sqlalchemy import select
 
 from conftest import drain, message
@@ -7,6 +9,43 @@ from purrai.rules import assess
 from purrai.schemas import GroupSettings
 from purrai.shared_policy import effective_rules
 from purrai.solicitation_rules import contact_should_block, profile_solicitation_reasons, solicitation_reasons
+
+
+async def test_slow_spam_configuration_is_managed_data_and_does_not_reenable_old_rules(env, client):
+    changes = json.loads((Path(__file__).resolve().parents[1] / "data/policies/slow-spam-20261115.json").read_text(encoding="utf-8"))
+    current = (await client.get("/api/settings/business-policy")).json()
+    document = current["document"]
+    # Production has retired these legacy combinations. Apply only the requested
+    # increment to the saved policy, never merge the installation seed back in.
+    for stage in document["stages"]:
+        stage["enabled"] = False
+        for rule in stage["rules"]:
+            rule["enabled"] = False
+    document["views"].append(changes["business_view_add"])
+    target = next(stage for stage in document["stages"] if stage["id"] == changes["business_stage"])
+    target["enabled"] = changes["business_stage_enabled"]
+    target["rules"].append(changes["business_rule_add"])
+    result = await client.put("/api/settings/business-policy", headers={"If-Match": current["version"]},
+                              json={"document": document, "request_id": "slow-spam-config-test"})
+    assert result.status_code == 200, result.text
+    baseline = (await client.get("/api/settings/defaults")).json()
+    result = await client.patch("/api/settings/defaults", json={"baseline": baseline,
+        "rules": baseline["rules"] + changes["shared_rules_add"], "request_id": "slow-spam-keywords-test"})
+    assert result.status_code == 200, result.text
+    async with env[1].sessions() as session:
+        rules = await effective_rules(session, -1001)
+        for text in ("vf1349014420", "VF.1349\u200b014420", "淦你妈的\u200b，整天混什么玩意？不来我这看看？", "干.你.妈.的"):
+            verdict = assess(text, [], rules, GroupSettings().model_dump())
+            assert verdict["reasons"] and not verdict["mute_reasons"] and not verdict["ban_reasons"], text
+        for text in ("hello world", "20261115", "Python 3.12", "bc1qabcdefghijklmn0123456789", "我今天网购的东西到了"):
+            verdict = assess(text, [], rules, GroupSettings().model_dump())
+            assert not verdict["reasons"] and not verdict["mute_reasons"] and not verdict["ban_reasons"], text
+        assert sum(rule["enabled"] for stage in rules.business["stages"] for rule in stage["rules"]) == 1
+    for identifier, text in enumerate(("vf1349014420", "淦你妈的\u200b"), 501):
+        await env[3].message(message(identifier, text))
+    await drain(env[3])
+    assert sorted(data["message_id"] for method, data in env[2].calls if method == "delete_message") == [501, 502]
+    assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in env[2].calls)
 
 AD_MESSAGES = [
     "零风险搞老外，能熬夜的来",

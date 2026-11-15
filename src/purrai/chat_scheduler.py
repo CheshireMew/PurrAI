@@ -66,6 +66,10 @@ class ChatScheduler:
             ChatMessage.message_id.in_([item.message_id for item in batch]),
         )) if not ignored_text(row.text, ignored, getattr(self.tg, "username", "")) and now() - row.sent_at <= 120}
         for item in batch:
+            if item.review_only:
+                if not await self.contexts.review(session, item, cfg):
+                    self.skip([item], "广告审查目标或当前设置已失效")
+                continue
             if item.message_id in image_ids and not item.direct:
                 self.skip([item], "连续消息中含有无法读取的图片")
             elif item.message_id not in valid_ids:
@@ -81,6 +85,12 @@ class ChatScheduler:
         ), {message_id})
 
     async def choose_target(self, session, batch, recent):
+        review = next((item for item in batch if item.review_only), None)
+        if review:
+            target = await session.scalar(select(ChatMessage).where(
+                ChatMessage.group_id == review.group_id, ChatMessage.message_id == review.message_id,
+            ))
+            return [review], review, target
         # Keep different members' explicit questions as separate pending tasks.
         first_direct = next((item for item in batch if item.direct), None)
         if first_direct:
@@ -100,6 +110,8 @@ class ChatScheduler:
         return batch, leader, target
 
     async def pace(self, session, batch, leader, cfg):
+        if leader.review_only:
+            return True  # The shared model budget still limits paid requests.
         if has_sent_text(leader) or leader.attempts or leader.error:
             return True
         if not cfg.chat_proactive and not leader.direct:

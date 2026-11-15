@@ -40,11 +40,25 @@ async def keyword_penalty_applies(session, action, group):
     sender_name = evidence.get("sender_name", "")
     if not any(rule.get("id") in evidence.get("rule_ids", []) for rule in ai_keyword_rules(text, rules, sender_name)):
         return False
+    return await unchanged_message(session, action, evidence)
+
+
+async def deletion_applies(session, action, group):
+    """A queued actual verdict may delete only its unchanged source message."""
+    evidence = action.payload.get("ai_ad_evidence") or {}
+    return bool(group and group.enabled and GroupSettings.model_validate(group.settings).chat_advertiser_cooldown
+                and now() - evidence.get("judged_at", 0) < WINDOW
+                and await unchanged_message(session, action, evidence))
+
+
+async def unchanged_message(session, action, evidence):
+    identifier, text = evidence.get("message_id"), evidence.get("text", "")
+    sender_name = evidence.get("sender_name", "")
     # Either recording path may observe an edit first. Never apply an old model
     # verdict to new text, even when that new text contains the same keyword.
     recorded = False
     for model in (ChatMessage, ArchivedMessage):
-        row = await session.scalar(select(model).where(model.group_id == group.id, model.message_id == identifier))
+        row = await session.scalar(select(model).where(model.group_id == action.group_id, model.message_id == identifier))
         if row is not None:
             recorded = True
             current_text = row.text or (row.caption if isinstance(row, ArchivedMessage) else "")
@@ -76,18 +90,17 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
     else:
         session.add(Meta(key=key, value=json.dumps(data, ensure_ascii=False)))
     matched = ai_keyword_rules(text, await effective_rules(session, group.id), user_name)
-    if len(data["messages"]) < LIMIT and not matched:
-        return
+    mute = bool(matched or len(data["messages"]) >= LIMIT)
     member = await session.get(Member, (group.id, user_id))
     if member is None:
         member = Member(group_id=group.id, user_id=user_id, joined_at=0)
         session.add(member)
         await session.flush()
     reasons = ([f"AI确认广告且命中关键词：{rule['value']}" for rule in matched]
-               if matched else ["AI最近3天累计3次判定广告，永久禁言"])
+               if matched else ["AI最近3天累计3次判定广告，永久禁言"] if mute else ["AI确认广告，删除消息"])
     violation, changed = await record_violation(session, group_id=group.id, user_id=user_id,
         message_id=message_id, reasons=reasons,
-        excerpt=text, sender_name=user_name, rule_mute=True, message_violation=bool(matched))
+        excerpt=text, sender_name=user_name, rule_mute=mute, message_violation=True)
     if not changed:
         return
     evidence = {}
@@ -95,9 +108,13 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         evidence = {"ai_keyword_evidence": {"message_id": message_id, "text": text, "sender_name": user_name,
                                            "rule_ids": [rule["id"] for rule in matched]}}
         await record_rule_hits(session, group.id, message_id, evidence["ai_keyword_evidence"]["rule_ids"])
-        await enqueue(session, "delete", f"ai-ad-delete:{group.id}:{message_id}", group.id, user_id,
-            {"message_id": message_id, "violation_id": violation.id, "generation": member.generation, **evidence},
-            priority=0, reason="AI确认广告且命中启用的关键词")
+    delete_evidence = {"ai_ad_evidence": {"message_id": message_id, "text": text,
+                                         "sender_name": user_name, "judged_at": now()}}
+    await enqueue(session, "delete", f"ai-ad-delete:{group.id}:{message_id}", group.id, user_id,
+        {"message_id": message_id, "violation_id": violation.id, "generation": member.generation, **delete_evidence},
+        priority=0, reason="AI确认广告，删除消息")
+    if not mute:
+        return
     await enqueue(session, "ai_ad_mute", f"ai-ad-mute:{group.id}:{user_id}:{member.generation}:{message_id}",
         group.id, user_id, {"violation_id": violation.id, "generation": member.generation,
             "user_name": user_name, "model_message_ids": [item["id"] for item in data["messages"]], **evidence},

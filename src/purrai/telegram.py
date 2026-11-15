@@ -1,9 +1,11 @@
 from aiogram import Bot
-from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter, TelegramUnauthorizedError
 from aiogram.types import BufferedInputFile
 from pydantic import BaseModel
+from time import perf_counter
 
 from purrai.sender_identity import sender_name
+from purrai.telegram_health import TelegramHealth, TracedSession, request_trace
 
 
 def telegram_data(value):
@@ -22,7 +24,8 @@ def telegram_data(value):
 
 class TelegramGateway:
     def __init__(self, token: str, proxy: str = ""):
-        self.bot = Bot(token, session=AiohttpSession(proxy=proxy or None)) if token else None
+        self.bot = Bot(token, session=TracedSession(proxy=proxy or None)) if token else None
+        self.health = TelegramHealth()
         self.user_id = 0
         self.username = ""
         self.display_name = ""
@@ -38,7 +41,23 @@ class TelegramGateway:
                 kwargs["document"], kwargs.pop("filename", "messages.jsonl")
             )
         kwargs.setdefault("request_timeout", 35 if method == "get_updates" else 10)
-        result = await getattr(self.bot, method)(**kwargs)
+        trace = {"phase": "prepare"}
+        token = request_trace.set(trace)
+        started = perf_counter()
+        try:
+            result = await getattr(self.bot, method)(**kwargs)
+        except Exception as exc:
+            outcome = ("network_error" if isinstance(exc, (TelegramNetworkError, TimeoutError, ConnectionError, OSError))
+                       else "rate_limited" if isinstance(exc, TelegramRetryAfter)
+                       else "unauthorized" if isinstance(exc, TelegramUnauthorizedError)
+                       else "rejected" if isinstance(exc, (TelegramBadRequest, TelegramForbiddenError)) else "client_error")
+            self.health.record(method, outcome, perf_counter() - started, trace, kwargs["request_timeout"],
+                               type(exc).__name__, getattr(exc, "retry_after", 0))
+            raise
+        else:
+            self.health.record(method, "ok", perf_counter() - started, trace, kwargs["request_timeout"])
+        finally:
+            request_trace.reset(token)
         return telegram_data(result)
 
     async def initialize(self):

@@ -13,7 +13,7 @@ export interface Budget { group_calls: number; group_call_limit: number; group_t
 export interface WorkerStatus { name: string; state: string; error: string; restarts: number }
 export interface StickerStatus { ready: number; total: number; emoji_count: number; unavailable: string[]; error: string }
 export interface ChatStatus { configured: boolean; model: string; pending: number; error: string; budget?: Budget; stickers?: StickerStatus; commands?: { enabled: boolean; threshold: number; minimum_users: number; window_days: number; items: { text: string; count: number; users: number; ignored: boolean }[] } }
-export interface SystemStatus { connected: boolean; bot_configured: boolean; login_configured: boolean; pending_actions: number; last_poll: number; last_backup: string | null; last_error: string; archive_status: string; failed_actions: Operation[]; failed_events: {id: number; error: string}[]; chat_budget?: Budget }
+export interface SystemStatus { connected: boolean; bot_configured: boolean; login_configured: boolean; pending_actions: number; last_poll: number; last_backup: string | null; last_error: string; archive_status: string; failed_actions: Operation[]; failed_events: {id: number; error: string}[]; chat_budget?: Budget; poll_stalled?: boolean; telegram_health?: { degraded: boolean; problems: { method: string; label: string; seconds: number; consecutive_failures: number; last_failure: number }[] } }
 export interface Page<T> { items: T[]; total: number; page: number; size: number }
 export interface ArchiveRecording { state: string; reason: string }
 export interface ArchivedMessage {

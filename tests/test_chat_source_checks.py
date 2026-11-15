@@ -72,3 +72,24 @@ async def test_inconclusive_or_present_source_never_triggers_deletion(env, monke
     assert await checker.sweep() == 0
     assert not any(method == "delete_message" for method, _ in chat.tg.calls)
     assert len(model.calls) == 1
+
+
+async def test_network_failure_pauses_all_source_checks_without_retraction(env, monkeypatch):
+    chat, _ = await configured(env)
+    for identifier in (1, 2):
+        await chat.observe(message(identifier, f"柴郡喵，帮我规划一下第{identifier}天的行程？", user_id=42 + identifier))
+        assert await chat.run_one()
+    instant = [now()]
+    monkeypatch.setattr(chat_source_checks, "now", lambda: instant[0])
+    chat.tg.fail["get_chat_member"] = 1
+    checker = ReplySourceChecks(chat.db, chat.tg)
+    before = len(chat.tg.calls)
+    assert await checker.sweep() == 0
+    assert len(chat.tg.calls) == before + 1
+    instant[0] += 29
+    assert await ReplySourceChecks(chat.db, chat.tg).sweep() == 0
+    assert len(chat.tg.calls) == before + 1
+    instant[0] += 2
+    assert await checker.sweep() == 0
+    assert len(chat.tg.calls) > before + 1
+    assert not any(method == "delete_message" for method, _ in chat.tg.calls)

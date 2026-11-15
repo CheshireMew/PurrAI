@@ -63,6 +63,8 @@ class ChatGeneration:
 
     async def generate(self, turn, cfg, context, sender_id, sticker_options):
         system = self.prompt(cfg)
+        if turn.review_only:
+            system += "\n本次仅审查目标消息是否为广告，返回 is_advertisement；不生成回复，should_reply=false。"
         request = {
             "messages": context,
             "reply_to": turn.message_id,
@@ -112,7 +114,7 @@ class ChatGeneration:
                 if self.db is not None:
                     async with self.db.transaction() as session:
                         await timing(session, turn.id, model_seconds=round(perf_counter() - started, 3), request_finished_at=now())
-        should_reply = result.should_reply and not result.is_advertisement
+        should_reply = result.should_reply and not result.is_advertisement and not turn.review_only
         text, expressions = separate_emoji(result.text) if should_reply else (None, [])
         expression = result.sticker if should_reply else None
         if not expression and expressions:

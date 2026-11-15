@@ -47,7 +47,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <div class="system-grid">
 <div>
 <span>Telegram 连接</span>
-<strong :class="{ 'status-error': system.connected === false }">{{ system.connected === undefined ? '—' : system.connected ? '已连接' : '未连接' }}</strong>
+<strong :class="{ 'status-error': system.connected === false || system.telegram_health?.degraded || system.poll_stalled }">{{ system.connected === undefined ? '—' : !system.connected ? '未连接' : system.telegram_health?.degraded ? '部分操作异常' : system.poll_stalled ? '收取消息停滞' : '已连接' }}</strong>
 </div>
 <div>
 <span>Bot 配置</span>
@@ -63,6 +63,7 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 </div>
 </div>
 <p>最近收取消息：{{ time(system.last_poll || 0) }}</p>
+<p v-for="problem in system.telegram_health?.problems" :key="problem.method" class="status-error">{{ problem.label }}：连续失败 {{ problem.consecutive_failures }} 次，最近请求等待 {{ problem.seconds }} 秒；最近失败 {{ time(problem.last_failure) }}。</p>
 <p class="muted">最近备份：{{ system.last_backup || '尚未生成' }}</p>
 <p v-if="system.chat_budget" class="muted">今日 AI 模型请求 {{ system.chat_budget.global_calls }}/{{ system.chat_budget.global_call_limit }}；Token 预算 {{ system.chat_budget.global_tokens }}/{{ system.chat_budget.global_token_limit }}。按北京时间零点重置，达到上限只暂停 AI 聊天。</p>
 <el-alert v-if="system.archive_status" :title="system.archive_status" type="warning" :closable="false"/>

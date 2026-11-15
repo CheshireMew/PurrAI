@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 
-from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramNetworkError
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
@@ -127,6 +127,10 @@ class ReplySourceChecks:
                                 break
                 except TelegramRetryAfter as exc:
                     pause = exc.retry_after
+                except (TelegramNetworkError, TimeoutError, ConnectionError, OSError) as exc:
+                    pause = 30
+                    logger.warning("原消息核对连接异常，暂停30秒 turn=%s group=%s error=%s",
+                                   candidate["turn_id"], candidate["group_id"], type(exc).__name__)
                 except Exception as exc:
                     logger.warning("原消息存在性核对暂未完成 turn=%s error=%s", candidate["turn_id"], type(exc).__name__)
                 confirmed += await self.store(candidate, verdict, pause=pause)

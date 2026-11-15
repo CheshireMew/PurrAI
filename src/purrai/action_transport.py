@@ -6,6 +6,7 @@ from purrai.action_queue import enqueue
 from purrai.errors import ManagementError
 from purrai.member_decisions import current_decision
 from purrai.telegram import is_admin
+from purrai.telegram_health import request_identity
 
 
 class ActionTransport:
@@ -34,6 +35,11 @@ class ActionTransport:
         execution = session.info["action_execution"]
         if not method.startswith("get_"):
             await self.authorize_actor(session, action)
+            if "ai_ad_evidence" in action.payload:
+                from purrai.ai_advertising import deletion_applies
+                from purrai.models import Group
+                if not await deletion_applies(session, action, await session.get(Group, action.group_id)):
+                    raise ActionSuperseded(reason="AI广告原消息或审核设置已变化，取消删除", before_request=True)
             if "message_evidence" in action.payload:
                 from purrai.rule_evaluation import message_penalty_applies
                 from purrai.models import Group
@@ -49,7 +55,13 @@ class ActionTransport:
         try:
             if before_send is not None:
                 before_send()
-            result = await execution.external(lambda: self.tg.call(method, **kwargs))
+            async def request():
+                token = request_identity.set(f"action={action.id} kind={action.kind} group={action.group_id}")
+                try:
+                    return await self.tg.call(method, **kwargs)
+                finally:
+                    request_identity.reset(token)
+            result = await execution.external(request)
             # Read-only lookups are decision boundaries. A pause that happened
             # during a lookup must prevent the following punishment request.
             # Once Telegram accepted a mutation, finish recording its result

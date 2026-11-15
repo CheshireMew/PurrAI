@@ -35,6 +35,7 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
                 raise RuntimeError("数据库结构与当前程序不兼容，请先运行 purrai init-db")
             if start_runtime:
                 process_lock.acquire()
+                await runtime.restore_health()
                 runtime.start()
             yield
         finally:
@@ -100,15 +101,18 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
         except Exception:
             database_ready = False
         runtime_ready = not start_runtime or runtime.ready()
-        operational = database_ready and runtime_ready and gateway.connected and bool(settings.bot_token)
+        transport = runtime.status()
+        telegram_degraded = transport["telegram_health"]["degraded"] or (start_runtime and transport["poll_stalled"])
+        operational = database_ready and runtime_ready and gateway.connected and bool(settings.bot_token) and not telegram_degraded
         return JSONResponse(
             {
-                "status": "ready" if operational else "database_incompatible" if not database_ready else "runtime_unavailable" if not runtime_ready else "configuration_required",
+                "status": "ready" if operational else "database_incompatible" if not database_ready else "runtime_unavailable" if not runtime_ready else "telegram_degraded" if telegram_degraded else "configuration_required",
                 "database_ready": database_ready,
                 "runtime_ready": runtime_ready,
                 "bot_configured": bool(settings.bot_token),
                 "login_configured": settings.login_ready,
                 "telegram_connected": gateway.connected,
+                "telegram_degraded": telegram_degraded,
             },
             status_code=200 if operational else 503,
         )

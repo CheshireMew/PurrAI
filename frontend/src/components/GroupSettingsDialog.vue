@@ -258,7 +258,7 @@ async function save() {
 <el-switch v-model="form.chat_advertiser_cooldown" aria-label="AI广告识别与累计处罚"/>
 </el-form-item>
 </div>
-<p class="muted">默认开启。AI判定广告后静默该账号30分钟；本群最近3天累计3次永久禁言。若同时命中“AI确认广告后处罚”的关键词规则，首次即删除消息并永久禁言。同一条消息不重复计数。</p>
+<p class="muted">默认开启。AI确认广告即删除消息；同一成员在本群72小时内有3条消息被AI实际判为广告，永久禁言。命中“AI确认广告后处罚”的关键词时，首次即永久禁言。机器人30分钟内不回复该账号，但继续审查后续消息；同一条消息不重复计数。</p>
 <el-form-item label="聊天昵称">
 <el-input v-model="form.chat_name" :minlength="bounds('chat_name').minLength" :maxlength="bounds('chat_name').maxLength" placeholder="群友也可以叫这个昵称来唤醒机器人"/>
 </el-form-item>

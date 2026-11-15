@@ -180,6 +180,8 @@ class ChatContext:
         )
 
     async def build(self, session, turn, cfg):
+        if turn.review_only:
+            return await self.review(session, turn, cfg)
         reset = await session.get(Meta, f"chat_reset:{turn.group_id}")
         reset_at = float(reset.value) if reset else 0
         _, state = await session_state(session, turn.group_id, turn.topic_id)
@@ -296,6 +298,20 @@ class ChatContext:
             history = history[(len(history) + 1) // 2 :]
         return history + result
 
+    async def review(self, session, turn, cfg):
+        """Reassess one message without importing it into conversational history."""
+        group = await session.get(Group, turn.group_id)
+        target = await session.scalar(select(ChatMessage).where(
+            ChatMessage.group_id == turn.group_id, ChatMessage.message_id == turn.message_id,
+        ))
+        if (not group or not group.approved or not group.enabled or not cfg.chat_enabled
+                or not cfg.chat_advertiser_cooldown or not target or target.is_bot
+                or now() - target.sent_at > 120 or now() - turn.created_at > 120
+                or not await self.allowed(session, turn.group_id, turn.message_id, target.sender_id)):
+            return []
+        return [{"id": target.message_id, "speaker_id": target.sender_id, "name": target.sender_name,
+                 "text": target.text, "bot": False, **await self.reference(session, target)}]
+
     async def reference(self, session, target):
         """Supply factual reply identity, plus eligible explicit image/channel text."""
         try:
@@ -379,7 +395,8 @@ class ChatContext:
             and group.approved
             and group.settings.get("chat_enabled")
             and target
-            and target.eligible
+            and (target.eligible or turn.review_only)
+            and target.sender_id == sender_id
             and target.text == original
             and now() - target.sent_at <= 120
             and now() - turn.created_at <= 120
@@ -388,6 +405,7 @@ class ChatContext:
         )
         if valid:
             cfg = GroupSettings.model_validate(group.settings)
-            valid = context == await self.filter(session, turn.group_id, turn.topic_id, context, cfg,
-                                                message_id=turn.message_id, direct=turn.direct)
+            valid = context == (await self.review(session, turn, cfg) if turn.review_only else
+                                await self.filter(session, turn.group_id, turn.topic_id, context, cfg,
+                                                  message_id=turn.message_id, direct=turn.direct))
         return current, group, valid

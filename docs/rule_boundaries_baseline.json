@@ -10,6 +10,24 @@
   "seed_sha256": "df26d9ad3ab704dbb3c5ee91ffbfec3aa39c3c13b14f37e8928b136a45e90165",
   "entries": [
     {
+      "path": "src/purrai/telegram_health.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "dc47c02bbf2b6af86b9ff69b2057ebc968f3d1973f1492a8adcc86d489f2d97f",
+      "line": 15,
+      "examples": ["修改成员发言权限", "删除消息", "发送图片", "发送文字消息", "封禁成员"],
+      "review": "2026-11-15: Requested logging and alert repair. METHOD_LABELS maps Telegram API method names to display-only operation labels; never matches messages, profiles or advertisement keywords."
+    },
+    {
+      "path": "src/purrai/runtime_alerts.py",
+      "scope": "operation_summary",
+      "kind": "matching-data",
+      "digest": "6a8384b2fd95a5d0e984f20a75769e9cd25065ea0cb8cd78b9955100af0bdda7",
+      "line": 37,
+      "review": "2026-11-15: User requested understandable operational alerts. This dictionary maps Action.kind protocol values to three display labels; it never reads or matches group message text, profiles, keywords or moderation rules.",
+      "examples": ["入群验证前限制发言", "发送入群验证码", "解除验证禁言"]
+    },
+    {
       "path": "src/purrai/advertising_constants.py",
       "scope": "<module>",
       "kind": "matching-data",

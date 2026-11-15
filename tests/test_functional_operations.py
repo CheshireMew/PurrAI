@@ -6,7 +6,7 @@ from conftest import join, message
 from purrai.archive import capture, page
 from purrai.chat_budget import ChatBudget
 from purrai.management import Management
-from purrai.models import Action, ArchivedMessage, Group, Member, Meta, Verification, Violation, now
+from purrai.models import Action, ArchivedMessage, Group, Inbox, Member, Meta, Verification, Violation, now
 from purrai.runtime import Runtime
 from purrai.runtime_alerts import RuntimeAlerts
 from purrai.schemas import ArchiveFilter
@@ -86,6 +86,94 @@ async def test_alerts_merge_repeated_faults_and_send_recovery_once(env):
     await alerts.cycle()
     async with db.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == 'owner_alert')) == 2
+
+
+async def test_recurring_status_check_and_scheduled_action_do_not_fake_a_backlog(env):
+    cfg, db, _, service = env
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "emoji_status_blocked_packs": ["example_pack"]}
+        await service.emoji_status.queue(session, group, {"id": 42, "is_premium": True}, 1)
+        check = await session.scalar(select(Action).where(Action.kind == "emoji_status_check"))
+        check.created_at, check.state = now() - 3600, "succeeded"
+        await service.emoji_status.queue(session, group, {"id": 42, "is_premium": True}, 2)
+        identifier = check.id
+        assert check.state == "pending" and check.created_at < now() - 3500
+        session.add(Action(kind="release", group_id=-1001, dedupe_key="future-release", state="pending",
+                           created_at=now() - 3600, available_at=now() + 600))
+    alerts = RuntimeAlerts(db, cfg)
+    await alerts.cycle()
+    async with db.transaction() as session:
+        assert await session.scalar(select(Action).where(Action.kind == "owner_alert")) is None
+        check = await session.get(Action, identifier)
+        check.available_at = now() - cfg.alert_backlog_seconds - 10
+    await alerts.cycle()
+    async with db.sessions() as session:
+        alert = await session.scalar(select(Action).where(Action.kind == "owner_alert"))
+        assert "测试群：检查名字旁状态表情 1 项" in alert.payload["text"]
+        assert "解除验证禁言" not in alert.payload["text"]
+        assert alert.payload["details"]["action_ids"] == [identifier]
+
+
+async def test_backlog_explains_unprocessed_events_and_overdue_deletion(env):
+    cfg, db, _, _ = env
+    overdue = now() - cfg.alert_backlog_seconds - 10
+    async with db.transaction() as session:
+        session.add(Inbox(id=8001, payload={"update_id": 8001}, available_at=overdue))
+        session.add(Action(kind="delete", group_id=-1001, dedupe_key="overdue-delete", available_at=overdue))
+    await RuntimeAlerts(db, cfg).cycle()
+    async with db.sessions() as session:
+        alert = await session.scalar(select(Action).where(Action.kind == "owner_alert"))
+        assert "有 1 条尚未处理完" in alert.payload["text"]
+        assert "测试群：删除消息 1 项" in alert.payload["text"]
+        assert alert.payload["details"]["event_ids"] == [8001]
+
+
+async def test_failure_alert_names_operations_and_recovery_reports_actual_outcomes(env):
+    cfg, db, _, _ = env
+    async with db.transaction() as session:
+        for kind in ("challenge", "delete", "release"):
+            session.add(Action(id=kind, kind=kind, group_id=-1001, dedupe_key=kind, state="failed"))
+    alerts = RuntimeAlerts(db, cfg)
+    await alerts.cycle()
+    async with db.transaction() as session:
+        first = await session.scalar(select(Action).where(Action.kind == "owner_alert"))
+        assert "发送入群验证码 1 项" in first.payload["text"]
+        assert "删除消息 1 项" in first.payload["text"]
+        assert "解除验证禁言 1 项" in first.payload["text"]
+        (await session.get(Action, "challenge")).state = "reviewed"
+        (await session.get(Action, "delete")).state = "cancelled"
+        session.add(Action(id="later", kind="verify_mute", group_id=-1001, dedupe_key="later", state="failed"))
+    await alerts.cycle()
+    async with db.transaction() as session:
+        assert await session.scalar(select(func.count()).select_from(Action).where(Action.kind == "owner_alert")) == 1
+        (await session.get(Action, "release")).state = "succeeded"
+        (await session.get(Action, "later")).state = "succeeded"
+    await alerts.cycle()
+    await alerts.cycle()
+    async with db.sessions() as session:
+        notices = (await session.scalars(select(Action).where(Action.kind == "owner_alert").order_by(Action.created_at))).all()
+        assert len(notices) == 2
+        recovery = notices[-1].payload["text"]
+        assert "提醒已解除" in recovery and "已完成 2 项" in recovery
+        assert "已取消 1 项" in recovery and "已人工核实 1 项" in recovery
+        assert "已恢复" not in recovery
+
+
+async def test_poll_alert_uses_plain_language_and_explains_reconnection(env):
+    cfg, db, _, _ = env
+    status = {"poll_error": "TelegramNetworkError: Request timeout error <- TimeoutError: <- CancelledError:"}
+    alerts = RuntimeAlerts(db, cfg, lambda: status)
+    await alerts.cycle()
+    status["poll_error"] = ""
+    await alerts.cycle()
+    async with db.sessions() as session:
+        notices = (await session.scalars(select(Action).where(Action.kind == "owner_alert").order_by(Action.created_at))).all()
+        assert len(notices) == 2
+        assert "获取 Telegram 新消息的请求超时" in notices[0].payload["text"]
+        assert "正在自动重连" in notices[0].payload["text"]
+        assert "TimeoutError" not in notices[0].payload["text"]
+        assert "恢复接收新消息" in notices[1].payload["text"]
 
 
 async def test_archive_export_bound_cleanup_and_quota_isolation(env, client):

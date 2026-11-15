@@ -299,6 +299,7 @@ class ChatTurn(Base):
     topic_id: Mapped[int] = mapped_column(BigInteger, default=0)
     message_id: Mapped[int] = mapped_column(BigInteger)
     direct: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     state: Mapped[str] = mapped_column(String, default="pending")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[float] = mapped_column(Float, default=now)

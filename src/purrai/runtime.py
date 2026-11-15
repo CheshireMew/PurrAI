@@ -8,6 +8,7 @@ from purrai.telegram_events import TelegramEvents
 from purrai.update_receiver import UpdateReceiver
 from purrai.worker_supervisor import WorkerSupervisor
 from purrai.runtime_alerts import RuntimeAlerts
+from purrai.models import Meta, now
 
 
 class Runtime:
@@ -20,6 +21,7 @@ class Runtime:
         self.inbox = InboxProcessor(db, telegram, service.settings, self.events.dispatch, self.events.current_update_id)
         self.receiver = UpdateReceiver(db, telegram, service.settings, self.inbox.ready_events)
         self.workers = WorkerSupervisor(service.settings)
+        self.started_at = now()
         self.alerts = RuntimeAlerts(db, service.settings, self.status)
 
     async def persist(self, updates):
@@ -27,6 +29,15 @@ class Runtime:
 
     async def process_one(self, lane=None):
         return await self.inbox.process_one(lane)
+
+    async def restore_health(self):
+        import json
+        health = getattr(self.tg, "health", None)
+        if health:
+            async with self.db.sessions() as session:
+                saved = await session.get(Meta, "telegram-health")
+                if saved:
+                    health.restore(json.loads(saved.value))
 
     def start(self):
         if self.tg.bot:
@@ -43,6 +54,7 @@ class Runtime:
                 ("emoji-status", self.service.emoji_status.loop),
                 ("advertising-links", self.service.advertising.loop),
                 ("chat", self.chat.run),
+                ("runtime-alerts", self.alert_loop),
                 ("operations-maintenance", self.maintenance_loop),
             ])
 
@@ -52,13 +64,21 @@ class Runtime:
     async def maintenance_loop(self):
         import asyncio
         while True:
-            await self.alerts.cycle()
             await self.management.backups.cycle()
             await self.management.protection.cycle()
             await asyncio.sleep(30)
 
+    async def alert_loop(self):
+        import asyncio
+        while True:
+            await self.alerts.cycle()
+            await asyncio.sleep(30)
+
     def status(self):
-        return {**self.workers.status(self.receiver.last_error), "poll_error": self.receiver.last_error}
+        health = getattr(self.tg, "health", None)
+        return {**self.workers.status(self.receiver.last_error), "poll_error": self.receiver.last_error,
+                "telegram_health": health.status() if health else {"degraded": False, "problems": [], "methods": []},
+                "poll_stalled": now() - (self.receiver.last_poll or self.started_at) > 90}
 
     async def stop(self):
         await self.workers.stop()

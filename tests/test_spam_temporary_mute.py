@@ -5,6 +5,27 @@ from conftest import drain, message
 from purrai.models import Action, Group, Violation, Whitelist, now
 
 
+async def test_configured_hour_window_catches_ten_to_thirty_minute_repeats(env, client):
+    import json
+    from pathlib import Path
+
+    settings = json.loads((Path(__file__).resolve().parents[1] / "data/policies/slow-spam-20261115.json").read_text(encoding="utf-8"))["group_settings"]
+    response = await client.patch("/api/groups/-1001/settings", json={"settings": settings})
+    assert response.status_code == 200, response.text
+    _, db, tg, service = env
+    instant = now()
+    # Old copies outside the configured window must not count or get removed.
+    for identifier, age in ((10, 3700), (11, 1800), (12, 600), (13, 0)):
+        await service.message({**message(identifier, "会网购的来"), "date": int(instant - age)})
+        if identifier < 13:
+            async with db.sessions() as session:
+                assert await session.scalar(select(Action).where(Action.kind == "spam_mute")) is None
+    await drain(service)
+    assert sorted(data["message_id"] for method, data in tg.calls if method == "delete_message") == [11, 12, 13]
+    assert sum(method == "restrict_chat_member" for method, _ in tg.calls) == 1
+    assert not any(method == "ban_chat_member" for method, _ in tg.calls)
+
+
 @pytest.mark.parametrize("text", ["在线", "今天这句话被同一个人连续发送。"])
 async def test_repeated_word_or_sentence_deletes_copies_and_mutes_thirty_minutes(env, text):
     _, db, tg, service = env

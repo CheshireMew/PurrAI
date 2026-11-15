@@ -6,7 +6,7 @@ from purrai import chat_commands
 from purrai import ai_advertising
 from purrai.ai_advertising import advertisement_count, record_ai_advertisement
 from purrai.chat_model import ChatReply
-from purrai.models import Action, ChatMessage, Group, Member, Rule, RuleHit, Violation, Whitelist
+from purrai.models import Action, ChatMessage, ChatTurn, Group, Member, Rule, RuleHit, Violation, Whitelist
 from purrai.service import Service
 from test_chat import age_reply, configured
 
@@ -30,24 +30,25 @@ async def test_three_actual_model_verdicts_within_window_persist_and_permanently
     await drain(restored)
     assert chat.tg.members[(-1001, 42)]["until_date"] == 0
     assert not chat.tg.members[(-1001, 42)]["can_send_messages"]
-    assert not any(method in ("delete_message", "ban_chat_member") for method, _ in chat.tg.calls)
+    assert [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"] == [1, 2, 3]
+    assert not any(method == "ban_chat_member" for method, _ in chat.tg.calls)
     async with chat.db.sessions() as session:
         assert (await session.scalar(select(Action).where(Action.kind == "ai_ad_mute"))).state == "succeeded"
 
 
-async def test_cached_ad_and_duplicate_model_result_do_not_add_judgments(env):
+async def test_cached_ad_is_reassessed_but_duplicate_model_result_does_not_add_judgments(env):
     chat, model = await configured(env)
     model.result = ChatReply(should_reply=False, is_advertisement=True)
     text = "这是一段交给模型判断的推广内容"
     await chat.observe(message(1, text))
     assert await chat.run_one()
     await chat.observe(message(2, text))
-    assert not await chat.run_one()
+    assert await chat.run_one()
     async with chat.db.transaction() as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 1, text, "成员")
-        assert await advertisement_count(session, -1001, 42) == 1
-    assert len(model.calls) == 1
+        assert await advertisement_count(session, -1001, 42) == 2
+    assert len(model.calls) == 2
 
 
 @pytest.mark.parametrize("exemption", ["administrator", "whitelist", "disabled", "off"])
@@ -91,7 +92,7 @@ async def test_two_judgments_in_one_group_and_one_in_another_do_not_mute(env):
         await record_ai_advertisement(session, second, 42, 1, "广告丙", "成员")
         assert await advertisement_count(session, -1001, 42) == 2
         assert await advertisement_count(session, -1002, 42) == 1
-        assert await session.scalar(select(Action)) is None
+        assert await session.scalar(select(Action).where(Action.kind == "ai_ad_mute")) is None
 
 
 async def test_reenabling_after_cancelled_threshold_waits_for_a_new_actual_verdict(env):
@@ -129,7 +130,7 @@ async def test_three_day_window_expires_each_old_judgment_individually(env, monk
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 3, "广告丙", "成员")
         assert await advertisement_count(session, -1001, 42) == 2
-        assert await session.scalar(select(Action)) is None
+        assert await session.scalar(select(Action).where(Action.kind == "ai_ad_mute")) is None
     instant[0] += ai_advertising.WINDOW
     async with db.sessions() as session:
         assert await advertisement_count(session, -1001, 42) == 0
@@ -211,7 +212,8 @@ async def test_either_condition_alone_never_uses_immediate_penalty(env, client, 
     await chat.observe(message(202, text))
     assert await chat.run_one() and len(model.calls) == 1
     await drain(env[3])
-    assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in chat.tg.calls)
+    assert any(method == "delete_message" for method, _ in chat.tg.calls) is verdict
+    assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in chat.tg.calls)
 
 
 async def test_ai_keyword_management_edit_and_disable_control_matching(env, client):
@@ -251,7 +253,7 @@ async def test_ai_keywords_use_independent_configured_fields(env, client, scope,
     await chat.observe(incoming)
     assert await chat.run_one() and len(model.calls) == 1
     await drain(env[3])
-    assert any(method == "delete_message" for method, _ in chat.tg.calls) is expected
+    assert any(method == "delete_message" for method, _ in chat.tg.calls)
     assert any(method == "restrict_chat_member" for method, _ in chat.tg.calls) is expected
     assert not any(method == "ban_chat_member" for method, _ in chat.tg.calls)
 
@@ -353,7 +355,76 @@ async def test_queued_keyword_ai_actions_recheck_rules_message_and_exemptions(en
                 row = await session.scalar(select(ChatMessage).where(ChatMessage.message_id == 203))
                 row.text = "纸飞机仍在，但原文已经修改，旧AI结果无效"
     await drain(env[3])
-    assert not any(method in ("delete_message", "restrict_chat_member") for method, _ in chat.tg.calls)
+    # A changed keyword cancels the accelerated mute; the unchanged actual AI
+    # verdict remains sufficient to delete this message.
+    assert any(method == "delete_message" for method, _ in chat.tg.calls) is (change in ("disable", "replace", "penalty"))
+    assert not any(method == "restrict_chat_member" for method, _ in chat.tg.calls)
+
+
+async def test_identical_ads_are_deleted_and_three_fresh_reviews_mute_during_chat_cooldown(env):
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    for identifier in (301, 302, 303):
+        await chat.observe(message(identifier, "会网购的来"))
+        assert await chat.run_one()
+        await drain(env[3])
+        assert [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"] == list(range(301, identifier + 1))
+        assert any(method == "restrict_chat_member" for method, _ in chat.tg.calls) is (identifier == 303)
+    assert len(model.calls) == 3
+    assert not any(method == "ban_chat_member" for method, _ in chat.tg.calls)
+    async with chat.db.sessions() as session:
+        assert await advertisement_count(session, -1001, 42) == 3
+        turns = (await session.scalars(select(ChatTurn).order_by(ChatTurn.id))).all()
+        assert [turn.review_only for turn in turns] == [False, True, True]
+        assert all(turn.sent_message_id is None for turn in turns)
+
+
+async def test_cooldown_reviews_normal_message_without_deleting_counting_or_replying(env):
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    await chat.observe(message(310, "交给模型判断的内容"))
+    assert await chat.run_one()
+    await drain(env[3])
+    model.result = ChatReply("这句话不能发送", "😸", should_reply=True, is_advertisement=False)
+    await chat.observe(message(311, "今天下雨了"))
+    assert await chat.run_one()
+    await drain(env[3])
+    assert len(model.calls) == 2
+    assert [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"] == [310]
+    assert not any(method in ("send_message", "send_sticker", "restrict_chat_member") for method, _ in chat.tg.calls)
+    async with chat.db.sessions() as session:
+        assert await advertisement_count(session, -1001, 42) == 1
+
+
+@pytest.mark.parametrize("change", ["edit", "disable"])
+async def test_review_rechecks_source_and_switch_after_model_request(env, change):
+    import asyncio
+
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    await chat.observe(message(320, "模型判断的原内容"))
+    assert await chat.run_one()
+    await drain(env[3])
+    model.started.clear()
+    model.release = asyncio.Event()
+    incoming = message(321, "模型判断的原内容")
+    await chat.observe(incoming)
+    running = asyncio.create_task(chat.run_one())
+    try:
+        await asyncio.wait_for(model.started.wait(), 3)
+        if change == "edit":
+            await chat.observe({**incoming, "text": "已经修改的正常内容", "edit_date": incoming["date"] + 1}, edited=True)
+        else:
+            async with chat.db.transaction() as session:
+                group = await session.get(Group, -1001)
+                group.settings = {**group.settings, "chat_advertiser_cooldown": False}
+    finally:
+        model.release.set()
+        await running
+    await drain(env[3])
+    async with chat.db.sessions() as session:
+        assert await advertisement_count(session, -1001, 42) == 1
+    assert [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"] == [320]
 
 
 async def test_keyword_change_during_role_lookup_cancels_mute_without_claiming_restriction(env, client):

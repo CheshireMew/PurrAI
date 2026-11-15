@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 from purrai.diagnostics import failure
 from purrai.models import Inbox, Verification, now
 from purrai.private_access import approved, update_group_id
+from purrai.telegram_health import request_identity
 from purrai.work_claims import WorkClaims
 
 logger = logging.getLogger(__name__)
@@ -82,11 +83,14 @@ class InboxProcessor:
                         return item.id, item.payload, scope
 
     async def process_one(self, lane=None):
+        from time import perf_counter
         claimed = await self.claim_inbox(lane)
         if claimed is None:
             return False
         identifier, payload, scope = claimed
+        started = perf_counter()
         token = self.current_update_id.set(identifier)
+        trace_token = request_identity.set(f"update={identifier} lane={lane} scope={scope}")
         try:
             async with self.db.sessions() as session:
                 group_id = await update_group_id(session, payload)
@@ -116,7 +120,11 @@ class InboxProcessor:
                 if item.attempts >= 8:
                     item.state = "failed"
         finally:
+            elapsed = perf_counter() - started
+            log = logger.warning if elapsed >= 5 else logger.info
+            log("收件处理结束 update=%s lane=%s scope=%s elapsed=%.3fs", identifier, lane, scope, elapsed)
             self.current_update_id.reset(token)
+            request_identity.reset(trace_token)
             self.claims.release(identifier, scope)
             for event in self.ready_events.values():
                 event.set()

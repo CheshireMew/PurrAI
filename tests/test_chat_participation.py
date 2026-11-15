@@ -48,7 +48,7 @@ async def test_identical_member_message_stays_silent_across_restart_but_other_me
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-async def test_advertiser_cooldown_is_opt_in_and_never_punishes(env, enabled):
+async def test_advertiser_cooldown_silences_replies_but_keeps_reviewing(env, enabled):
     chat, model = await configured(env, chat_advertiser_cooldown=enabled)
     model.result = ChatReply(should_reply=False, is_advertisement=True)
     await chat.observe(message(1, "果聊48r"))
@@ -56,18 +56,19 @@ async def test_advertiser_cooldown_is_opt_in_and_never_punishes(env, enabled):
     model.result = "今天吃清淡一点吧。"
     await age_reply(chat)
     await chat.observe(message(2, "柴郡喵，今天吃什么晚饭？"))
-    assert await chat.run_one() is (not enabled)
-    assert len(model.calls) == (1 if enabled else 2)
+    assert await chat.run_one()
+    assert len(model.calls) == 2
+    assert any(method == "send_message" for method, _ in chat.tg.calls) is (not enabled)
     assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in chat.tg.calls)
     if enabled:
         await chat.observe(message(3, "柴郡喵，聊聊今晚吃什么？", user_id=43))
-        assert await chat.run_one() and len(model.calls) == 2
+        assert await chat.run_one() and len(model.calls) == 3
         async with chat.db.transaction() as session:
             group = await session.get(Group, -1001)
             group.settings = {**group.settings, "chat_advertiser_cooldown": False}
         await age_reply(chat)
         await chat.observe(message(4, "柴郡喵，换个话题聊聊周末吧"))
-        assert await chat.run_one() and len(model.calls) == 3
+        assert await chat.run_one() and len(model.calls) == 4
 
 
 async def test_ai_advertising_defaults_on_and_can_be_disabled_from_telegram(env):

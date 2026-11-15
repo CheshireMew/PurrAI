@@ -150,6 +150,8 @@ class ActionRunner:
             self.action_claims.release(identifier, scope)
 
     async def execute_claimed_action(self, identifier):
+        from time import perf_counter
+        started = perf_counter()
         async with ActionExecution(self.db) as session:
             action = await session.get(Action, identifier)
             if not action or action.state != "pending" or action.available_at > now():
@@ -211,6 +213,8 @@ class ActionRunner:
                 await self.report_error(session, action)
             action.updated_at = now()
             await deletion_result(session, action)
+            logger.info("操作处理结果 action=%s kind=%s group=%s state=%s attempt=%s elapsed=%.3fs",
+                        action.id, action.kind, action.group_id, action.state, action.attempts, perf_counter() - started)
             return True
 
     @staticmethod
