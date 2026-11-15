@@ -234,6 +234,44 @@ async def test_ai_keyword_management_edit_and_disable_control_matching(env, clie
     assert not await preview("南瓜内容")
 
 
+@pytest.mark.parametrize("in_name", [False, True])
+async def test_keyword_review_survives_conversation_deduplication_after_cooldown(env, client, monkeypatch, in_name):
+    chat, model = await configured(env)
+    await save_ai_keyword(client, scope="either", meaning="依据语境判断，不直接处罚")
+    first = message(710, "这是一条足够长的普通消息" if in_name else "这是一条纸飞机相关消息")
+    if in_name:
+        first["from"]["first_name"] = "纸飞机"
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    await chat.observe(first)
+    assert await chat.run_one()
+    await age_reply(chat)
+    # The 30-minute advertiser cooldown has expired and inserted punctuation
+    # changes the historical ad key, while the conversational duplicate key stays equal.
+    monkeypatch.setattr(chat_commands, "now", lambda: first["date"] + 3600)
+    following = message(711, first["text"] + "·", **{"from": first["from"]})
+    await chat.observe(following)
+    assert await chat.run_one()
+    assert len(model.calls) == 2
+    assert model.calls[-1][1]["keyword_hints"][0]["matched_fields"] == (["name"] if in_name else ["message"])
+    async with chat.db.sessions() as session:
+        turn = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 711))
+        assert turn.review_only and turn.state == "silent"
+    await drain(env[3])
+    assert {data["message_id"] for method, data in chat.tg.calls if method == "delete_message"} == {710, 711}
+
+
+async def test_name_keyword_can_review_short_body_without_proactive_chat(env, client):
+    chat, model = await configured(env, chat_proactive=False)
+    await save_ai_keyword(client, scope="either", meaning="需要结合正文确认")
+    model.result = ChatReply(should_reply=False, is_advertisement=False)
+    incoming = message(712, "12", **{"from": {"id": 42, "first_name": "纸1飞A机"}})
+    await chat.observe(incoming)
+    assert await chat.run_one()
+    assert model.calls[0][1]["keyword_hints"][0]["matched_fields"] == ["name"]
+    await drain(env[3])
+    assert not any(method in ("delete_message", "restrict_chat_member") for method, _ in chat.tg.calls)
+
+
 @pytest.mark.parametrize("scope,body,name,expected", [
     ("either", "柴郡喵，这是纸.飞.机内容", "普通成员", True),
     ("either", "柴郡喵，这条需要判断", "纸1飞A机", True),

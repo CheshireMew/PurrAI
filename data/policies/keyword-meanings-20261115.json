@@ -2,6 +2,7 @@
   "purpose": "待通过管理 API 合并的规则数据；不自动加载，不替换其他词条或停用状态。",
   "shared_rules_upsert": [
     {"kind": "keyword", "value": "面付", "mode": "pinyin", "scope": "either", "penalty": "ai_confirmed_mute", "enabled": true, "meaning": "指见面时当面付款或交付。部分线下招揽、色情服务或诈骗广告用此词暗示交易方式；也常见于正常交易讨论。需结合该发送者昵称和正文中的招揽、导流意图判断，不能仅因出现这个词就认定广告。"},
-    {"kind": "keyword", "value": "无定", "mode": "pinyin", "scope": "either", "penalty": "ai_confirmed_mute", "enabled": true, "meaning": "可能指没有定金、不收预付定金，是“无定金”的缩写。部分招揽或诈骗广告用来降低对方戒心，也可能只是正常讨论定金。需结合该发送者昵称和正文判断是否在招揽，转述、举报或反诈提醒不应仅凭此词判为广告。"}
+    {"kind": "keyword", "value": "无定", "mode": "pinyin", "scope": "either", "penalty": "ai_confirmed_mute", "enabled": true, "meaning": "可能指没有定金、不收预付定金，是“无定金”的缩写。部分招揽或诈骗广告用来降低对方戒心，也可能只是正常讨论定金。需结合该发送者昵称和正文判断是否在招揽，转述、举报或反诈提醒不应仅凭此词判为广告。"},
+    {"kind": "keyword", "value": "中转", "mode": "pinyin", "scope": "either", "penalty": "ai_confirmed_mute", "enabled": true, "meaning": "可能指 AI API 中转站、模型转发服务。结合模型名称、折扣价格、号池、稳定性宣传、招代理或导流信息判断是否在推广服务；也可能是交通、物流等正常语境，或对 AI 中转服务的提问、讨论与反诈提醒，不能仅凭这个词判为广告。"}
   ]
 }

@@ -15,7 +15,7 @@ from purrai.chat_state import (
     message_bursts, reply_snapshot,
 )
 from purrai.models import ChatMessage, ChatTurn, Group, now
-from purrai.rules import message_content, assess
+from purrai.rules import message_content, assess, ai_keyword_rules
 from purrai.message_identity import profile_name
 from purrai.schemas import GroupSettings
 from purrai.stickers import sticker_text
@@ -70,13 +70,16 @@ class ChatObservation:
             )
             ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
             command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
-            review_only = bool(
+            can_review = bool(
                 not reasons and not command and allowed and group.enabled and cfg.chat_advertiser_cooldown
                 and sender.get("id") not in self.settings.superadmin_ids
                 and human_message(message, bot_username=getattr(self.tg, "username", ""))
                 and not has_image(message)
-                and (chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender))
-                     or chat_commands.advertiser_blocked(command_state, sender.get("id")))
+            )
+            keyword_review = can_review and bool(ai_keyword_rules(text, rules, profile_name(sender)))
+            review_only = can_review and (
+                chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender))
+                or chat_commands.advertiser_blocked(command_state, sender.get("id"))
             )
             if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender)):
                 reasons.append("聊天广告历史命中")
@@ -104,6 +107,9 @@ class ChatObservation:
                 if reason:
                     reasons.append(reason)
             eligible = eligible and not reasons
+            # Conversational repetition/short-opening gates must not suppress a
+            # configured keyword review. Eligible conversations retain normal replies.
+            review_only = review_only or keyword_review and (not eligible or not cfg.chat_proactive and not direct)
             if eligible or image:
                 eligible, image = eligible and allowed, image and allowed
             if image and not reasons:
