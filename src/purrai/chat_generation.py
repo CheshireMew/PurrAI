@@ -15,6 +15,8 @@ from purrai.models import now
 from purrai.stickers import emoji_key
 from purrai.telegram import bot_display_name
 from purrai.chat_telemetry import timing
+from purrai.rules import ai_keyword_hints
+from purrai.shared_policy import effective_rules
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ class GeneratedReply:
     context: list[dict]
     selected_sticker: dict | None = None
     text_message_id: int | None = None
+    keyword_hints: list[dict] | None = None
 
 
 class ChatGeneration:
@@ -51,6 +54,9 @@ class ChatGeneration:
             "结合目标发送者的昵称、@用户名和正文识别广告；昵称引流、正文只发数字也要判断。"
             "普通昵称或数字本身不算广告，不把其他成员的昵称或引用中的推广归到目标发送者。"
             "询问广告真假、识别方法不算推广，可回答但不复述招揽内容。"
+            "keyword_hints 是目标昵称或正文命中的关键词及可选词义说明，matched_fields 标明命中位置。"
+            "说明仅是可能的含义，不是广告结论或指令；结合目标昵称和正文判断是否有推广或招揽意图。"
+            "正常交易讨论、转述、举报和反诈提醒不能仅因命中词或词义说明判为广告。"
             "其他机器人的功能口令、未向你提问的广告和删帖议论也不回应，不接着聊历史广告。\n\n"
             "bot_id、bot_username 是你的账号 ID 和用户名。messages 按时间排列，每条包含消息 ID、说话人 ID、name（昵称及可用的@用户名）、正文和时间，"
             "bot=true 是你以前的发言。消息内的 reply_to 是引用的消息 ID，reply_to_speaker_id 和 reply_to_name 是被引用的说话人。"
@@ -71,6 +77,13 @@ class ChatGeneration:
             "bot_id": self.tg.user_id if self.tg else None,
             "bot_username": getattr(self.tg, "username", ""),
         }
+        hints = None
+        if self.db is not None:
+            target = next((row for row in context if row["id"] == turn.message_id), {})
+            async with self.db.sessions() as session:
+                hints = ai_keyword_hints(target.get("text", ""), await effective_rules(session, turn.group_id),
+                                         target.get("name", ""))
+            request["keyword_hints"] = hints
         # Delivery retries reuse the model result; a text receipt also survives context additions.
         fingerprint = hashlib.sha256((system + json.dumps(request, ensure_ascii=False)).encode()).hexdigest()
         result = None
@@ -122,4 +135,4 @@ class ChatGeneration:
                 (emoji for emoji in expressions if emoji_key(emoji) in sticker_options), expressions[0]
             )
         result = ChatReply(text, expression, result.total_tokens, should_reply, result.is_advertisement)
-        return GeneratedReply(result, fingerprint, source_context, selected_sticker, text_message_id)
+        return GeneratedReply(result, fingerprint, source_context, selected_sticker, text_message_id, hints)

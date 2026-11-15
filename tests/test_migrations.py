@@ -12,6 +12,26 @@ from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, M
 from purrai.db import schema_head
 
 
+def test_keyword_meanings_migration_preserves_existing_rules(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "keyword-meanings.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+    snapshots = None
+    for target in ("0029", "0030"):
+        result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+        with sqlite3.connect(database) as connection:
+            current = connection.execute("SELECT rules,business_rules FROM shared_policy WHERE id=1").fetchall()
+            if target == "0029":
+                snapshots = current
+                connection.execute("INSERT INTO rules (id,group_id,kind,value,mode,enabled,scope,context_value,penalty,inherited_from,customized) VALUES ('sample',-1001,'keyword','任意测试词','pinyin',0,'either','','ai_confirmed_mute','',1)")
+            else:
+                assert current == snapshots
+                assert connection.execute("SELECT value,enabled,meaning FROM rules WHERE id='sample'").fetchone() == ("任意测试词", 0, "")
+                assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
 def test_advertisement_review_migration_preserves_existing_turns(tmp_path):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "advertisement-review.sqlite3"

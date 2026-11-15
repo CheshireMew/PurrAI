@@ -180,6 +180,21 @@ def ai_keyword_rules(text, rules, sender_name=""):
                      and matches(sender_name, rule["value"], rule.get("mode", "contains"))))]
 
 
+def ai_keyword_hints(text, rules, sender_name=""):
+    """Explain only matches belonging to the target sender, using editable data."""
+    hints = []
+    for rule in ai_keyword_rules(text, rules, sender_name):
+        fields = []
+        for field, value in (("name", sender_name), ("message", text)):
+            if rule.get("scope", "message") in (field, "either") and matches(
+                value, rule["value"], rule.get("mode", "contains")
+            ):
+                fields.append(field)
+        hints.append({"rule_id": rule.get("id", ""), "keyword": rule["value"],
+                      "meaning": rule.get("meaning", ""), "matched_fields": fields})
+    return hints
+
+
 def activity_reasons(settings, repeats, similar, burst):
     reasons = []
     if settings.get("repeat_enabled") and repeats >= settings["repeat_count"]:

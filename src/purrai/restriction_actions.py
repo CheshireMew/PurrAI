@@ -11,8 +11,11 @@ from purrai.models import (
     Violation,
     now,
 )
-from purrai.restriction_state import restriction_matches, permission_state_matches, ban_matches, owns_verification_ban
-from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions
+from purrai.restriction_state import (
+    restriction_matches, permission_state_matches, ban_matches, owns_verification_ban,
+    moderation_ownership, schedule_moderation_expiry,
+)
+from purrai.telegram import ALL_PERMISSIONS, SEND_PERMISSIONS, is_admin, is_present, muted_permissions, permission_snapshot
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import matches_action
 
@@ -51,6 +54,8 @@ class RestrictionActions:
         return True
 
     async def restore(self, session, action, group, verification, member):
+        if action.payload.get("expire_previous"):
+            return await self.expire_previous(session, action, group, member)
         if (
             action.kind == "unmute"
             and member
@@ -101,6 +106,10 @@ class RestrictionActions:
         defaults = chat.get("permissions", {})
         previous = verification.previous_permissions if verification else owned.get("previous", {})
         previous_until = previous.get("__until_date", 0)
+        if action.payload.get("automatic_restore") and now() < previous_until < now() + 31:
+            # Telegram interprets a restriction expiring in <30 seconds as permanent.
+            action.available_at = previous_until + 1
+            return False
         if previous_until and previous_until <= now():
             previous, previous_until = {}, 0
         restore = {key: bool(defaults.get(key, False) and previous.get(key, True)) for key in ALL_PERMISSIONS}
@@ -137,11 +146,38 @@ class RestrictionActions:
                 exclude_action=action.id,
             )
 
+    async def expire_previous(self, session, action, group, member):
+        owned = member.owned_restriction
+        current = await self.action_call(session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id)
+        if member.restriction_conflict or not is_present(current) or is_admin(current):
+            raise RestrictionPreserved()
+        until = owned.get("until_date", 0)
+        if until and until <= now():
+            member.owned_restriction = None
+            return
+        target = owned.get("previous_expiry_permissions")
+        accepted = target is not None and permission_state_matches(current, target, until)
+        if not accepted and not restriction_matches(current, owned):
+            raise RestrictionPreserved()
+        if not accepted:
+            if until and until < now() + 31:
+                action.available_at = until + 1
+                return False
+            chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
+            target = muted_permissions(chat.get("permissions", {}))
+            member.owned_restriction = {**owned, "previous_expiry_permissions": target}
+            await self.action_call(session, action, "restrict_chat_member", chat_id=group.id, user_id=member.user_id,
+                                   permissions=target, use_independent_chat_permissions=True, until_date=until)
+        updated = {**member.owned_restriction, "permissions": target, "previous": {}}
+        updated.pop("previous_expiry_permissions", None)
+        member.owned_restriction = updated
+
     async def ban(self, session, action, group, verification, member):
         current = await self.action_call(
             session, action, "get_chat_member", chat_id=group.id, user_id=action.user_id
         )
-        if is_admin(current) or member and member.restriction_conflict:
+        if is_admin(current) or (member and member.restriction_conflict
+                                and (member.owned_restriction or {}).get("source_action") == action.id):
             raise RestrictionPreserved()
         owned = member.owned_restriction if member else None
         reconciled = bool(
@@ -160,6 +196,7 @@ class RestrictionActions:
                 action.payload = {**action.payload, "outcome": "restriction_expired"}
                 return
             if member:
+                member.restriction_conflict = False
                 member.owned_restriction = {
                     "kind": "ban",
                     "source_action": action.id,
@@ -199,74 +236,58 @@ class RestrictionActions:
             action.state = "cancelled"
             return
         duration = 1800 if action.kind == "spam_mute" else action.payload.get("duration_seconds", group.settings["mute_seconds"])
-        if action.kind == "spam_mute" and member and member.owned_restriction:
-            owned = member.owned_restriction
-            if owned.get("source_action") != action.id:
-                source = await session.get(Action, owned.get("source_action")) if owned.get("source_action") else None
-                if ((source and source.actor_id is not None) or not owned.get("until_date")
-                        or owned["until_date"] >= now() + duration):
-                    action.state, action.error = "cancelled", "保留管理员或已有更长期限制"
-                    return
-        if member and (
-            member.restriction_conflict
-            or action.payload.get("generation")
-            and member.generation != action.payload["generation"]
-        ):
-            raise RestrictionPreserved()
-        if current.get("status") == "restricted" and not (member and member.owned_restriction):
-            raise RestrictionPreserved()
-        if (
-            current.get("status") == "restricted"
-            and member
-            and member.owned_restriction
-            and (not restriction_matches(current, member.owned_restriction))
-        ):
+        if member and action.payload.get("generation") and member.generation != action.payload["generation"]:
             raise RestrictionPreserved()
         if member is None:
             member = Member(group_id=group.id, user_id=action.user_id, joined_at=now())
             session.add(member)
-        owned = member.owned_restriction or {}
+        owned = moderation_ownership(member, current, action)
+        expires = owned.get("restore_at") or owned.get("until_date", 0)
+        if owned.get("source_action") == action.id and expires and expires <= now():
+            if owned.get("restore_at") and restriction_matches(current, owned):
+                await schedule_moderation_expiry(session, group, member)
+            else:
+                member.owned_restriction = None
+            action.payload = {**action.payload, "outcome": "restriction_expired"}
+            return
+        deadline = int(now() + duration)
+        if (owned.get("source_action") != action.id and current.get("status") == "restricted"
+                and all(not current.get(key, False) for key in SEND_PERMISSIONS)
+                and (not current.get("until_date") or current["until_date"] >= deadline)):
+            action.payload = {**action.payload, "outcome": "already_restricted"}
+            return
         reconciled = bool(
             owned.get("source_action") == action.id
             and current.get("status") == "restricted"
             and restriction_matches(current, owned)
         )
-        if (
-            owned.get("source_action") == action.id
-            and owned["until_date"] <= now()
-            and current.get("status") == "member"
-        ):
-            member.owned_restriction = None
-            action.payload = {**action.payload, "outcome": "restriction_expired"}
-            return
         if not reconciled:
             chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
-            until = (
-                owned.get("until_date")
-                if owned.get("source_action") == action.id
-                else int(now() + duration)
-            )
-            target = (
-                owned.get("permissions")
-                if owned.get("source_action") == action.id
-                else muted_permissions(chat.get("permissions", {}))
-            )
-            member.owned_restriction = {
-                "kind": "moderation",
-                "source_action": action.id,
-                "permissions": target,
-                "until_date": until,
-                "previous": {},
-            }
+            if owned.get("source_action") != action.id:
+                before = permission_snapshot(current if current.get("status") == "restricted" else chat.get("permissions", {}))
+                previous = owned.get("previous") if owned else {**before, "__until_date": current.get("until_date", 0)}
+                previous = previous or {}
+                prior_until = previous.get("__until_date", 0)
+                retained = any(chat.get("permissions", {}).get(key, False) and not previous.get(key, True)
+                               for key in ALL_PERMISSIONS) and (not prior_until or prior_until > now())
+                until = (0 if not prior_until else max(deadline, prior_until)) if retained else deadline
+                # Keep the original expiry for prior restrictions; restore only our layer at the deadline.
+                owned = {"kind": "moderation", "source_action": action.id,
+                         "permissions": muted_permissions(before), "until_date": until, "previous": previous,
+                         "before": {"permissions": permission_snapshot(current), "until_date": current.get("until_date", 0)},
+                         "before_status": current.get("status"),
+                         "restore_at": deadline if until == 0 or until > deadline else 0}
+            member.owned_restriction, member.restriction_conflict = owned, False
+            await schedule_moderation_expiry(session, group, member)
             await self.action_call(
                 session,
                 action,
                 "restrict_chat_member",
                 chat_id=group.id,
                 user_id=action.user_id,
-                permissions=target,
+                permissions=owned["permissions"],
                 use_independent_chat_permissions=True,
-                until_date=until,
+                until_date=owned["until_date"],
             )
         name = display_name(current.get("user") or {}, fallback="")
         if not name:

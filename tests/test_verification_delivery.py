@@ -181,7 +181,7 @@ async def test_explicit_send_rejection_alerts_without_punishing_member(env, monk
 
 
 @pytest.mark.parametrize("kind", ["advertisement_ban", "rule_mute", "manual_mute", "manual_ban"])
-async def test_other_administrators_restriction_is_cancelled_and_not_alerted(env, kind):
+async def test_old_retry_after_another_administrator_changes_permissions_is_cancelled(env, kind):
     from purrai.action_queue import enqueue
     from purrai.runtime_alerts import RuntimeAlerts
     settings, database, telegram, service = env
@@ -192,6 +192,10 @@ async def test_other_administrators_restriction_is_cancelled_and_not_alerted(env
         task = await enqueue(session, kind, "external-admin-test", -1001, 42,
             {"ad_evidence": {"message": {"reply_markup": {"inline_keyboard": [
                 [{"text": "test", "url": "https://example.org"}]]}}}})
+        # A new penalty may add restrictions, but this retry already lost ownership.
+        member = await session.get(Member, (-1001, 42))
+        member.owned_restriction = {"kind": "moderation", "source_action": task.id,
+                                    "until_date": 0, "permissions": dict.fromkeys(telegram.defaults, False)}
     telegram.members[(-1001, 42)] = {"status": "restricted", "is_member": True,
         "until_date": 0, **telegram.defaults, "can_send_messages": False}
     await drain(service)
@@ -202,6 +206,23 @@ async def test_other_administrators_restriction_is_cancelled_and_not_alerted(env
         assert task.payload["outcome"] == "external_restriction_preserved"
         assert not await session.scalar(select(Action).where(Action.kind == "owner_alert"))
     assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in telegram.calls)
+
+
+@pytest.mark.parametrize("kind", ["advertisement_ban", "manual_ban"])
+async def test_new_ban_can_escalate_an_external_partial_restriction(env, kind):
+    from purrai.action_queue import enqueue
+    _, database, telegram, service = env
+    async with database.transaction() as session:
+        session.add(Member(group_id=-1001, user_id=42, restriction_conflict=True))
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "inline_buttons_ban": True}
+        await enqueue(session, kind, "new-ban", -1001, 42,
+            {"ad_evidence": {"message": {"reply_markup": {"inline_keyboard": [
+                [{"text": "test", "url": "https://example.org"}]]}}}})
+    telegram.members[(-1001, 42)] = {"status": "restricted", "is_member": True,
+        "until_date": 0, **telegram.defaults, "can_invite_users": False}
+    await drain(service)
+    assert telegram.members[(-1001, 42)]["status"] == "kicked"
 
 
 async def test_callback_during_retry_recovers_original_and_cleans_late_duplicate(env, monkeypatch):

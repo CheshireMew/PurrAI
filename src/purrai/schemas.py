@@ -208,6 +208,7 @@ class RuleInput(BaseModel):
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
     scope: Literal["message", "name", "either", "name_and_message"] = "message"
     context_value: str = Field(default="", max_length=250)
+    meaning: str = Field(default="", max_length=1000)
     penalty: Literal["delete", "permanent_mute", "ai_confirmed_mute"] = "delete"
     enabled: bool = True
 

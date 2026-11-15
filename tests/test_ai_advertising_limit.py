@@ -242,7 +242,7 @@ async def test_ai_keyword_management_edit_and_disable_control_matching(env, clie
 ])
 async def test_ai_keywords_use_independent_configured_fields(env, client, scope, body, name, expected):
     chat, model = await configured(env)
-    await save_ai_keyword(client, scope=scope)
+    await save_ai_keyword(client, scope=scope, meaning="这可能是推广暗语，也可能指普通手工作品；需结合语境。")
     preview = (await client.post("/api/groups/-1001/rules/preview", json={"text": body, "sender_name": name})).json()
     assert preview["ai_confirmation_required"] is expected
     assert not preview["delete_message"] and not preview["mute_member"]
@@ -252,10 +252,122 @@ async def test_ai_keywords_use_independent_configured_fields(env, client, scope,
     await env[3].message(incoming)
     await chat.observe(incoming)
     assert await chat.run_one() and len(model.calls) == 1
+    hints = model.calls[0][1]["keyword_hints"]
+    assert bool(hints) is expected
+    if expected:
+        assert hints[0]["meaning"] == "这可能是推广暗语，也可能指普通手工作品；需结合语境。"
+        assert hints[0]["matched_fields"] == (["name"] if "纸1" in name else ["message"])
     await drain(env[3])
     assert any(method == "delete_message" for method, _ in chat.tg.calls)
     assert any(method == "restrict_chat_member" for method, _ in chat.tg.calls) is expected
     assert not any(method == "ban_chat_member" for method, _ in chat.tg.calls)
+
+
+async def test_keyword_meanings_follow_saved_edits_and_disable_without_forcing_ad_verdict(env, client):
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False, is_advertisement=False)
+    rule = await save_ai_keyword(client, scope="either", meaning="可能是手工作品或推广暗语。")
+    for identifier, name, text, expected in (
+        (701, "纸1飞A机", "柴郡喵，正常讨论怎么制作", "可能是手工作品或推广暗语。"),
+        (702, "普通成员", "柴郡喵，南瓜的正常讨论", "也可以是食物名称。"),
+        (703, "普通成员", "柴郡喵，纸飞机的正常讨论", None),
+        (704, "南瓜", "柴郡喵，正常讨论", None),
+    ):
+        if identifier == 702:
+            rule = await save_ai_keyword(client, previous=rule, value="南瓜", meaning="也可以是食物名称。")
+        if identifier == 704:
+            rule = await save_ai_keyword(client, previous=rule, enabled=False)
+        incoming = message(identifier, text)
+        incoming["from"]["first_name"] = name
+        await chat.observe(incoming)
+        assert await chat.run_one()
+        hints = model.calls[-1][1]["keyword_hints"]
+        assert [hint["meaning"] for hint in hints] == ([expected] if expected else [])
+        await age_reply(chat)
+    await drain(env[3])
+    assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in chat.tg.calls)
+
+
+async def test_meaning_changed_while_model_running_cancels_old_verdict(env, client):
+    import asyncio
+    chat, model = await configured(env)
+    rule = await save_ai_keyword(client, meaning="旧说明")
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    model.release = asyncio.Event()
+    await chat.observe(message(705, "柴郡喵，纸飞机的内容"))
+    work = asyncio.create_task(chat.run_one())
+    await asyncio.wait_for(model.started.wait(), 5)
+    try:
+        await save_ai_keyword(client, previous=rule, meaning="修正后的说明")
+    finally:
+        model.release.set()
+    assert await work
+    await drain(env[3])
+    async with chat.db.sessions() as session:
+        assert await advertisement_count(session, -1001, 42) == 0
+    assert not any(method in ("delete_message", "restrict_chat_member") for method, _ in chat.tg.calls)
+
+
+@pytest.mark.parametrize("until", [0, 3600])
+async def test_actual_ai_ad_escalates_partial_external_restriction(env, client, monkeypatch, until):
+    from purrai.models import now
+    chat, model = await configured(env)
+    await save_ai_keyword(client, scope="either", meaning="仅作为参考")
+    chat.tg.members[(-1001, 42)] = {"status": "restricted", "is_member": True,
+        "until_date": int(now() + until) if until else 0, **chat.tg.defaults, "can_invite_users": False}
+    model.result = ChatReply(should_reply=False, is_advertisement=True)
+    incoming = message(706, "柴郡喵，这条需要判断")
+    incoming["from"]["first_name"] = "纸飞机"
+    await env[3].message(incoming)
+    await chat.observe(incoming)
+    assert await chat.run_one()
+    async with chat.db.transaction() as session:
+        (await session.get(Member, (-1001, 42))).restriction_conflict = True
+    await drain(env[3])
+    result = chat.tg.members[(-1001, 42)]
+    assert not result["can_send_messages"] and not result["can_invite_users"] and result["until_date"] == 0
+    assert any(method == "delete_message" for method, _ in chat.tg.calls)
+    if until:
+        from purrai import actions, restriction_actions
+        async with chat.db.sessions() as session:
+            refresh = await session.scalar(select(Action).where(Action.kind == "unmute"))
+            instant = [refresh.available_at + 1]
+        monkeypatch.setattr(actions, "now", lambda: instant[0])
+        monkeypatch.setattr(restriction_actions, "now", lambda: instant[0])
+        original = chat.tg.call
+        lost = False
+        async def lose_once(method, **kwargs):
+            nonlocal lost
+            result = await original(method, **kwargs)
+            if method == "restrict_chat_member" and not lost:
+                lost = True
+                raise ConnectionError("response lost after acceptance")
+            return result
+        monkeypatch.setattr(chat.tg, "call", lose_once)
+        await drain(env[3])
+        instant[0] += 10
+        await drain(env[3])
+        result = chat.tg.members[(-1001, 42)]
+        assert not result["can_send_messages"] and result["can_invite_users"] and result["until_date"] == 0
+        assert sum(method == "restrict_chat_member" for method, _ in chat.tg.calls) == 2
+
+
+async def test_group_keyword_meaning_survives_edit_copy_and_inheritance(env, client):
+    from uuid import uuid4
+    shared = await save_ai_keyword(client, scope="either", meaning="共享词义")
+    rules = (await client.get("/api/groups/-1001/rules")).json()
+    # The management query is paginated; use its public item shape.
+    items = rules if isinstance(rules, list) else rules["items"]
+    effective = next(rule for rule in items if rule["id"] == shared["id"])
+    response = await client.put(f"/api/groups/-1001/rules/{shared['id']}", headers={"If-Match": effective["version"], "Idempotency-Key": uuid4().hex},
+        json={**effective, "meaning": "本群修正词义", "request_id": uuid4().hex})
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["meaning"] == "本群修正词义"
+    response = await client.post(f"/api/groups/-1001/rules/{shared['id']}/inherit", headers={"If-Match": saved["version"], "Idempotency-Key": uuid4().hex},
+                                 json={"request_id": uuid4().hex})
+    assert response.status_code == 200, response.text
+    assert response.json()["meaning"] == "共享词义"
 
 
 async def test_name_edit_cancels_pending_ai_keyword_penalty(env, client):

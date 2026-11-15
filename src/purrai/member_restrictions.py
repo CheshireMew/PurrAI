@@ -11,7 +11,7 @@ from purrai.models import (
     now,
     uid,
 )
-from purrai.restriction_state import ban_matches, restriction_matches, permission_state_matches
+from purrai.restriction_state import ban_matches, restriction_matches, permission_state_matches, moderation_ownership, schedule_moderation_expiry
 from purrai.rule_evaluation import rule_penalty_applies
 from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, muted_permissions, permission_snapshot
 from purrai.verification_penalties import active_verifications, begin_penalty, finish_penalty
@@ -62,7 +62,8 @@ class MemberRestrictions:
             current = await self.action_call(
                 session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
             )
-        if is_admin(current) or member.restriction_conflict:
+        if is_admin(current) or (member.restriction_conflict
+                                and (member.owned_restriction or {}).get("source_action") == action.id):
             raise RestrictionPreserved()
         if "message_evidence" in action.payload:
             from purrai.rule_evaluation import message_penalty_applies
@@ -78,6 +79,7 @@ class MemberRestrictions:
             raise RestrictionPreserved("成员已有其他封禁，保留当前封禁")
         active = await active_verifications(session, member)
         violation_label = "广告引流违规" if action.kind == "advertisement_ban" else "状态表情违规"
+        member.restriction_conflict = False
         member.owned_restriction = {
             "kind": "ban", "source_action": action.id, "until_date": 0,
             "automatic_permanent": True,
@@ -156,7 +158,7 @@ class MemberRestrictions:
             member = Member(group_id=group.id, user_id=action.user_id, joined_at=0)
             session.add(member)
             await session.flush()
-        owned = member.owned_restriction
+        owned = moderation_ownership(member, current, action)
         already_muted = bool(
             owned
             and owned.get("kind") in ("profile", "emoji_status", "rule", "ai_ad")
@@ -164,10 +166,6 @@ class MemberRestrictions:
             and current.get("status") == "restricted"
             and permission_state_matches(current, owned.get("permissions"), 0, tolerance=0)
         )
-        if member.restriction_conflict or current.get("status") == "restricted" and not owned:
-            raise RestrictionPreserved()
-        if owned and current.get("status") == "restricted" and (not restriction_matches(current, owned)):
-            raise RestrictionPreserved()
         active = await active_verifications(session, member)
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         recovered = already_muted and owned.get("source_action") == action.id
@@ -183,17 +181,23 @@ class MemberRestrictions:
         if owned and owned.get("kind") == "verification" and active:
             previous = active[0].previous_permissions
         elif not owned:
-            previous = {**permission_snapshot(chat.get("permissions", {})), "__until_date": 0}
-        target = muted_permissions(previous or chat.get("permissions", {}))
+            previous = {**permission_snapshot(current if current.get("status") == "restricted" else chat.get("permissions", {})),
+                        "__until_date": current.get("until_date", 0)}
+        target = muted_permissions(current if current.get("status") == "restricted" else chat.get("permissions", {}))
+        member.restriction_conflict = False
         member.owned_restriction = {
             "kind": kind,
             "source_action": action.id,
             "permissions": target,
             "until_date": 0,
             "previous": previous,
+            "before": (owned or {}).get("before") if (owned or {}).get("source_action") == action.id else {
+                "permissions": permission_snapshot(current), "until_date": current.get("until_date", 0)},
+            "before_status": (owned or {}).get("before_status") if (owned or {}).get("source_action") == action.id else current.get("status"),
             "pack": action.payload.get("pack", ""),
             **({"verification_id": active[0].id} if active else {}),
         }
+        await schedule_moderation_expiry(session, group, member)
         ai_label = "AI确认广告且命中关键词" if "ai_keyword_evidence" in action.payload else "AI最近3天累计3次判定广告"
         violation_label = ai_label if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
         begin_penalty(active, violation_label, "permanent_mute")

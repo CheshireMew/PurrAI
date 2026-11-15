@@ -38,7 +38,9 @@ async def keyword_penalty_applies(session, action, group):
         return False
     rules = await effective_rules(session, group.id)
     sender_name = evidence.get("sender_name", "")
-    if not any(rule.get("id") in evidence.get("rule_ids", []) for rule in ai_keyword_rules(text, rules, sender_name)):
+    if not any(rule.get("id") in evidence.get("rule_ids", [])
+               and ("rule_versions" not in evidence or evidence["rule_versions"].get(rule["id"]) == rule.get("version"))
+               for rule in ai_keyword_rules(text, rules, sender_name)):
         return False
     return await unchanged_message(session, action, evidence)
 
@@ -106,7 +108,8 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
     evidence = {}
     if matched:
         evidence = {"ai_keyword_evidence": {"message_id": message_id, "text": text, "sender_name": user_name,
-                                           "rule_ids": [rule["id"] for rule in matched]}}
+                                           "rule_ids": [rule["id"] for rule in matched],
+                                           "rule_versions": {rule["id"]: rule.get("version") for rule in matched}}}
         await record_rule_hits(session, group.id, message_id, evidence["ai_keyword_evidence"]["rule_ids"])
     delete_evidence = {"ai_ad_evidence": {"message_id": message_id, "text": text,
                                          "sender_name": user_name, "judged_at": now()}}

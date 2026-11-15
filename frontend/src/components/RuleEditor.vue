@@ -17,7 +17,7 @@ const samplesOpen = ref(false)
 let revision = 0
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
 const { busy, error, safe } = useTask()
-const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true })
+const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', meaning: '', penalty: 'delete', enabled: true })
 const original = ref('')
 const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => emit('close'), () => busy.value)
 watch(() => [form.kind, form.scope], () => {
@@ -29,7 +29,7 @@ watch(() => props.open, async open => {
   sharedBaseline.value = null
   if (!open) return
   samplesOpen.value = false
-  Object.assign(form, { id: undefined, version: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', penalty: 'delete', enabled: true }, props.rule || {})
+  Object.assign(form, { id: undefined, version: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', meaning: '', penalty: 'delete', enabled: true }, props.rule || {})
   original.value = JSON.stringify(form)
   invalidate(); previewInput.text = ''; previewInput.sender_name = ''; error.value = ''
   if (me.value?.root) {
@@ -114,6 +114,9 @@ async function inheritRule() {
 </el-form-item>
 <el-form-item v-if="form.kind === 'keyword' && form.scope === 'name_and_message'" label="正文还需同时命中的关键词">
 <el-input v-model="form.context_value" maxlength="250"/>
+</el-form-item>
+<el-form-item v-if="form.penalty === 'ai_confirmed_mute'" label="给 AI 的词义说明">
+<el-input v-model="form.meaning" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="说明可能的含义及正常用法。昵称或正文按检查范围命中后发送给 AI，仅供理解语境，不直接认定广告。"/>
 </el-form-item>
 <p v-if="form.penalty === 'ai_confirmed_mute'" class="muted">关键词本身不处罚。AI实际确认广告后，首次命中即删除消息并永久禁言。首次识别沿用AI聊天开关、参与条件和额度；广告账号的聊天冷却不阻止后续审查。谐音匹配可识别同音写法。</p>
 <p v-else class="muted">只匹配你配置的词。谐音匹配兼容简繁体、分隔符和汉字间夹入的字母数字。昵称违规删除当条消息并永久禁言；正文违规按本条规则选择只删消息，或删消息并永久禁言，不累计警告。管理员手动解禁后自动加入本群白名单。</p>

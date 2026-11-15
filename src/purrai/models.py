@@ -145,6 +145,7 @@ class Rule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     scope: Mapped[str] = mapped_column(String, default="message")
     context_value: Mapped[str] = mapped_column(String, default="")
+    meaning: Mapped[str] = mapped_column(String, default="", server_default="")
     penalty: Mapped[str] = mapped_column(String, default="delete")
     inherited_from: Mapped[str] = mapped_column(String, server_default="")
     customized: Mapped[bool] = mapped_column(Boolean, server_default="1")

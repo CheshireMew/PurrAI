@@ -15,6 +15,7 @@ from purrai.chat_retraction import finish_receipt
 from purrai.models import ChatTurn, now
 from purrai.schemas import GroupSettings
 from purrai.stickers import emoji_key
+from purrai.rules import ai_keyword_hints
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,12 @@ class ChatDelivery:
                     current.state = "skipped"
                     current.error = "发送前，聊天设置、目标消息或引用上下文已失效"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
+                return True
+            target = next((row for row in generated.context if row["id"] == turn.message_id), {})
+            if result.is_advertisement and generated.keyword_hints is not None and generated.keyword_hints != ai_keyword_hints(
+                target.get("text", ""), await effective_rules(session, turn.group_id), target.get("name", "")
+            ):
+                current.state, current.error = "skipped", "关键词或词义说明已修改，取消旧广告判断"
                 return True
             if not result.text and not result.sticker:
                 if current.sent_message_id is not None:

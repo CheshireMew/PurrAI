@@ -110,6 +110,8 @@ class ActionRunner:
                     if not rows:
                         return None
                     for action in rows:
+                        if action.payload.get("automatic_restore") and action.available_at > now():
+                            continue
                         if cleanup_only:
                             scope = ("cleanup", action.id)
                         elif action.kind in NOTIFICATION_ACTIONS:
@@ -219,7 +221,7 @@ class ActionRunner:
 
     @staticmethod
     def recovery_retry(action, exc):
-        return action.kind in ("release", "subscription_check") and isinstance(
+        return (action.kind in ("release", "subscription_check") or action.payload.get("automatic_restore")) and isinstance(
             exc, (TelegramNetworkError, TimeoutError, ConnectionError, OSError))
 
     async def action_loop(self, lane=None):

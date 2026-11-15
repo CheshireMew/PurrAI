@@ -3,7 +3,7 @@ export type { GroupSettings } from './groupSettings'
 
 export interface User { id: number; root: boolean; csrf: string }
 export interface Group { id: number; title: string; type: string; status: string; approved: boolean; enabled: boolean; settings: GroupSettings; setting_overrides?: string[]; previous_ids?: number[] }
-export interface Rule { id?: string; version?: string; inherited?: boolean; inherited_from?: string; kind: string; value: string; mode: string; scope: string; context_value: string; penalty: string; enabled: boolean; kind_label?: string; matching_label?: string; scope_label?: string; consequence?: string; origin?: string; hit_count?: number; last_hit_at?: number; sources?: {group_id: number; message_id: number; origin_group_id?: number; origin_message_id?: number; created_at: number; withdrawn: boolean}[] }
+export interface Rule { id?: string; version?: string; inherited?: boolean; inherited_from?: string; kind: string; value: string; mode: string; scope: string; context_value: string; meaning?: string; penalty: string; enabled: boolean; kind_label?: string; matching_label?: string; scope_label?: string; consequence?: string; origin?: string; hit_count?: number; last_hit_at?: number; sources?: {group_id: number; message_id: number; origin_group_id?: number; origin_message_id?: number; created_at: number; withdrawn: boolean}[] }
 export interface SharedPolicy { settings: GroupSettings; rules: Rule[] }
 export interface Whitelist { user_id: number; version?: string; verification: boolean; moderation: boolean; note: string }
 export interface Verification { allowed_operations: string[]; id: string; user_id: number; user_name: string; state: string; deadline: number; attempts: number; failure_action: string; error: string }
