@@ -180,6 +180,11 @@ class BotInput:
                 import re
 
                 value = [] if text.strip() == "-" else re.split(r"[\s,，]+", text.strip())
+            elif key == "chat_no_reply_user_ids":
+                values = [] if text.strip() == "-" else text.split()
+                if any(not value.isascii() or not value.isdecimal() or int(value) <= 0 for value in values):
+                    raise ManagementError(422, "请填写用户的正数数字 ID，每行一个")
+                value = [int(item) for item in values]
             elif key in ("chat_ignored_texts", "chat_command_exceptions"):
                 value = [] if text.strip() == "-" else text.splitlines()
             await self.management.setting(actor, group_id, key, value, request_id)

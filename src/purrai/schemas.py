@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from purrai.pack_names import DEFAULT_BLOCKED_PACKS, emoji_pack_name as pack_name
@@ -18,6 +18,15 @@ class GroupSettings(BaseModel):
         default_factory=lambda: ["签到", "积分", "抽奖", "注册币安", "注册 OKX", "币圈教程"],
         max_length=100,
     )
+    chat_no_reply_user_ids: list[Annotated[int, Field(strict=True, gt=0, le=2**52 - 1)]] = Field(
+        default_factory=list, max_length=500,
+    )
+
+    @field_validator("chat_no_reply_user_ids")
+    @classmethod
+    def unique_no_reply_users(cls, values):
+        return list(dict.fromkeys(values))
+
     chat_command_learning: bool = True
     chat_command_threshold: int = Field(default=5, ge=3, le=50)
     chat_command_exceptions: list[str] = Field(default_factory=list, max_length=100)

@@ -64,7 +64,8 @@ class ChatScheduler:
         valid_ids = {row.message_id for row in await session.scalars(select(ChatMessage).where(
             *self.contexts.clean_conditions(group.id, topic_id),
             ChatMessage.message_id.in_([item.message_id for item in batch]),
-        )) if not ignored_text(row.text, ignored, getattr(self.tg, "username", "")) and now() - row.sent_at <= 120}
+        )) if row.sender_id not in cfg.chat_no_reply_user_ids
+            and not ignored_text(row.text, ignored, getattr(self.tg, "username", "")) and now() - row.sent_at <= 120}
         for item in batch:
             if item.review_only:
                 if not await self.contexts.review(session, item, cfg):

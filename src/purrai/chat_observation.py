@@ -47,6 +47,7 @@ class ChatObservation:
             if not group or not group.approved:
                 return
             cfg = GroupSettings.model_validate(group.settings)
+            no_reply = sender.get("id") in cfg.chat_no_reply_user_ids
             if row and (message.get("edit_date", 0), update_id) < (row.edited_at, row.update_id):
                 return
             if not row and (not cfg.chat_enabled or not self.settings.chat_ready):
@@ -63,7 +64,7 @@ class ChatObservation:
             allowed = bool(sender.get("id")) and await self.contexts.allowed(session, group_id, message_id, sender["id"])
             command_state = await chat_commands.observe(
                 session, group_id, {**message, "from": sender}, cfg,
-                eligible=bool(not direct and not reasons and not urls and not has_image(message)
+                eligible=bool(not no_reply and not direct and not reasons and not urls and not has_image(message)
                               and not (message.get("forward_origin") or message.get("forward_date"))
                               and human_message(message, bot_username=getattr(self.tg, "username", "")) and allowed),
                 edited=edited, advertising=bool(reasons),
@@ -95,7 +96,7 @@ class ChatObservation:
             if command:
                 image, eligible = False, False
                 logger.info("聊天口令已排除 group=%s message=%s", group_id, message_id)
-            if eligible and not reasons and allowed and not image:
+            if eligible and not no_reply and not reasons and allowed and not image:
                 topic_id = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
                 reason = await participation_reason(
                     session, group_id, topic_id, message_id, sender["id"], text, cfg, self.tg,
@@ -106,7 +107,9 @@ class ChatObservation:
                 )
                 if reason:
                     reasons.append(reason)
-            eligible = eligible and not reasons
+            eligible = eligible and not reasons and not no_reply
+            if no_reply:
+                image = False
             # Conversational repetition/short-opening gates must not suppress a
             # configured keyword review. Eligible conversations retain normal replies.
             review_only = review_only or keyword_review and (not eligible or not cfg.chat_proactive and not direct)
@@ -119,7 +122,7 @@ class ChatObservation:
                 logger.info("聊天输入已拦截 group=%s message=%s reasons=%s", group_id, message_id, reasons)
             topic = (message.get("message_thread_id") or 0) if message.get("is_topic_message") else 0
             if cfg.chat_enabled and self.settings.chat_ready and sender.get("id"):
-                explanation = ("广告后续审查，不参与聊天" if review_only else "聊天忽略口令" if command else "；".join(reasons) if reasons else
+                explanation = ("广告后续审查，不参与聊天" if review_only else "不回复名单：不参与聊天" if no_reply else "聊天忽略口令" if command else "；".join(reasons) if reasons else
                     "目标成员或消息已受限" if not allowed else "图片不可读取，未直接叫到机器人" if image and not direct else
                     "消息已超过处理时限" if now() - message["date"] > 120 else
                     "主动参与已关闭，未直接叫到机器人" if not cfg.chat_proactive and not direct else

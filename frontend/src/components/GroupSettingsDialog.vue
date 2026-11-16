@@ -27,6 +27,7 @@ const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaul
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
 const ignoredChatText = ref('')
+const noReplyUsersText = ref('')
 const commandExceptionsText = ref('')
 const allowedLinksText = ref('')
 const stagedReset = ref<(keyof GroupSettings)[]>([])
@@ -36,6 +37,7 @@ function draftSettings(): GroupSettings {
     chat_sticker_packs: chatPacksText.value.split(/[\s,，]+/).filter(Boolean),
     chat_antifraud_packs: antifraudPacksText.value.split(/[\s,，]+/).filter(Boolean),
     chat_ignored_texts: ignoredChatText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean),
+    chat_no_reply_user_ids: noReplyUsersText.value.split(/[\s,，]+/).filter(Boolean).map(Number),
     chat_command_exceptions: commandExceptionsText.value.split(/\r?\n/).map(text => text.trim()).filter(Boolean),
     telegram_allowed_links: allowedLinksText.value.split(/\s+/).filter(Boolean),
   }
@@ -44,6 +46,7 @@ function syncTextFields() {
   chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n')
   ignoredChatText.value = form.chat_ignored_texts.join('\n')
+  noReplyUsersText.value = form.chat_no_reply_user_ids.join('\n')
   commandExceptionsText.value = form.chat_command_exceptions.join('\n')
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
 }
@@ -78,6 +81,7 @@ watch(() => props.group, group => {
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n'); chatStatus.value = {}; error.value = ''
   ignoredChatText.value = form.chat_ignored_texts.join('\n')
+  noReplyUsersText.value = form.chat_no_reply_user_ids.join('\n')
   commandExceptionsText.value = form.chat_command_exceptions.join('\n')
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
@@ -133,6 +137,7 @@ async function changeInheritance(key: keyof GroupSettings, restore: boolean) {
     if (key === 'chat_sticker_packs') chatPacksText.value = form.chat_sticker_packs.join('\n')
     if (key === 'chat_antifraud_packs') antifraudPacksText.value = form.chat_antifraud_packs.join('\n')
     if (key === 'chat_ignored_texts') ignoredChatText.value = form.chat_ignored_texts.join('\n')
+    if (key === 'chat_no_reply_user_ids') noReplyUsersText.value = form.chat_no_reply_user_ids.join('\n')
     if (key === 'chat_command_exceptions') commandExceptionsText.value = form.chat_command_exceptions.join('\n')
     if (key === 'telegram_allowed_links') allowedLinksText.value = form.telegram_allowed_links.join('\n')
     await reloadGroups(); ElMessage.success(restore ? '此项已恢复通用设置' : '此项已固定为本群设置')
@@ -269,6 +274,10 @@ async function save() {
 <el-input v-model="ignoredChatText" type="textarea" :rows="3" placeholder="每行一条其他机器人的按钮文字，例如签到、积分、币圈教程"/>
 </el-form-item>
 <p class="muted">整条消息与口令相同时不进入 AI 聊天或上下文；“今天积分怎么算”等正常句子仍可讨论。积分红包后带数字、明确发给其他机器人的结构化指令直接排除，留空只关闭自定义名单。</p>
+<el-form-item label="不回复名单">
+<el-input v-model="noReplyUsersText" type="textarea" :rows="3" placeholder="用户数字 ID，每行一个"/>
+</el-form-item>
+<p class="muted">名单内账号的普通消息不调用 AI 聊天，也不进入聊天上下文；即使 @ 或回复机器人也不接话。广告审查和群管理照常。移除 ID 后恢复回复。</p>
 <el-form-item label="自动识别重复口令">
 <el-switch v-model="form.chat_command_learning" aria-label="自动识别重复口令"/>
 </el-form-item>

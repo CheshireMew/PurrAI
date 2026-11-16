@@ -146,29 +146,31 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "28f7e11f64f0a358fc396ca3f2099570916f9178bc1002f9c43b48d538036680",
-      "line": 153,
+      "digest": "4a84d33f98a14d7d1364a6a03a16fd8feeb2e391b40ede9c0fa6fd1ae20cdfd7",
+      "line": 160,
       "examples": [
+        "不回复名单（用户数字 ID，每行一个，- 清空）",
         "主动接话检查间隔（秒）",
         "口令识别例外（每行一条，- 清空）",
         "口令识别次数（7 天内，至少 3 位群友）",
-        "性格与说话习惯",
-        "最近消息条数"
-      ]
+        "性格与说话习惯"
+      ],
+      "review_note": "2026-11-16 user-requested no-reply list: CHAT_FIELDS adds only an editable settings label; no account IDs, business keywords or matching behavior."
     },
     {
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "2bf020c10435950cdae155621f5cfb57210cb7e2121713b994acadceb2f82084",
-      "line": 168,
+      "digest": "dd4e48a0c9c6fdca5ef45c33dfa9b3f73cfcf22d3805cd40c5ec1a7e9407fa20",
+      "line": 176,
       "examples": [
+        "不回复名单",
         "主动接话检查间隔",
         "口令识别例外",
         "口令识别次数",
-        "性格与说话习惯",
-        "最近消息条数"
-      ]
+        "性格与说话习惯"
+      ],
+      "review_note": "2026-11-16 user-requested no-reply list: CHAT_BUTTON_LABELS adds only an editable settings label; no account IDs, business keywords or matching behavior."
     },
     {
       "path": "src/purrai/backup_management.py",

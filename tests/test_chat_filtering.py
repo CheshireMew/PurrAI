@@ -186,3 +186,132 @@ async def test_ignore_list_api_validation(client, env):
     from purrai.schemas import GroupSettings
 
     assert "查余额" not in GroupSettings().chat_ignored_texts
+
+
+async def test_no_reply_list_api_blocks_all_chat_triggers_and_removal_restores_reply(client, env):
+    chat, model = await configured(env)
+    response = await client.patch("/api/groups/-1001/settings", json={"settings": {
+        "chat_no_reply_user_ids": [42, 42],
+    }})
+    assert response.status_code == 200, response.text
+    async with chat.db.sessions() as session:
+        assert (await session.get(Group, -1001)).settings["chat_no_reply_user_ids"] == [42]
+    samples = [
+        message(1, "周末打算出去走走"),
+        message(2, "@purrai_bot 你觉得呢"),
+        message(3, "你再说一句", reply_to_message={"message_id": 900, "from": {"id": chat.tg.user_id, "is_bot": True}}),
+        message(4, "柴郡喵，你认识我吗", **{"from": {"id": 42, "first_name": "换个昵称"}}),
+    ]
+    for incoming in samples:
+        await chat.observe(incoming)
+        await due(chat)
+        assert not await chat.run_one()
+    assert not model.calls
+    await chat.observe(message(5, "柴郡喵，推荐周末活动吧", user_id=43))
+    assert await chat.run_one()
+    assert [row["id"] for row in model.calls[-1][1]["messages"]] == [5]
+    response = await client.patch("/api/groups/-1001/settings", json={"settings": {"chat_no_reply_user_ids": []}})
+    assert response.status_code == 200
+    await age_reply(chat)
+    await chat.observe(message(6, "柴郡喵，今天适合去公园吗"))
+    assert await chat.run_one()
+    assert model.calls[-1][1]["reply_to"] == 6
+    for invalid in [[0], [-1], [True], [42.5], ["42"], [2**52], list(range(1, 502))]:
+        response = await client.patch("/api/groups/-1001/settings", json={"settings": {"chat_no_reply_user_ids": invalid}})
+        assert response.status_code == 422
+
+
+async def test_no_reply_list_cancels_queued_chat_before_model_call(client, env):
+    chat, model = await configured(env)
+    await chat.observe(message(1, "柴郡喵，明天去哪玩"))
+    assert (await client.patch("/api/groups/-1001/settings", json={"settings": {"chat_no_reply_user_ids": [42]}})).status_code == 200
+    await due(chat)
+    assert not await chat.run_one() and not model.calls
+
+
+async def test_no_reply_list_added_during_generation_stops_reply(client, env):
+    chat, model = await configured(env)
+    await chat.observe(message(1, "柴郡喵，明天去哪玩"))
+    model.release = asyncio.Event()
+    running = asyncio.create_task(chat.run_one())
+    try:
+        await asyncio.wait_for(model.started.wait(), 3)
+        assert (await client.patch("/api/groups/-1001/settings", json={"settings": {"chat_no_reply_user_ids": [42]}})).status_code == 200
+    finally:
+        model.release.set()
+        await running
+    assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
+
+
+async def test_no_reply_list_removes_frozen_history_bot_replies_and_quoted_text(client, env):
+    chat, model = await configured(env)
+    await chat.observe(message(1, "柴郡喵，我们来聊个只有我知道的话题"))
+    assert await chat.run_one()
+    assert (await client.patch("/api/groups/-1001/settings", json={"settings": {"chat_no_reply_user_ids": [42]}})).status_code == 200
+    await age_reply(chat)
+    await chat.observe(message(2, "柴郡喵，换个话题聊聊周末", user_id=43,
+                               reply_to_message={"message_id": 1, "from": {"id": 42}, "text": "只有我知道的话题"}))
+    assert await chat.run_one()
+    context = model.calls[-1][1]["messages"]
+    assert [row["id"] for row in context] == [2]
+    assert "quote" not in context[0] and "reply_to" not in context[0]
+    assert "只有我知道" not in json.dumps(context, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("advertisement", [False, True])
+async def test_no_reply_list_preserves_keyword_ad_review_and_moderation(client, env, advertisement):
+    from conftest import drain
+    from test_ai_advertising_limit import save_ai_keyword
+
+    chat, model = await configured(env, chat_no_reply_user_ids=[42])
+    await save_ai_keyword(client, value="纸飞机", meaning="需结合语境判断")
+    model.result = ChatReply(text="这句聊天不能发出", should_reply=True, is_advertisement=advertisement)
+    incoming = message(1, "柴郡喵，这段纸飞机内容要判断")
+    await env[3].message(incoming)
+    await chat.observe(incoming)
+    assert await chat.run_one() and len(model.calls) == 1
+    async with chat.db.sessions() as session:
+        assert (await session.scalar(select(ChatTurn))).review_only
+    assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
+    await drain(env[3])
+    deleted = [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"]
+    assert deleted == ([1] if advertisement else [])
+    if advertisement:
+        assert not chat.tg.members[(-1001, 42)]["can_send_messages"]
+        assert chat.tg.members[(-1001, 42)]["until_date"] == 0
+    else:
+        assert not any(method == "restrict_chat_member" for method, _ in chat.tg.calls)
+
+
+async def test_no_reply_list_shared_setting_works_with_pre_upgrade_data(client, env):
+    from purrai.models import SharedPolicy
+    async with env[1].transaction() as session:
+        shared = await session.get(SharedPolicy, 1)
+        if shared:
+            shared.settings = {key: value for key, value in shared.settings.items() if key != "chat_no_reply_user_ids"}
+        group = await session.get(Group, -1001)
+        group.settings = {key: value for key, value in group.settings.items() if key != "chat_no_reply_user_ids"}
+    before = (await client.get("/api/settings/defaults")).json()
+    assert before["settings"]["chat_no_reply_user_ids"] == []
+    response = await client.patch("/api/settings/defaults", json={
+        "settings": {"chat_no_reply_user_ids": [77]}, "baseline": before, "request_id": "no-reply-shared-test",
+    })
+    assert response.status_code == 200, response.text
+    async with env[1].sessions() as session:
+        assert (await session.get(Group, -1001)).settings["chat_no_reply_user_ids"] == [77]
+
+
+async def test_no_reply_list_can_be_saved_and_cleared_from_telegram_panel(env):
+    from purrai.runtime import Runtime
+    _, db, tg, service = env
+    runtime = Runtime(db, tg, service)
+    await open_group(runtime, tg)
+    await click(runtime, tg, "群聊天设置")
+    await click(runtime, tg, "不回复名单")
+    await deliver(runtime, {"message": private("42\n77\n42")})
+    async with db.sessions() as session:
+        assert (await session.get(Group, -1001)).settings["chat_no_reply_user_ids"] == [42, 77]
+    await click(runtime, tg, "不回复名单")
+    await deliver(runtime, {"message": private("-")})
+    async with db.sessions() as session:
+        assert (await session.get(Group, -1001)).settings["chat_no_reply_user_ids"] == []

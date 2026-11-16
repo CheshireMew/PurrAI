@@ -156,14 +156,14 @@ class GroupConfiguration:
 
     async def read_defaults(self):
         async with self.context.db.sessions() as session:
-            return (await policy(session)).settings
+            return GroupSettings.model_validate((await policy(session)).settings).model_dump()
 
     async def shared(self, actor, body=None):
         await self.context.access.principal(actor, root=True)
         if body is None:
             async with self.context.db.sessions() as session:
                 current = await policy(session)
-                return {"settings": current.settings, "rules": current.rules}
+                return {"settings": GroupSettings.model_validate(current.settings).model_dump(), "rules": current.rules}
         from sqlalchemy import select
         from purrai.rule_admin import RuleAdministration
 

@@ -27,6 +27,7 @@ class ConfigurationPanels:
             f"昵称：{cfg.chat_name}\n性格：{cfg.chat_persona or '自然随和'}\n"
             f"最近上下文：{cfg.chat_history} 条，同群不同话题分开\n"
             f"聊天忽略口令：{'、'.join(cfg.chat_ignored_texts)[:300] or '未设置'}（完整匹配）\n"
+            f"不回复名单：{'、'.join(map(str, cfg.chat_no_reply_user_ids))[:300] or '未设置'}\n"
             f"自动识别口令：{'开启' if cfg.chat_command_learning else '关闭'}；7 天内 {cfg.chat_command_threshold} 次、至少 3 位群友\n"
             "带数字的积分红包及发给其他机器人的结构化指令直接排除。\n"
             "不再固定等待，直接处理明确提问；模型生成及接口限流仍需处理时间。\n"

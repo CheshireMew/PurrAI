@@ -77,15 +77,16 @@ async def update_shared(session, settings=None, rules=None):
 def merge_shared_changes(current, body):
     """Three-way merge only the fields/individual rules actually edited."""
     from purrai.errors import ManagementError
-    from purrai.schemas import RuleInput
+    from purrai.schemas import GroupSettings, RuleInput
 
     proposed = [rule.model_dump() for rule in body.rules] if body.rules is not None else None
     if body.baseline is None:
         return proposed
     baseline = body.baseline
+    current_settings = GroupSettings.model_validate(current.settings).model_dump()
     for key, value in (body.settings or {}).items():
         old = baseline.get("settings", {}).get(key)
-        if key not in baseline.get("settings", {}) or current.settings[key] not in (old, value):
+        if key not in baseline.get("settings", {}) or current_settings[key] not in (old, value):
             raise ManagementError(409, f"通用设置 {key} 已被修改，请刷新核对；你的草稿已保留")
     if proposed is None:
         return None

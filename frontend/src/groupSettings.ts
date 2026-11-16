@@ -6,6 +6,7 @@ export interface GroupSettings {
   chat_name: string
   chat_persona: string
   chat_ignored_texts: string[]
+  chat_no_reply_user_ids: number[]
   chat_command_learning: boolean
   chat_command_threshold: number
   chat_command_exceptions: string[]

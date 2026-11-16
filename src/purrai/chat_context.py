@@ -96,6 +96,7 @@ class ChatContext:
         excluded = set(await session.scalars(select(candidates.c.message_id).where(
             blocked_message(group_id, candidates.c.message_id, candidates.c.sender_id),
         )))
+        excluded.update(identifier for identifier, sender in speakers.items() if sender in cfg.chat_no_reply_user_ids)
         excluded.update(identifier for identifier, name in names.items()
                         if assess("", [], rules, cfg.model_dump(), sender_name=name)["name_reasons"])
         excluded.update(row.message_id for row in sources if not row.eligible and not (
@@ -397,6 +398,7 @@ class ChatContext:
             and target
             and (target.eligible or turn.review_only)
             and target.sender_id == sender_id
+            and (turn.review_only or sender_id not in group.settings.get("chat_no_reply_user_ids", []))
             and target.text == original
             and now() - target.sent_at <= 120
             and now() - turn.created_at <= 120
