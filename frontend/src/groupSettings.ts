@@ -3,6 +3,7 @@ export interface GroupSettings {
   bio_advertising_enabled: boolean
   bio_cache_seconds: number
   notice_seconds: number
+  ai_ad_mute_notice: boolean
   ai_ad_window_hours: number
   ai_ad_limit: number
   ai_ad_penalty: "delete" | "permanent_mute"

@@ -19,6 +19,10 @@ class ActionPreflightError(ConnectionError):
     """A retryable check failed before the Telegram effect was attempted."""
 
 
+class MemberStateChanged(ActionSuperseded):
+    """Only the member snapshot changed while the writer was released."""
+
+
 class ChallengeDeliveryRetry(ConnectionError):
     """Keep retrying a persisted CAPTCHA without treating delivery as user failure."""
 
@@ -90,7 +94,10 @@ class ActionExecution:
                 deleted.add(id(row))
                 if row in self.session:
                     self.session.expunge(row)
-        if any(id(row) in deleted or self.identity(row) != value for row, value in baseline):
+        changed = [row for row, value in baseline if id(row) in deleted or self.identity(row) != value]
+        if changed:
+            if all(isinstance(row, Member) for row in changed):
+                raise MemberStateChanged(result) from error
             raise ActionSuperseded(result) from error
         if error is not None:
             raise error

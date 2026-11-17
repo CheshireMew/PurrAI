@@ -96,6 +96,10 @@ class ActionTransport:
                 raise ActionSuperseded(result)
             return result
         except ActionSuperseded as exc:
+            # deleteMessage returns True only after Telegram deleted this exact message.
+            if action.kind == "delete" and method == "delete_message" and exc.result is True:
+                action.state, action.error = "succeeded", ""
+                return True
             # A sent challenge can finish after an administrator replaced it.
             # Remove that exact stale prompt without writing into the new generation.
             if (action.kind == "challenge" and method in ("send_photo", "send_message")

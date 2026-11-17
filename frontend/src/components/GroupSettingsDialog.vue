@@ -191,6 +191,7 @@ async function save() {
 </template>
 <el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
 <section v-show="activeTab === 'policy'" aria-label="审核与提醒设置">
+<el-form-item :label="catalog!.settings.labels?.ai_ad_mute_notice"><el-switch v-model="form.ai_ad_mute_notice" :aria-label="catalog!.settings.labels?.ai_ad_mute_notice"/></el-form-item>
 <div class="settings-grid"><el-form-item v-for="key in policyNumbers" :key="key" :label="catalog!.settings.labels?.[key] || key">
 <el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum" :aria-label="catalog!.settings.labels?.[key] || key"/>
 </el-form-item></div>

@@ -37,6 +37,9 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: '群设置', exact: true }).first().click()
     const dialog = page.getByRole('dialog', { name: '群设置', exact: true })
     await dialog.getByRole('tab', { name: '审核与提醒', exact: true }).click()
+    const notice = dialog.getByRole('switch', { name: catalog.settings.labels.ai_ad_mute_notice })
+    await expect(notice).not.toBeChecked()
+    await notice.press('Space')
     const input = dialog.getByLabel(catalog.settings.labels.notice_seconds, { exact: true })
     await input.fill('45'); await input.press('Tab')
     await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: 'AI广告累计处理', exact: true }) }).locator('.el-select__wrapper').click()
@@ -49,7 +52,7 @@ for (const width of [1440, 390]) {
     }
     const request = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
-    expect((await request).postDataJSON().settings).toMatchObject({ notice_seconds: 45, ai_ad_penalty: 'delete', chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })
+    expect((await request).postDataJSON().settings).toMatchObject({ ai_ad_mute_notice: true, notice_seconds: 45, ai_ad_penalty: 'delete', chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })
     await expect(dialog).not.toBeVisible()
   })
 

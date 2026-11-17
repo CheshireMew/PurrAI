@@ -35,6 +35,7 @@ async def test_three_actual_model_verdicts_within_window_persist_and_permanently
     assert not any(method == "ban_chat_member" for method, _ in chat.tg.calls)
     async with chat.db.sessions() as session:
         assert (await session.scalar(select(Action).where(Action.kind == "ai_ad_mute"))).state == "succeeded"
+        assert await session.scalar(select(Action).where(Action.kind == "warn")) is None
 
 
 async def test_cached_ad_is_reassessed_but_duplicate_model_result_does_not_add_judgments(env):
@@ -174,6 +175,9 @@ async def save_ai_keyword(client, value=None, mode=None, previous=None, **change
 ])
 async def test_keyword_and_first_actual_ai_verdict_delete_and_mute_once(env, client, word, text):
     chat, model = await configured(env)
+    response = await client.patch('/api/groups/-1001/settings', json={'settings': {'ai_ad_mute_notice': True}},
+                                  headers={'Idempotency-Key': 'enable-ai-mute-notices'})
+    assert response.status_code == 200, response.text
     worker, moderation_model = await reviewer(env)
     rule = await save_ai_keyword(client, word)
     model.result = ChatReply(should_reply=False, is_advertisement=True)

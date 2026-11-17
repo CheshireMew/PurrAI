@@ -6,7 +6,7 @@ import logging
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter, TelegramNetworkError
 from sqlalchemy import and_, literal_column, select
 
-from purrai.action_execution import ActionExecution, ActionSuperseded, ChallengeDeliveryRetry, RestrictionPreserved
+from purrai.action_execution import ActionExecution, ActionSuperseded, ChallengeDeliveryRetry, MemberStateChanged, RestrictionPreserved
 from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy
 from purrai.action_preparation import ActionHandler, ActionPreparation
 from purrai.action_transport import ActionTransport
@@ -172,7 +172,11 @@ class ActionRunner:
                 if action.state == "succeeded":
                     action.error = ""
             except ActionSuperseded as exc:
-                if action.state == "pending":
+                if action.kind == "delete" and action.state == "pending" and isinstance(exc, MemberStateChanged):
+                    # Re-enter normal preparation with current permissions, message evidence and exemptions.
+                    action.available_at = now() + min(30, 2 ** min(action.attempts, 5))
+                    action.error = "成员状态已变化，将重新核对消息删除条件"
+                elif action.state == "pending":
                     action.state = "cancelled"
                     action.error = str(exc)
                 if isinstance(exc, RestrictionPreserved):
@@ -220,6 +224,10 @@ class ActionRunner:
                     action.state = "failed"
                 await self.report_error(session, action)
             action.updated_at = now()
+            if action.kind in ("warn", "admin_notify"):
+                # A send can be confirmed even if a concurrent member update cancelled the action.
+                from purrai.notice_cleanup import schedule_notice_cleanup
+                await schedule_notice_cleanup(session, action)
             await deletion_result(session, action)
             logger.info("操作处理结果 action=%s kind=%s group=%s state=%s attempt=%s elapsed=%.3fs",
                         action.id, action.kind, action.group_id, action.state, action.attempts, perf_counter() - started)

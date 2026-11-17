@@ -4,6 +4,7 @@
       "bio_advertising_enabled": true,
       "bio_cache_seconds": 300,
       "notice_seconds": 30,
+      "ai_ad_mute_notice": false,
       "ai_ad_window_hours": 72,
       "ai_ad_limit": 3,
       "ai_ad_penalty": "permanent_mute",
@@ -146,6 +147,11 @@
         "minimum": 5,
         "title": "群内系统提醒保留秒数",
         "type": "integer"
+      },
+      "ai_ad_mute_notice": {
+        "default": false,
+        "title": "在群内发送 AI 广告禁言通知",
+        "type": "boolean"
       },
       "ai_ad_window_hours": {
         "default": 72,
@@ -775,6 +781,7 @@
       "bio_advertising_enabled": "检查用户简介广告",
       "bio_cache_seconds": "用户简介刷新间隔（秒）",
       "notice_seconds": "群内系统提醒保留秒数",
+      "ai_ad_mute_notice": "在群内发送 AI 广告禁言通知",
       "ai_ad_window_hours": "AI广告累计窗口（小时）",
       "ai_ad_limit": "AI广告累计次数",
       "ai_ad_penalty": "AI广告累计处理",

@@ -5,7 +5,6 @@ from aiogram.exceptions import TelegramBadRequest
 from purrai.action_delivery import deliver_once
 from purrai.admin_labels import OPERATIONS, STATE
 from purrai.media_gate import media_gate_exemption
-from purrai.notice_cleanup import schedule_notice_cleanup
 from purrai.models import (
     Action,
     now,
@@ -77,7 +76,6 @@ class NotificationActions:
         await deliver_once(
             self.action_call, session, action, "send_message", chat_id=action.payload["chat_id"], text="\n".join(lines)[:4000]
         )
-        await schedule_notice_cleanup(session, action)
 
     async def join_link(self, session, action, group, verification, member):
         response = await deliver_once(
@@ -113,8 +111,11 @@ class NotificationActions:
         action.payload = {**action.payload, "exported_count": count}
 
     async def warn(self, session, action, group, verification, member):
+        # The same key identifies pending notifications created by earlier releases.
+        if action.dedupe_key.startswith("ai-ad-notice:") and not group.settings.get("ai_ad_mute_notice", False):
+            action.state, action.error = "cancelled", "本群已关闭 AI 广告禁言通知"
+            return
         await deliver_once(self.action_call, session, action, "send_message", chat_id=group.id, text=action.payload["text"])
-        await schedule_notice_cleanup(session, action)
 
     async def auto_reply(self, session, action, group, verification, member):
         from purrai.auto_replies import send_reply

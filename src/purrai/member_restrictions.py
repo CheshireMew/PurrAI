@@ -220,7 +220,7 @@ class MemberRestrictions:
             )
         # Report completion only after Telegram accepted the permanent restriction.
         await finish_penalty(session, active, violation_label, "permanent_mute")
-        if kind == "ai_ad":
+        if kind == "ai_ad" and group.settings.get("ai_ad_mute_notice", False):
             name = display_name(current.get("user") or {}, fallback=action.payload.get("user_name") or "未命名成员")
             await enqueue(session, "warn", f"ai-ad-notice:{action.id}", group.id, member.user_id,
                 {"text": f"用户{name}：{ai_label}，已永久禁言。"})

@@ -23,8 +23,7 @@ async def schedule_notice_cleanup(session, action):
     key = "cleanup:notice:" + action.id
     if await session.scalar(select(Action.id).where(Action.dedupe_key == key)):
         return
-    expires_at = action.payload.get("notice_expires_at") or (
-        action.updated_at if action.state == "succeeded" else now()) + seconds
+    expires_at = action.payload.get("notice_expires_at") or action.updated_at + seconds
     action.payload = {**action.payload, "notice_expires_at": expires_at}
     deletion = await enqueue(session, "delete", key, action.group_id,
         payload={"message_id": message_id, "chat_id": action.group_id}, priority=5,
@@ -41,7 +40,7 @@ class NoticeCleanup:
         async with self.db.transaction() as session:
             notices = (await session.scalars(select(notice).outerjoin(cleanup,
                 cleanup.dedupe_key == "cleanup:notice:" + notice.id).where(
-                    notice.kind.in_(("warn", "admin_notify")), notice.state == "succeeded", notice.group_id.is_not(None),
+                    notice.kind.in_(("warn", "admin_notify")), notice.group_id.is_not(None),
                     notice.updated_at >= now() - 48 * 3600,
                     notice.payload["delivery"]["state"].as_string() == "confirmed",
                     notice.payload["delivery"]["method"].as_string() == "send_message",

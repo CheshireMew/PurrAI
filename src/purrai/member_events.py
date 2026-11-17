@@ -62,7 +62,9 @@ class MemberEvents:
             manual_unmute = is_admin(
                 await self.tg.call("get_chat_member", chat_id=chat["id"], user_id=actor["id"])
             )
-        profile = await prepare_message(self.db, {"chat": chat, "from": new["user"], "text": ""}, self.tg) if not bot_event else None
+        profile = None
+        if not bot_event and not is_present(old) and is_present(new) and not is_admin(new):
+            profile = await prepare_message(self.db, {"chat": chat, "from": new["user"], "text": ""}, self.tg)
         async with self.db.transaction() as session:
             group = await session.get(Group, chat["id"])
             if not group:
