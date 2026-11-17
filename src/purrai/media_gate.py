@@ -195,10 +195,13 @@ async def media_gate_exemption( session, action, group, member):
     if action.actor_id or not group or action.payload.get("chat_id", group.id) != group.id:
         return False
     violation = await session.get(Violation, action.payload.get("violation_id", ""))
+    from purrai.reason_policy import matches
+    from purrai.shared_policy import effective_rules
+    rules = await effective_rules(session, group.id)
     # Also recognize queued tasks from before this update. A combined
     # advertising/profile violation must still follow its own policy.
     if not violation or violation.profile_violation or not violation.reasons or not all(
-        reason.startswith("独立文字发言不足 ") for reason in violation.reasons
+        matches(reason, "media_gate", rules) for reason in violation.reasons
     ):
         return False
     minimum = group.settings.get("media_min_text_messages", 3)

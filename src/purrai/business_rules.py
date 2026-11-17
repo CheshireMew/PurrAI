@@ -8,7 +8,6 @@ from functools import lru_cache
 from importlib.resources import files
 
 from purrai.text_matching import normalize
-from purrai.advertising_constants import AD_PREFIX, is_ban_reason
 
 
 @lru_cache(maxsize=1)
@@ -21,7 +20,9 @@ def seed_document():
 def default_business_rules():
     from purrai.recognition_policy import default_recognition
 
-    return {**copy.deepcopy(seed_document()), "recognition": default_recognition()}
+    from purrai.reason_policy import default_reason_policy
+
+    return {**copy.deepcopy(seed_document()), "recognition": default_recognition(), "reason_policy": default_reason_policy()}
 
 
 class RuleSet(list):
@@ -70,16 +71,11 @@ def transform(value, steps):
 
 
 class BusinessReason(str):
-    def __new__(cls, value, action="", rule_id="", advertiser_cooldown=False):
-        # Keep disposition unambiguous after JSON/SQLite round trips. These are
-        # existing reason categories, not advertising vocabulary or conditions.
-        if action == "ban" and not is_ban_reason(value):
-            value = AD_PREFIX + value
-        elif action and action != "ban" and is_ban_reason(value):
-            value = ("规则禁言：" if action == "mute" else "规则删除：") + value.split("：", 1)[-1]
+    def __new__(cls, value, action="", rule_id="", advertiser_cooldown=False, *, contact=False):
         result = super().__new__(cls, value)
         result.action, result.rule_id = action, rule_id
         result.advertiser_cooldown = advertiser_cooldown
+        result.contact = contact
         return result
 
 

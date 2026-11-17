@@ -150,7 +150,7 @@ async def test_quota_and_delivery_failure_have_distinct_diagnostics(env, caplog,
     async with chat.db.sessions() as session:
         turn = await session.scalar(select(ChatTurn))
         if failure_kind == "quota":
-            assert turn.state == "skipped" and "今日 AI 聊天额度已用完" in turn.error
+            assert turn.state == "skipped" and "全部群今日 AI 额度已用完" in turn.error
             assert not model.calls and "聊天未请求模型" in caplog.text
         else:
             assert turn.state == "failed" and "ConnectionError" in turn.error

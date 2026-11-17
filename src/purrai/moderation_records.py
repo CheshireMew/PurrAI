@@ -3,8 +3,8 @@
 from sqlalchemy import or_, select
 
 from purrai.models import Action, Meta, RuleHit, Violation, now, uid
-from purrai.rules import CONTACT_REASONS
-from purrai.advertising_patterns import is_ban_reason
+from purrai.reason_policy import classifies, details, unique_reasons
+from purrai.shared_policy import effective_rules
 
 
 async def record_violation(
@@ -22,6 +22,7 @@ async def record_violation(
     message_violation=False,
 ):
     """Merge message evidence monotonically and report whether penalties changed."""
+    reasons = unique_reasons(reasons)
     row = await session.scalar(
         select(Violation).where(
             Violation.group_id == group_id,
@@ -43,6 +44,7 @@ async def record_violation(
             sender_name=sender_name[:500],
             sender_chat=sender_chat,
             reasons=list(dict.fromkeys(reasons)),
+            reason_details={str(reason): details(reason) for reason in reasons if details(reason)},
             warning_active=False,
             **flags,
         )
@@ -51,12 +53,13 @@ async def record_violation(
         return row, True
     if await session.get(Meta, f"violation-correction:{row.id}"):
         return row, False
-    changed = any(value and not getattr(row, key) for key, value in flags.items()) or (
-        any(reason in reasons for reason in CONTACT_REASONS)
-        and not any(reason in row.reasons for reason in CONTACT_REASONS)
-    )
-    changed = changed or (any(is_ban_reason(reason) for reason in reasons)
-                          and not any(is_ban_reason(reason) for reason in row.reasons))
+    rules = await effective_rules(session, group_id)
+    changed = any(value and not getattr(row, key) for key, value in flags.items())
+    for category in ("contact", "ban"):
+        changed = changed or (any(classifies(reason, category, rules) for reason in reasons)
+            and not any(classifies(reason, category, rules, row.reason_details) for reason in row.reasons))
+    row.reason_details = {**(row.reason_details or {}),
+                          **{str(reason): details(reason) for reason in reasons if details(reason)}}
     for key, value in flags.items():
         setattr(row, key, getattr(row, key) or value)
     row.reasons = list(dict.fromkeys(row.reasons + reasons))

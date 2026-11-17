@@ -51,7 +51,10 @@ def validate_document(document):
             else:
                 raise ValueError("不支持的文本处理步骤")
 
-    keys(document, ("format", "views", "conditions", "stages"), ("recognition", "ai_review_instructions"))
+    keys(document, ("format", "views", "conditions", "stages"), ("recognition", "ai_review_instructions", "reason_policy"))
+    if "reason_policy" in document:
+        from purrai.reason_policy import ReasonPolicy
+        document = {**document, "reason_policy": ReasonPolicy.model_validate(document["reason_policy"]).model_dump()}
     if "ai_review_instructions" in document:
         label(document["ai_review_instructions"], 8000)
     if "recognition" in document:

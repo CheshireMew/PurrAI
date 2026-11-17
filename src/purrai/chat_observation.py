@@ -104,7 +104,7 @@ class ChatObservation:
                     reply_to=(message.get("reply_to_message") or {}).get("message_id", 0),
                     reference_text=(UNREADABLE_IMAGE if direct and has_image(message.get("reply_to_message") or {})
                                     else message_content(message.get("reply_to_message") or {})[0]),
-                    remember=not row and not edited and now() - 120 <= message["date"] <= now() + 60,
+                    remember=not row and not edited and now() - cfg.chat_message_max_age_seconds <= message["date"] <= now() + 60,
                 )
                 if reason:
                     reasons.append(reason)
@@ -125,13 +125,13 @@ class ChatObservation:
             if cfg.chat_enabled and self.settings.chat_ready and sender.get("id"):
                 explanation = ("广告后续审查，不参与聊天" if review_only else "不回复名单：不参与聊天" if no_reply else "聊天忽略口令" if command else "；".join(reasons) if reasons else
                     "目标成员或消息已受限" if not allowed else "图片不可读取，未直接叫到机器人" if image and not direct else
-                    "消息已超过处理时限" if now() - message["date"] > 120 else
+                    "消息已超过处理时限" if now() - message["date"] > cfg.chat_message_max_age_seconds else
                     "主动参与已关闭，未直接叫到机器人" if not cfg.chat_proactive and not direct else
                     "编辑或重复收到的消息，不新建回复" if edited or row else
                     "消息不属于可参与的普通文字对话" if not eligible else "已进入聊天调度，等待模型判断")
                 await observation(session, group_id, message_id, topic,
                                   "queued" if (eligible or review_only) and not (edited or row) and (cfg.chat_proactive or direct or review_only)
-                                  and not (image and not direct) and now() - message["date"] <= 120 else "filtered", explanation)
+                                  and not (image and not direct) and now() - message["date"] <= cfg.chat_message_max_age_seconds else "filtered", explanation)
             if row:
                 row.text, row.eligible = text[:1600], eligible
                 row.sender_name = profile_name(sender)
@@ -183,13 +183,13 @@ class ChatObservation:
             if await session.scalar(select(AdvertisementReview.id).where(
                 AdvertisementReview.group_id == group_id, AdvertisementReview.message_id == message_id).limit(1)):
                 return  # The independent queue owns review and its retry lifecycle.
-            if now() - message["date"] > 120:
+            if now() - message["date"] > cfg.chat_message_max_age_seconds:
                 return
             session.add(ChatTurn(group_id=group_id, topic_id=topic_id, message_id=message_id,
                                  review_only=True, available_at=now()))
             return True
         recent = await self.contexts.recent(session, group_id, topic_id)
-        burst = next((items for items in message_bursts(recent) if row in items), [])
+        burst = next((items for items in message_bursts(recent, cfg.chat_burst_seconds) if row in items), [])
         if not burst:
             return  # Old recovered messages may already be outside the rolling window.
         if reasons or image and not direct:
@@ -198,7 +198,7 @@ class ChatObservation:
         if not cfg.chat_proactive and not direct:
             logger.info("聊天未进入模型 group=%s message=%s reason=主动参与关闭，消息未叫到机器人", group_id, message_id)
             return
-        if now() - message["date"] > 120:
+        if now() - message["date"] > cfg.chat_message_max_age_seconds:
             logger.info(
                 "聊天未进入模型 group=%s topic=%s message=%s reason=消息已过期",
                 group_id, topic_id, message_id,

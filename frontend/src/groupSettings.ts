@@ -20,6 +20,10 @@ export interface GroupSettings {
   identity_match_bio: boolean
   identity_match_photo: boolean
   identity_action: "kick" | "ban"
+  chat_message_max_age_seconds: number
+  chat_context_hours: number
+  chat_dialogue_seconds: number
+  chat_burst_seconds: number
   chat_enabled: boolean
   chat_proactive: boolean
   chat_advertiser_cooldown: boolean

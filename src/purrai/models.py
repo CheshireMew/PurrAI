@@ -277,6 +277,7 @@ class Violation(Base):
     sender_chat: Mapped[bool] = mapped_column(Boolean, default=False)
     excerpt: Mapped[str] = mapped_column(Text, default="")
     reasons: Mapped[list] = mapped_column(JSON, default=list)
+    reason_details: Mapped[dict] = mapped_column(JSON, default=dict)
     warning_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[float] = mapped_column(Float, default=now)
     sender_name: Mapped[str] = mapped_column(String, default="")

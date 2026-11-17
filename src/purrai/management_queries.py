@@ -250,22 +250,15 @@ class ManagementQueries:
                     query = query.where((model.id if model is Group else model.group_id).in_(identifiers))
                 return await session.scalar(query)
 
+            from purrai.shared_policy import policy
+            from purrai.business_rules import RuleSet
+            from purrai.reason_policy import sql_matches
+            rules = RuleSet(business=(await policy(session)).business_rules)
             reason_rows = func.json_each(Violation.reasons).table_valued("value")
             advertising = select(reason_rows.c.value).where(
-                reason_rows.c.value.startswith("明确广告引流：")
-                | reason_rows.c.value.startswith("外群链接引流：")
-                | reason_rows.c.value.startswith("外部频道广告：")
-                | reason_rows.c.value.startswith("全局广告黑名单：")
-                | reason_rows.c.value.startswith("业务招揽短语，仅删除：")
-                | reason_rows.c.value.contains("关键词：")
-                | reason_rows.c.value.startswith("昵称＋正文组合：")
-                | reason_rows.c.value.startswith("禁止域名：")
-                | reason_rows.c.value.startswith("禁止引流账号：")
-                | reason_rows.c.value.startswith("分享联系人")
-            ).correlate(Violation).exists()
-            spam = select(reason_rows.c.value).where(reason_rows.c.value.in_(
-                ("重复刷屏", "近似内容刷屏", "短时间连续发送"))
-                | reason_rows.c.value.startswith("多账号重复刷屏：")).correlate(Violation).exists()
+                sql_matches(reason_rows.c.value, "advertising_stats", rules)).correlate(Violation).exists()
+            spam = select(reason_rows.c.value).where(
+                sql_matches(reason_rows.c.value, "spam_stats", rules)).correlate(Violation).exists()
             since = Violation.created_at >= now() - 86400
 
             return {

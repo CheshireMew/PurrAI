@@ -21,6 +21,15 @@ class AutomaticActions:
         if action.kind == "profile_mute" and not action.payload.get("generation"):
             action.state, action.error = "cancelled", "旧昵称处罚缺少入群批次，已停止执行；请重新核实成员"
             return False
+        if action.kind in ("contact_ban", "advertisement_ban") and action.payload.get("violation_id"):
+            from purrai.models import Violation
+            from purrai.reason_policy import classifies
+            violation = await session.get(Violation, action.payload["violation_id"])
+            rules = await effective_rules(session, group.id)
+            category = "contact" if action.kind == "contact_ban" else "ban"
+            if violation and not any(classifies(item, category, rules, violation.reason_details) for item in violation.reasons):
+                action.state, action.error = "cancelled", "历史判定分类已变化，未执行旧处罚"
+                return False
         if not matches_action(action, verification, member):
             action.state = "cancelled"
             return False
@@ -60,7 +69,7 @@ class AutomaticActions:
         if group.settings.get("external_group_ban", True):
             reasons += external_channel_reasons(channel_sources(message), group.id, group.settings, rules,
                                                 linked_channel_id=await own_channel_id(session, group.id))
-        if not any(is_ban_reason(reason) for reason in reasons):
+        if not any(is_ban_reason(reason, rules) for reason in reasons):
             action.state, action.error = "cancelled", "广告或链接策略已变化，未执行永久封禁"
             return
         await self.restrictions.permanent_ban(session, group, member, action)

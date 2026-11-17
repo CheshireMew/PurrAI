@@ -127,6 +127,7 @@ async def test_configured_disposition_reaches_real_moderation_and_keeps_its_mean
     item = arbitrary_rule(stage_id, action=action)
     # An old ban-category description must not override the edited disposition.
     item["reason"] = "明确广告引流：任意规则命中"
+    document["reason_policy"]["ban"] = []
     stage["rules"].insert(0, item)
     await save_policy(client, document, saved["version"], "business-action-" + action)
     incoming = message(770, "正常发言" if stage_id == "profile" else "星云橙灯")
@@ -142,7 +143,9 @@ async def test_configured_disposition_reaches_real_moderation_and_keeps_its_mean
     from purrai.models import Violation
     async with db.sessions() as session:
         violation = await session.scalar(select(Violation))
-        assert any(advertising.is_ban_reason(reason) for reason in violation.reasons) == (action == "ban")
+        from purrai.reason_policy import classifies
+        assert any(classifies(reason, "ban", recorded=violation.reason_details) for reason in violation.reasons) == (action == "ban")
+        assert "明确广告引流：任意规则命中" in violation.reasons
 
 
 async def test_queued_ban_and_precomputed_assessment_recheck_changed_business_policy(env, client):

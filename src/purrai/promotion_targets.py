@@ -190,7 +190,7 @@ async def remember_targets(session, group, violation, evidence):
     from purrai.action_queue import enqueue
     from purrai.advertising_patterns import discussion
     from purrai.models import PromotionSource, SharedPolicy, now, uid
-    from purrai.advertising_constants import CONTACT_REASONS
+    from purrai.reason_policy import matches
     from purrai.shared_policy import effective_rules, policy
 
     message = (evidence or {}).get("message")
@@ -198,7 +198,7 @@ async def remember_targets(session, group, violation, evidence):
     if not message or discussion(message.get("text") or message.get("caption") or "", rules):
         return []
     independent_ad = violation.rule_mute or any(
-        reason in CONTACT_REASONS or reason.startswith(("明确广告引流：", "外群链接引流：", "外部频道广告："))
+        matches(reason, "target_learning", rules)
         for reason in violation.reasons
     )
     if not independent_ad:

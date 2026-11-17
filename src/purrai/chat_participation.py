@@ -55,10 +55,10 @@ async def load(session, group_id, cfg):
     return row, seen
 
 
-async def reply_ids(session, group_id, topic_id):
+async def reply_ids(session, group_id, topic_id, cfg):
     turns = await session.scalars(select(ChatTurn).where(
         ChatTurn.group_id == group_id, ChatTurn.topic_id == topic_id,
-        ChatTurn.created_at >= now() - 6 * 3600, ChatTurn.sent_message_id.is_not(None),
+        ChatTurn.created_at >= now() - cfg.chat_context_hours * 3600, ChatTurn.sent_message_id.is_not(None),
         ChatTurn.state.not_in(("retracted", "retracting", "retraction_failed")),
     ))
     result = set()
@@ -80,15 +80,15 @@ async def dialogue_history(session, group_id, topic_id, telegram):
     ))).all()
 
 
-def has_dialogue(history, sender_id, message_id, received_at):
-    return bool(received_at and any(user == sender_id and source != message_id
-        and received_at - 120 <= answered <= received_at for user, source, answered in history))
+def has_dialogue(history, sender_id, message_id, received_at, cfg):
+    return bool(cfg.chat_dialogue_seconds and received_at and any(user == sender_id and source != message_id
+        and received_at - cfg.chat_dialogue_seconds <= answered <= received_at for user, source, answered in history))
 
 
 async def assess(session, group_id, topic_id, message_id, sender_id, text, cfg, telegram, *, reply_to=0, reference_text="", remember=False):
     if (low_information(text, cfg, telegram) and not (reference_text and not low_information(reference_text, cfg, telegram))
-            and reply_to not in await reply_ids(session, group_id, topic_id)
-            and not has_dialogue(await dialogue_history(session, group_id, topic_id, telegram), sender_id, message_id, now())):
+            and reply_to not in await reply_ids(session, group_id, topic_id, cfg)
+            and not has_dialogue(await dialogue_history(session, group_id, topic_id, telegram), sender_id, message_id, now(), cfg)):
         return SHORT_REASON
     row, seen = await load(session, group_id, cfg)
     key = fingerprint(topic_id, sender_id, text, cfg, telegram)
@@ -109,7 +109,7 @@ async def assess(session, group_id, topic_id, message_id, sender_id, text, cfg, 
 
 async def excluded_ids(session, group_id, topic_id, records, cfg, telegram):
     _, seen = await load(session, group_id, cfg)
-    replies = await reply_ids(session, group_id, topic_id)
+    replies = await reply_ids(session, group_id, topic_id, cfg)
     dialogue = await dialogue_history(session, group_id, topic_id, telegram)
     received = dict((await session.execute(select(ChatMessage.message_id, ChatMessage.received_at).where(
         ChatMessage.group_id == group_id, ChatMessage.topic_id == topic_id,
@@ -125,7 +125,7 @@ async def excluded_ids(session, group_id, topic_id, records, cfg, telegram):
         reference = row.get("quote") or merged.get(row.get("reply_to"), {}).get("text", "")
         meaningful_reference = bool(row.get("image_unavailable") or reference and not low_information(reference, cfg, telegram))
         if (low_information(row["text"], cfg, telegram) and not meaningful_reference and row.get("reply_to") not in replies
-                and not has_dialogue(dialogue, row.get("speaker_id"), row["id"], received.get(row["id"]))):
+                and not has_dialogue(dialogue, row.get("speaker_id"), row["id"], received.get(row["id"]), cfg)):
             excluded.add(row["id"])
         key = fingerprint(topic_id, row.get("speaker_id", 0), row["text"], cfg, telegram)
         if key in seen and seen[key]["message_id"] != row["id"]:

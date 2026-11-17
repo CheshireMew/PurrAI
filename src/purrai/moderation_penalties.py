@@ -12,13 +12,13 @@ from purrai.models import (
     Verification,
     now,
 )
-from purrai.rules import CONTACT_REASON, CONTACT_REASONS, message_content
-from purrai.advertising_patterns import is_ban_reason
+from purrai.rules import CONTACT_REASON, message_content
+from purrai.reason_policy import classifies, matches
+from purrai.shared_policy import effective_rules
 from purrai.advertising_constants import BUTTON_REASON
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 
-SPAM_REASONS = {"重复刷屏", "近似内容刷屏", "短时间连续发送"}
 SPAM_SETTINGS = ("repeat_enabled", "repeat_window", "repeat_count", "similar_enabled", "similar_window",
                  "similar_count", "similar_threshold", "similar_min_length", "burst_enabled", "burst_window", "burst_count", "spam_mute_seconds")
 
@@ -26,6 +26,7 @@ SPAM_SETTINGS = ("repeat_enabled", "repeat_window", "repeat_count", "similar_ena
 async def apply_penalty(session, group, violation, member, actor_id=None, reason="", *, evidence=None):
     from purrai.promotion_targets import remember_targets
     await remember_targets(session, group, violation, evidence)
+    rules = await effective_rules(session, group.id)
     message = (evidence or {}).get("message")
     text, urls = message_content(message) if message else (violation.excerpt if violation.message_violation else "", [])
     rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name}
@@ -42,14 +43,14 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             {"message_id": violation.message_id, "violation_id": violation.id,
              **message_evidence,
              **({"spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}}
-                if set(violation.reasons) <= SPAM_REASONS else {})},
+                if all(matches(item, "spam", rules) for item in violation.reasons) else {})},
             1,
             actor_id,
             reason,
         )
         identifiers.append(action.id)
-    contact = any(item in violation.reasons for item in CONTACT_REASONS)
-    advertising = any(is_ban_reason(item) for item in violation.reasons)
+    contact = any(classifies(item, "contact", rules, violation.reason_details) for item in violation.reasons)
+    advertising = any(classifies(item, "ban", rules, violation.reason_details) for item in violation.reasons)
     if (contact or advertising) and not violation.sender_chat:
         if member is None:
             member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
@@ -106,7 +107,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             reason if profile else reason or "正文广告规则命中，删除消息并永久禁言",
         )
         identifiers.append(action.id)
-    elif SPAM_REASONS.intersection(violation.reasons) and not violation.sender_chat:
+    elif any(matches(item, "spam", rules) for item in violation.reasons) and not violation.sender_chat:
         if member is None:
             member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)
             session.add(member)
@@ -119,7 +120,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
                  "spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}},
                 1, actor_id, "刷屏命中，按当前设置删除消息并临时禁言")
             identifiers.append(action.id)
-            if "重复刷屏" in violation.reasons:
+            if any(matches(item, "repeat", rules) for item in violation.reasons):
                 copies = await session.scalars(select(Fingerprint).where(
                     Fingerprint.group_id == group.id, Fingerprint.user_id == violation.user_id,
                     Fingerprint.generation == fingerprint.generation, Fingerprint.digest == fingerprint.digest,

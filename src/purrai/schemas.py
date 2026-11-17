@@ -42,6 +42,10 @@ class GroupSettings(BaseModel):
             raise ValueError("防冒充需要本人的数字 ID、受保护昵称，及至少一种资料比对方式")
         return self
 
+    chat_message_max_age_seconds: int = Field(default=120, ge=1, le=86400, title="聊天消息处理时限（秒）")
+    chat_context_hours: int = Field(default=6, ge=1, le=48, title="聊天上下文保留时长（小时）")
+    chat_dialogue_seconds: int = Field(default=120, ge=0, le=86400, title="连续对话窗口（秒）")
+    chat_burst_seconds: int = Field(default=10, ge=0, le=300, title="连续消息合并窗口（秒）")
     chat_enabled: bool = False
     chat_proactive: bool = True
     chat_advertiser_cooldown: bool = True

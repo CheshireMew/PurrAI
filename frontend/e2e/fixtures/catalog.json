@@ -21,6 +21,10 @@
       "identity_match_bio": true,
       "identity_match_photo": true,
       "identity_action": "kick",
+      "chat_message_max_age_seconds": 120,
+      "chat_context_hours": 6,
+      "chat_dialogue_seconds": 120,
+      "chat_burst_seconds": 10,
       "chat_enabled": false,
       "chat_proactive": true,
       "chat_advertiser_cooldown": true,
@@ -261,6 +265,34 @@
         ],
         "title": "确认冒充后的处理",
         "type": "string"
+      },
+      "chat_message_max_age_seconds": {
+        "default": 120,
+        "maximum": 86400,
+        "minimum": 1,
+        "title": "聊天消息处理时限（秒）",
+        "type": "integer"
+      },
+      "chat_context_hours": {
+        "default": 6,
+        "maximum": 48,
+        "minimum": 1,
+        "title": "聊天上下文保留时长（小时）",
+        "type": "integer"
+      },
+      "chat_dialogue_seconds": {
+        "default": 120,
+        "maximum": 86400,
+        "minimum": 0,
+        "title": "连续对话窗口（秒）",
+        "type": "integer"
+      },
+      "chat_burst_seconds": {
+        "default": 10,
+        "maximum": 300,
+        "minimum": 0,
+        "title": "连续消息合并窗口（秒）",
+        "type": "integer"
       },
       "chat_enabled": {
         "default": false,
@@ -744,6 +776,10 @@
       "identity_match_bio": "比对非空简介",
       "identity_match_photo": "比对头像",
       "identity_action": "确认冒充后的处理",
+      "chat_message_max_age_seconds": "聊天消息处理时限（秒）",
+      "chat_context_hours": "聊天上下文保留时长（小时）",
+      "chat_dialogue_seconds": "连续对话窗口（秒）",
+      "chat_burst_seconds": "连续消息合并窗口（秒）",
       "chat_enabled": "群聊天",
       "chat_proactive": "主动参与讨论",
       "chat_advertiser_cooldown": "chat_advertiser_cooldown",

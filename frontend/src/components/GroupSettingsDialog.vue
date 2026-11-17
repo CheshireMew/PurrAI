@@ -26,6 +26,7 @@ const settingsTabs = [
 const policyNumbers = ['notice_seconds', 'ai_ad_window_hours', 'ai_ad_limit', 'spam_mute_seconds',
   'media_newcomer_days', 'chat_advertiser_cooldown_seconds', 'chat_evidence_hours', 'chat_command_min_users',
   'chat_min_opening_chars', 'chat_repeat_hours'] as const
+const chatTimingNumbers = ['chat_message_max_age_seconds', 'chat_context_hours', 'chat_dialogue_seconds', 'chat_burst_seconds'] as const
 const copySettings = (value: GroupSettings): GroupSettings => JSON.parse(JSON.stringify(value))
 const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const identityNamesText = computed({ get: () => form.identity_names.join('\n'),
@@ -277,6 +278,10 @@ async function save() {
 <p class="muted">入群时命中会永久封禁；群内发言命中会删除对应消息并永久禁言，成员留在群内。仅在入群和发消息时检查名字旁的表情状态，普通贴纸消息不触发这项处罚。程序初始名单：{{ catalog!.settings.defaults.emoji_status_blocked_packs.join('、') || '未设置' }}，实际检查以当前名单为准。清空名单不会自动解除已有封禁或禁言。</p>
 </section>
 <section v-show="activeTab === 'chat'" aria-label="群聊天设置">
+<div class="settings-grid"><el-form-item v-for="key in chatTimingNumbers" :key="key" :label="catalog!.settings.labels?.[key] || key">
+<el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum" :aria-label="catalog!.settings.labels?.[key] || key"/>
+</el-form-item></div>
+<p class="muted">处理时限覆盖收消息、排队和发送前复核。连续对话窗口影响短回复是否算作续聊，设为 0 可关闭；合并窗口设为 0 时仅合并同一时间的消息。上下文还受条数限制，延长时间不会恢复已清理的记录。</p>
 <p class="muted">{{ chatStatus.configured ? `模型：${chatStatus.model}` : '使用前请在服务器填写聊天 API 地址、Key 和模型名。' }} 最近消息按群及话题分开。</p>
 <p v-if="chatStatus.budget" class="muted">今日模型请求 {{ chatStatus.budget.group_calls }}/{{ chatStatus.budget.group_call_limit }}；Token 预算 {{ chatStatus.budget.group_tokens }}/{{ chatStatus.budget.group_token_limit }}。额度每日按北京时间重置，由所有者配置；用完只暂停 AI 聊天。</p>
 <el-alert v-if="chatStatus.error" :title="chatStatus.error" type="warning" :closable="false"/>

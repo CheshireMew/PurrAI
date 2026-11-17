@@ -10,7 +10,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "docs/rule_boundaries_baseline.json"
-BASELINE_SHA256 = "6105081a7e409ac627cc39fe046fa329b3a31816c32678907e18cf352c5492ed"
+BASELINE_SHA256 = "0536ca358449beaacee9e68b2a239a0dca9aeccdd535ba59dd8ef6c6ee6d67c6"
 ADAPTERS = (
     "src/purrai/solicitation_rules.py",
     "src/purrai/advertising_patterns.py",
@@ -21,6 +21,7 @@ ADDITIONAL_SEEDS = (
     "src/purrai/assets/recognition_policy.v1.json",
     "src/purrai/assets/group_defaults.v1.json",
     "src/purrai/assets/business_rules.v2.json",
+    "src/purrai/assets/reason_policy.v1.json",
 )
 TEXT_NAMES = re.compile(r"(?:^|_)(?:text|body|content|caption|name|title|profile|haystack)(?:$|_)")
 POLICY_NAMES = re.compile(r"keyword|phrase|term|pattern|words|blacklist|whitelist|blocked|forbidden", re.I)

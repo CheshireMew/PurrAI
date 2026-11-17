@@ -133,12 +133,14 @@ class AdvertisementAdministration:
                 if previous is not None:
                     return previous
             candidates, corrected_ids = {}, set()
-            # These prefixes are stored verdict labels, not matching vocabulary.
+            from purrai.shared_policy import effective_rules
+            from purrai.reason_policy import matches
+            rules = await effective_rules(session, group_id)
             for row in await session.scalars(select(Violation).where(Violation.group_id == group_id, Violation.message_id > 0)):
                 if await session.get(Meta, "violation-correction:" + row.id):
                     corrected_ids.add(row.message_id)
                     continue
-                if not any(reason.startswith(("AI确认广告", "AI最近3天累计3次判定广告")) for reason in row.reasons):
+                if not any(matches(reason, "ai_history", rules) for reason in row.reasons):
                     continue
                 candidates[row.message_id] = {"message_id": row.message_id, "text": row.excerpt,
                     "sender_name": row.sender_name, "reason": "；".join(row.reasons), "violation_id": row.id}

@@ -11,6 +11,10 @@ import { usePreviewResult } from '../composables/usePreviewResult'
 import ConditionEditor from './ConditionEditor.vue'
 import TextStepsEditor from './TextStepsEditor.vue'
 import RecognitionEditor from './RecognitionEditor.vue'
+import ReasonPolicyEditor from './ReasonPolicyEditor.vue'
+import { reasonCategoryLabels } from '../businessPolicy'
+
+function reasonLabels(categories: string[] = []) { return categories.map(key => reasonCategoryLabels[key] || key).join('；') }
 
 const props = defineProps<{ open: boolean; groupId: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -24,7 +28,7 @@ const rule = computed(() => stage.value?.rules.find(item => item.id === ruleId.v
 const condition = computed(() => document.value?.conditions.find(item => item.id === conditionId.value))
 const view = computed(() => document.value?.views.find(item => item.id === viewId.value))
 const sample = ref({ text: '', sender_name: '', source_title: '', contact: false, contact_name: '', direct: false })
-type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[]; utility_command?: boolean; command_candidate?: string; output_reasons?: string[]; advertised_targets?: string[] }
+type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[]; utility_command?: boolean; command_candidate?: string; reason_categories?: string[]; output_reasons?: string[]; advertised_targets?: string[] }
 const { result, run: runPreview, invalidate } = usePreviewResult<{ before: Preview; after: Preview; changed: boolean }>(() => [document.value, sample.value, props.groupId, props.open])
 const dirty = computed(() => !!baseline.value && JSON.stringify(document.value) !== JSON.stringify(baseline.value.document))
 const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value)
@@ -126,6 +130,9 @@ function conclusion(value: Preview) {
   <template v-if="view"><el-input v-model="view.title" aria-label="文本处理名称"/><el-select v-model="view.source" aria-label="处理前的文本"><el-option value="text" label="原始文本"/><el-option v-for="item in document.views.filter(item => item.id !== viewId)" :key="item.id" :value="item.id" :label="item.title"/></el-select><TextStepsEditor v-model="view.steps"/></template>
   <el-button @click="addView">添加文本处理</el-button>
 </el-tab-pane>
+<el-tab-pane v-if="document.reason_policy" name="reason-policy" label="历史判定分类">
+  <ReasonPolicyEditor v-model="document.reason_policy"/>
+</el-tab-pane>
 <el-tab-pane v-if="document.recognition" name="recognition" label="口令与目标识别">
   <RecognitionEditor v-model="document.recognition"/>
 </el-tab-pane>
@@ -140,7 +147,7 @@ function conclusion(value: Preview) {
 <el-input v-model="sample.text" type="textarea" :rows="3" aria-label="业务规则测试正文" placeholder="测试正文"/>
 <el-input v-model="sample.source_title" aria-label="业务规则测试转发来源" placeholder="转发来源标题，可留空"/>
 <div class="stage-line"><el-checkbox v-model="sample.direct">用户直接提问</el-checkbox><el-checkbox v-model="sample.contact">附带联系人</el-checkbox><el-input v-if="sample.contact" v-model="sample.contact_name" aria-label="业务规则测试联系人" placeholder="联系人名称"/><el-button :loading="busy" @click="preview">比较规则草稿</el-button></div>
-<div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p><template v-if="tab === 'recognition'"><p>{{ value.utility_command ? '识别为直接忽略的功能口令' : '未命中直接忽略的功能口令' }}</p><p>可学习口令：{{ value.command_candidate || '无' }}</p><p>机器人输出限制：{{ value.output_reasons?.join('；') || '未命中' }}</p><p>提取的广告目标：{{ value.advertised_targets?.join('；') || '无' }}</p></template></div></div>
+<div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p><p v-if="tab === 'reason-policy'">匹配用途：{{ reasonLabels(value.reason_categories) || '未命中' }}</p><template v-if="tab === 'recognition'"><p>{{ value.utility_command ? '识别为直接忽略的功能口令' : '未命中直接忽略的功能口令' }}</p><p>可学习口令：{{ value.command_candidate || '无' }}</p><p>机器人输出限制：{{ value.output_reasons?.join('；') || '未命中' }}</p><p>提取的广告目标：{{ value.advertised_targets?.join('；') || '无' }}</p></template></div></div>
 </section>
 </div>
 <template #footer><span v-if="dirty" class="unsaved">草稿尚未保存</span><el-button :disabled="busy" @click="requestClose">关闭</el-button><el-button type="primary" :disabled="!document || !dirty" :loading="busy" @click="save">保存业务规则</el-button></template>

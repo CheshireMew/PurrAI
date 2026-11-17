@@ -335,3 +335,149 @@ async def test_chat_compatibility_review_also_uses_saved_criteria(client, env):
     await drain(env[3])
     assert not any(method in ("restrict_chat_member", "ban_chat_member", "delete_message") for method, _ in env[2].calls)
     await chat.close()
+
+
+@pytest.mark.parametrize('category', ['ban', 'contact', 'spam', 'repeat', 'advertising_stats', 'spam_stats', 'ai_history', 'target_learning', 'media_gate'])
+async def test_saved_reason_policy_replaces_disables_clears_and_matches_sql(client, env, category):
+    from purrai.reason_policy import ReasonPolicy, matches, sql_matches
+    from sqlalchemy import literal
+    document = (await client.get('/api/settings/business-policy')).json()['document']
+    document['reason_policy'] = ReasonPolicy().model_dump()
+    entry = {'id': 'arbitrary-reason', 'title': '任意判定文字', 'enabled': True, 'mode': 'prefix', 'value': '琥珀_%A'}
+    document['reason_policy'][category] = [entry]
+    for mode in ('prefix', 'exact', 'contains'):
+        entry.update(mode=mode, value='琥珀_%A', enabled=True)
+        for operation in ('create', 'replace', 'disable', 'clear'):
+            if operation == 'replace':
+                entry['value'] = '珊瑚_%B'
+            elif operation == 'disable':
+                entry['enabled'] = False
+            elif operation == 'clear':
+                document['reason_policy'][category] = []
+            await save(client, document)
+            async with env[1].sessions() as session:
+                rules = await effective_rules(session, -1001)
+                for text in ('琥珀_%A', '琥珀_%A尾', '前琥珀_%A', '珊瑚_%B', '珊瑚_%B尾', '琥珀XYA', '琥珀_%a'):
+                    expected = operation not in ('disable', 'clear') and (text == entry['value'] if mode == 'exact' else
+                        text.startswith(entry['value']) if mode == 'prefix' else entry['value'] in text)
+                    assert matches(text, category, rules) == expected
+                    assert bool(await session.scalar(select(sql_matches(literal(text), category, rules)))) == expected
+            assert (await client.get('/api/settings/business-policy')).json()['document']['reason_policy'] == document['reason_policy']
+        document['reason_policy'][category] = [entry]
+
+
+async def test_reason_policy_drives_actual_dashboard_and_history_import(client, env):
+    from purrai.models import Violation
+    document = (await client.get('/api/settings/business-policy')).json()['document']
+    for category in ('advertising_stats', 'ai_history'):
+        document['reason_policy'][category] = [{'id': category, 'title': '任意分类', 'enabled': True, 'mode': 'prefix', 'value': '珊瑚判定'}]
+    async with env[1].transaction() as session:
+        session.add(Violation(group_id=-1001, message_id=991, user_id=42, excerpt='完整的历史样本文字', reasons=['珊瑚判定：详情']))
+    for enabled in (True, False):
+        for category in ('advertising_stats', 'ai_history'):
+            document['reason_policy'][category][0]['enabled'] = enabled
+        await save(client, document)
+        result = await client.get('/api/dashboard')
+        assert result.status_code == 200 and result.json()['advertising_today'] == int(enabled)
+        result = await client.post('/api/groups/-1001/advertisement-samples/import-history', json={'apply': False}, headers={'Idempotency-Key': f'reason-import-{enabled}'})
+        assert result.status_code == 200, result.text
+        assert result.json()['count'] == int(enabled)
+
+
+async def test_saved_chat_expiry_controls_observation_queue_and_send_recheck(env):
+    from purrai.models import ChatMessage, ChatTurn
+    chat, model = await configured(env)
+    await settings(env, chat_message_max_age_seconds=300)
+    await chat.observe(message(960, '柴郡喵帮忙想想周末去哪里走走', date=int(now()) - 240))
+    assert await chat.run_one() and len(model.calls) == 1
+    await chat.observe(message(961, '柴郡喵帮忙想想下周去哪里散步', date=int(now()) - 240))
+    await settings(env, chat_message_max_age_seconds=30)
+    assert not await chat.run_one() and len(model.calls) == 1
+    await chat.observe(message(962, '柴郡喵帮忙想想明天去哪里露营', date=int(now()) - 60))
+    assert not await chat.run_one() and len(model.calls) == 1
+    model.release = asyncio.Event()
+    model.started.clear()
+    await chat.observe(message(963, '柴郡喵帮忙想想今晚去哪里吃饭'))
+    task = asyncio.create_task(chat.run_one())
+    await asyncio.wait_for(model.started.wait(), 5)
+    async with env[1].transaction() as session:
+        target = await session.scalar(select(ChatMessage).where(ChatMessage.message_id == 963))
+        target.sent_at = now() - 15
+    await settings(env, chat_message_max_age_seconds=10)
+    sent = len([1 for method, _ in env[2].calls if method == 'send_message'])
+    model.release.set()
+    assert await task
+    assert len([1 for method, _ in env[2].calls if method == 'send_message']) == sent
+    async with env[1].sessions() as session:
+        turn = await session.scalar(select(ChatTurn).where(ChatTurn.message_id == 963))
+        assert turn.state == 'skipped'
+    await chat.close()
+
+
+async def test_saved_chat_windows_affect_cached_context_dialogue_and_bursts(env):
+    from purrai.chat_context import ChatContext
+    from purrai.chat_participation import has_dialogue, reply_ids
+    from purrai.chat_state import message_bursts
+    from purrai.models import ChatMessage, ChatTurn
+    chat, _ = await configured(env)
+    stamp = now()
+    async with env[1].transaction() as session:
+        session.add(ChatMessage(group_id=-1001, message_id=971, topic_id=0, sender_id=42, sender_name='成员',
+            text='原先上下文里的长消息', sent_at=stamp-7200, received_at=stamp-7200, eligible=True))
+        session.add(ChatTurn(group_id=-1001, message_id=971, topic_id=0, created_at=stamp-7200, sent_message_id=1971, state='sent'))
+    context = [{'id': 971, 'speaker_id': 42, 'name': '成员', 'text': '原先上下文里的长消息', 'bot': False, 'sent_at': stamp-7200}]
+    for hours, expected in [(3, True), (1, False)]:
+        cfg = await settings(env, chat_context_hours=hours)
+        async with env[1].sessions() as session:
+            assert bool(await ChatContext(env[2]).filter(session, -1001, 0, context, cfg)) is expected
+            assert bool(await reply_ids(session, -1001, 0, cfg)) is expected
+    for seconds, expected in [(300, True), (30, False), (0, False)]:
+        cfg = await settings(env, chat_dialogue_seconds=seconds)
+        assert has_dialogue([(42, 971, stamp-60)], 42, 972, stamp, cfg) is expected
+    rows = [ChatMessage(topic_id=0, message_id=i+1, sender_id=42, sent_at=stamp+i*20, is_bot=False) for i in range(2)]
+    for seconds, count in [(30, 1), (10, 2)]:
+        cfg = await settings(env, chat_burst_seconds=seconds)
+        assert len(message_bursts(rows, cfg.chat_burst_seconds)) == count
+    await chat.close()
+
+
+async def test_identical_descriptions_keep_stronger_explicit_disposition(client, env):
+    from purrai.models import Violation
+    document = (await client.get('/api/settings/business-policy')).json()['document']
+    for stage in document['stages']:
+        stage['rules'] = []
+    stage = next(stage for stage in document['stages'] if stage['id'] == 'advertising')
+    stage['first_match'] = False
+    for action in ('ban', 'delete'):
+        entry = arbitrary_rule('advertising', word='琥珀测试正文', action=action)
+        entry.update(id='same-label-' + action, reason='相同的说明文字')
+        stage['rules'].append(entry)
+    await save(client, document)
+    await env[3].message(message(981, '琥珀测试正文'))
+    await drain(env[3])
+    assert any(method == 'ban_chat_member' for method, _ in env[2].calls)
+    async with env[1].sessions() as session:
+        violation = await session.scalar(select(Violation).where(Violation.message_id == 981))
+        assert violation.reason_details['相同的说明文字']['action'] == 'ban'
+
+
+async def test_queued_legacy_ban_rechecks_disabled_reason_classification(client, env):
+    from purrai.models import Violation
+    from purrai.moderation_penalties import apply_penalty
+    document = (await client.get('/api/settings/business-policy')).json()['document']
+    document['reason_policy']['ban'] = [{'id': 'old-ban', 'title': '旧处置', 'enabled': True, 'mode': 'prefix', 'value': '琥珀旧判定'}]
+    await save(client, document)
+    async with env[1].transaction() as session:
+        group = await session.get(Group, -1001)
+        member = Member(group_id=-1001, user_id=42, joined_at=0)
+        violation = Violation(group_id=-1001, user_id=42, message_id=982, reasons=['琥珀旧判定：详情'], reason_details={})
+        session.add_all([member, violation])
+        await session.flush()
+        await apply_penalty(session, group, violation, member)
+        assert await session.scalar(select(Action).where(Action.kind == 'advertisement_ban'))
+    document['reason_policy']['ban'][0]['enabled'] = False
+    await save(client, document)
+    await drain(env[3])
+    assert not any(method == 'ban_chat_member' for method, _ in env[2].calls)
+    async with env[1].sessions() as session:
+        assert (await session.scalar(select(Action).where(Action.kind == 'advertisement_ban'))).state == 'cancelled'

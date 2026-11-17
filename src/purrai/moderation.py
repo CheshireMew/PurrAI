@@ -169,7 +169,7 @@ class Moderation:
             target_reasons = blacklist_reasons(message, rules, settings=group.settings)
             profile["reasons"] += target_reasons
             profile["mute_reasons"] += [reason for reason in target_reasons if getattr(reason, "action", "") == "mute"]
-            profile["ban_reasons"] += [reason for reason in target_reasons if reason.startswith("全局广告黑名单：")]
+            profile["ban_reasons"] += [reason for reason in target_reasons if getattr(reason, "action", "") == "ban"]
             if group.settings.get("external_group_ban", True):
                 channel_reasons = external_channel_reasons(
                     channel_sources(message), group_id, group.settings, rules,

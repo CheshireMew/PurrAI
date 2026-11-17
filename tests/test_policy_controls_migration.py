@@ -74,3 +74,37 @@ def test_policy_upgrade_preserves_edits_and_exposes_previous_implicit_actions(tm
         assert list(map(json.loads, connection.execute("select rules,business_rules from shared_policy where id=1").fetchone())) == [saved_rules, saved_doc]
         assert connection.execute("select penalty,name_penalty from rules where id='local-target'").fetchone() == ("delete", "ban")
         assert connection.execute("pragma integrity_check").fetchone()[0] == "ok"
+
+
+def test_reason_and_timing_migration_preserves_saved_empty_rules_and_new_dispositions(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / 'reason-policy.sqlite3'
+    environment = {**os.environ, 'PURRAI_DATABASE_URL': f'sqlite+aiosqlite:///{database}'}
+    def migrate(direction, target):
+        result = subprocess.run([sys.executable, '-m', 'alembic', direction, target], cwd=root,
+                                env=environment, capture_output=True, text=True, timeout=40)
+        assert result.returncode == 0, result.stdout + result.stderr
+    migrate('upgrade', '0034')
+    with sqlite3.connect(database) as c:
+        before = list(map(json.loads, c.execute('select settings,rules,business_rules from shared_policy where id=1').fetchone()))
+    engine = create_engine(f'sqlite:///{database}')
+    with engine.begin() as connection:
+        connection.execute(insert(Group).values(id=-1001, settings={'chat_context_hours': 9}, setting_overrides=['chat_context_hours']))
+    engine.dispose()
+    migrate('upgrade', 'head')
+    with sqlite3.connect(database) as c:
+        settings, rules, document = map(json.loads, c.execute('select settings,rules,business_rules from shared_policy where id=1').fetchone())
+        assert rules == before[1]
+        assert {k:v for k,v in document.items() if k != 'reason_policy'} == before[2]
+        assert document['reason_policy']['ban']
+        assert settings['chat_message_max_age_seconds'] == 120
+        assert json.loads(c.execute('select settings from groups where id=-1001').fetchone()[0])['chat_context_hours'] == 9
+        document['reason_policy']['ban'] = []
+        document['reason_policy']['ai_history'][0]['enabled'] = False
+        c.execute('update shared_policy set business_rules=?', (json.dumps(document),))
+        assert 'reason_details' in {row[1] for row in c.execute('pragma table_info(violations)')}
+    migrate('downgrade', '0034')
+    migrate('upgrade', 'head')
+    with sqlite3.connect(database) as c:
+        assert json.loads(c.execute('select business_rules from shared_policy').fetchone()[0]) == document
+        assert c.execute('pragma integrity_check').fetchone()[0] == 'ok'

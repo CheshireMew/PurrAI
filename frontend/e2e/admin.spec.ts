@@ -2,12 +2,13 @@ import { expect, test, type Page } from '@playwright/test'
 import catalog from './fixtures/catalog.json' with { type: 'json' }
 import businessSeed from '../../src/purrai/assets/business_rules.v2.json' with { type: 'json' }
 import recognitionSeed from '../../src/purrai/assets/recognition_policy.v1.json' with { type: 'json' }
+import reasonSeed from '../../src/purrai/assets/reason_policy.v1.json' with { type: 'json' }
 
 for (const width of [1440, 390]) {
-  test(`审核处置与提醒设置可保存 ${width}`, async ({ page }) => {
+  test(`审核处置、历史判定与聊天时限可保存 ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await mock(page)
-    let saved: any = { document: { ...structuredClone(businessSeed), recognition: structuredClone(recognitionSeed) }, version: 'policy-1' }
+    let saved: any = { document: { ...structuredClone(businessSeed), recognition: structuredClone(recognitionSeed), reason_policy: structuredClone(reasonSeed) }, version: 'policy-1' }
     await page.route('**/api/settings/business-policy', async route => {
       if (route.request().method() === 'PUT') saved = { document: route.request().postDataJSON().document, version: 'policy-2' }
       await route.fulfill({ json: saved })
@@ -24,6 +25,13 @@ for (const width of [1440, 390]) {
     await expect(policy.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
     expect(saved.document.ai_review_instructions).toBe('后台保存的审核准则')
     expect(saved.document.stages.find((stage: any) => stage.id === 'advertising').rules[0].advertiser_cooldown).toBe(!before)
+    await policy.getByRole('tab', { name: '历史判定分类', exact: true }).click()
+    await policy.getByRole('textbox', { name: '判定匹配文字', exact: true }).first().fill('任意历史判定：')
+    await policy.getByRole('switch', { name: '启用判定匹配', exact: true }).first().locator('..').locator('.el-switch__core').click()
+    await policy.getByRole('button', { name: '保存业务规则', exact: true }).click()
+    await expect(policy.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
+    expect(saved.document.reason_policy.ban[0]).toMatchObject({ value: '任意历史判定：', enabled: false })
+    expect(await policy.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
     await policy.getByRole('button', { name: '关闭', exact: true }).click()
     await page.getByRole('button', { name: '群管理', exact: true }).click()
     await page.getByRole('button', { name: '群设置', exact: true }).first().click()
@@ -34,9 +42,14 @@ for (const width of [1440, 390]) {
     await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: 'AI广告累计处理', exact: true }) }).locator('.el-select__wrapper').click()
     await page.getByRole('option', { name: '只删除广告消息', exact: true }).click()
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
+    await dialog.getByRole('tab', { name: '群聊天', exact: true }).click()
+    for (const [key, value] of Object.entries({ chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })) {
+      const field = dialog.getByLabel((catalog.settings.labels as Record<string, string>)[key], { exact: true })
+      await field.fill(String(value)); await field.press('Tab')
+    }
     const request = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
-    expect((await request).postDataJSON().settings).toMatchObject({ notice_seconds: 45, ai_ad_penalty: 'delete' })
+    expect((await request).postDataJSON().settings).toMatchObject({ notice_seconds: 45, ai_ad_penalty: 'delete', chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })
     await expect(dialog).not.toBeVisible()
   })
 

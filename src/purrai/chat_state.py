@@ -12,7 +12,9 @@ from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources
 from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
 
-IMAGE_BURST_WINDOW = 10
+from purrai.schemas import GroupSettings
+
+IMAGE_BURST_WINDOW = GroupSettings().chat_burst_seconds
 UNREADABLE_IMAGE = "[无法读取的图片]"
 
 
@@ -20,7 +22,7 @@ def has_image(message):
     return bool(message.get("photo") or (message.get("document") or {}).get("mime_type", "").startswith("image/"))
 
 
-def message_bursts(rows):
+def message_bursts(rows, window=IMAGE_BURST_WINDOW):
     """Time-connected messages from one sender; no semantic topic guessing."""
     result, latest = [], {}
     for row in sorted(rows, key=lambda item: (item.sent_at, item.message_id)):
@@ -28,7 +30,7 @@ def message_bursts(rows):
             continue
         key = row.topic_id, row.sender_id
         burst = latest.get(key)
-        if burst is None or row.sent_at - burst[-1].sent_at > IMAGE_BURST_WINDOW:
+        if burst is None or row.sent_at - burst[-1].sent_at > window:
             burst = []
             latest[key] = burst
             result.append(burst)
@@ -36,21 +38,21 @@ def message_bursts(rows):
     return result
 
 
-def image_message_ids(rows):
+def image_message_ids(rows, window=IMAGE_BURST_WINDOW):
     return {
         row.message_id
-        for burst in message_bursts(rows)
+        for burst in message_bursts(rows, window)
         if any(item.text.startswith(UNREADABLE_IMAGE) for item in burst)
         for row in burst
     }
 
 
-def permitted_images(rows, message_id, direct):
+def permitted_images(rows, message_id, direct, window=IMAGE_BURST_WINDOW):
     if not direct:
         return set()
     return next((
         {row.message_id for row in burst}
-        for burst in message_bursts(rows)
+        for burst in message_bursts(rows, window)
         if any(row.message_id == message_id for row in burst)
     ), set())
 

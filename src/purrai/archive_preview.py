@@ -15,7 +15,8 @@ from purrai.models import Action
 from purrai.rule_evaluation import evaluate_message
 from purrai.shared_policy import effective_rules
 from purrai.telegram_sources import channel_sources, external_channel_reasons
-from purrai.rules import CONTACT_REASONS, ai_keyword_rules, message_content
+from purrai.rules import ai_keyword_rules, message_content
+from purrai.reason_policy import classifies
 from purrai.business_rules import with_rules
 from purrai.message_identity import message_sender, profile_name
 
@@ -27,7 +28,7 @@ def evaluate_saved(message, settings, rules, newcomer, own_keys, linked, proofs,
     if settings.get("external_group_ban", True):
         reasons += external_channel_reasons(channel_sources(message), message["chat"]["id"], settings, rules, linked_channel_id=linked)
     reasons += link_reasons(message, SimpleNamespace(id=message["chat"]["id"], settings=settings), rules, own_keys, proofs)
-    ban = any(reason in CONTACT_REASONS or is_ban_reason(reason) for reason in reasons)
+    ban = any(classifies(reason, "contact", rules) or is_ban_reason(reason, rules) for reason in reasons)
     sender_chat = bool(message.get("sender_chat"))
     return {"reasons": list(dict.fromkeys(reasons)), "delete_message": bool(reasons),
             "ai_confirmation_required": bool(ai_keyword_rules(message_content(message)[0], rules, profile_name(message_sender(message)))),

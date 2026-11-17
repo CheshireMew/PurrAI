@@ -9,7 +9,7 @@ from sqlalchemy import select
 from purrai.advertising_patterns import source_titles
 from purrai.models import Action, ArchivedMessage, Group, MessageRevision, Violation
 from purrai.message_buttons import has_inline_buttons
-from purrai.advertising_constants import CONTACT_REASONS
+from purrai.reason_policy import classifies
 from purrai.rules import assess, content_digest, message_content, similarity_signature
 from purrai.shared_policy import effective_rules
 from purrai.sender_identity import sender_name
@@ -132,7 +132,7 @@ async def message_penalty_applies(session, action, group):
             return bool(ordinary["mute_reasons"])
         if action.kind == "profile_mute":
             return bool(ordinary["name_reasons"])
-        return bool(ordinary["ban_reasons"] or any(reason in CONTACT_REASONS for reason in ordinary["reasons"]))
+        return bool(ordinary["ban_reasons"] or any(classifies(reason, "contact", independent) for reason in ordinary["reasons"]))
     raise ConnectionError("消息或规则正在变化，稍后重新核实处罚")
 
 

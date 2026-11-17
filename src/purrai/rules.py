@@ -2,6 +2,7 @@ import re
 
 from purrai.wallet_addresses import contains_wallet_address
 from purrai.business_rules import BusinessEngine, BusinessReason, with_rules
+from purrai.reason_policy import unique_reasons
 from purrai.text_matching import (
     normalize as normalize,
     content_digest as content_digest,
@@ -61,8 +62,8 @@ def assess(
             elif action == "ban":
                 ban_reasons.append(reason)
     if inline_buttons and settings.get("inline_buttons_ban", False):
-        reasons.append(BUTTON_REASON)
-        ban_reasons.append(BUTTON_REASON)
+        reasons.append(BusinessReason(BUTTON_REASON, "ban"))
+        ban_reasons.append(reasons[-1])
     if settings.get("advertising_ban", True):
         hits = [(hit, True) for hit in engine.run("profile", sender_name)]
         hits += [(hit, False) for stage in ("short", "advertising")
@@ -90,9 +91,8 @@ def assess(
     target_reasons = blacklist_reasons({"text": text}, active, settings=settings, urls=urls)
     reasons.extend(target_reasons)
     mute_reasons.extend(reason for reason in target_reasons if getattr(reason, "action", "") == "mute")
-    hit_ids.extend(rule["id"] for rule in active if rule.get("id") and rule["kind"] == "block_target"
-                   and any(reason.endswith(rule["value"]) for reason in target_reasons))
-    ban_reasons.extend(reason for reason in target_reasons if reason.startswith("全局广告黑名单："))
+    hit_ids.extend(reason.rule_id for reason in target_reasons if reason.rule_id)
+    ban_reasons.extend(reason for reason in target_reasons if getattr(reason, "action", "") == "ban")
     allowed = [r["value"] for r in active if r["kind"] == "allow_domain"]
     for rule in active:
         value = rule["value"]
@@ -140,6 +140,8 @@ def assess(
             continue
         if username in blocked_mentions:
             reasons.append(f"禁止引流账号：@{username}")
+            hit_ids.extend(r["id"] for r in active if r.get("id") and r["kind"] == "block_mention"
+                           and normalize(r["value"]).lstrip("@") == username)
         if newcomer and settings.get("newcomer_mentions"):
             reasons.append("新成员观察期提及未允许账号")
     if newcomer and settings.get("newcomer_mentions"):
@@ -159,8 +161,12 @@ def assess(
                 continue
             if username in blocked_mentions:
                 reasons.append(f"禁止引流账号：@{username}")
-        if any(domain_matches(host, r["value"]) for r in active if r["kind"] == "block_domain"):
+                hit_ids.extend(r["id"] for r in active if r.get("id") and r["kind"] == "block_mention"
+                               and normalize(r["value"]).lstrip("@") == username)
+        blocked_domains = [r for r in active if r["kind"] == "block_domain" and domain_matches(host, r["value"])]
+        if blocked_domains:
             reasons.append(f"禁止域名：{host}")
+            hit_ids.extend(r["id"] for r in blocked_domains if r.get("id"))
         if (
             settings.get("block_invites")
             and host in ("t.me", "telegram.me")
@@ -170,7 +176,7 @@ def assess(
         if newcomer and settings.get("newcomer_links"):
             reasons.append("新成员限制期发送链接")
     if contact:
-        reasons.append(CONTACT_REASON)
+        reasons.append(BusinessReason(CONTACT_REASON, "ban", contact=True))
     if newcomer and forwarded and settings.get("newcomer_forwards", True):
         reasons.append("新成员观察期转发用户或频道消息")
     if settings.get("newcomer_wallets", True) and any(
@@ -178,18 +184,7 @@ def assess(
     ):
         reasons.append("发送加密货币或代币合约地址")
     reasons.extend(activity_reasons(settings, repeats, similar, burst))
-    for rule in active:
-        if not rule.get("id"):
-            continue
-        if rule["kind"] == "block_mention" and any(reason in [*names, *reasons] for reason in (
-            f"禁止用户名：@{normalize(rule['value']).lstrip('@')}",
-            f"禁止引流账号：@{normalize(rule['value']).lstrip('@')}")):
-            hit_ids.append(rule["id"])
-        if rule["kind"] == "block_domain" and any(
-            reason.startswith("禁止域名：") and domain_matches(reason.split("：", 1)[1], rule["value"])
-            for reason in reasons):
-            hit_ids.append(rule["id"])
-    return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
+    return {"reasons": unique_reasons(reasons), "name_reasons": unique_reasons(names),
             "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
             "rule_ids": list(dict.fromkeys(hit_ids)), "message_emoji_hit": emoji_hit}
 

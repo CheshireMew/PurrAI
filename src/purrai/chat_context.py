@@ -60,7 +60,7 @@ class ChatContext:
             if row.get("reply_to"):
                 speakers.setdefault(row["reply_to"], row.get("reply_to_speaker_id", 0))
         recent = await self.recent(session, group_id, topic_id)
-        allowed_images = permitted_images(recent, message_id, direct)
+        allowed_images = permitted_images(recent, message_id, direct, cfg.chat_burst_seconds)
         if direct:
             target = next((row for row in recent if row.message_id == message_id), None)
             if target and target.reply_to_id:
@@ -75,11 +75,14 @@ class ChatContext:
         # Older chat rows did not retain channel origins. Recover them from the
         # independent archive, including sources already absent from chat's window.
         links = set()
+        sent_at = {row["id"]: row["sent_at"] for row in context if "sent_at" in row}
+        sent_at.update({row.message_id: row.sent_at for row in sources})
         names = {row.message_id: row.sender_name for row in sources}
-        for identifier, sender, payload, name, username in await session.execute(select(
+        for identifier, sender, payload, name, username, timestamp in await session.execute(select(
             ArchivedMessage.message_id, ArchivedMessage.sender_id, latest_payload(),
-            ArchivedMessage.sender_name, ArchivedMessage.username,
+            ArchivedMessage.sender_name, ArchivedMessage.username, ArchivedMessage.sent_at,
         ).where(ArchivedMessage.group_id == group_id, ArchivedMessage.message_id.in_(speakers))):
+            sent_at[identifier] = timestamp
             speakers[identifier] = sender or 0
             if sender and sender > 0:
                 names[identifier] = profile_name({"first_name": name, "username": username})
@@ -97,6 +100,8 @@ class ChatContext:
         excluded = set(await session.scalars(select(candidates.c.message_id).where(
             blocked_message(group_id, candidates.c.message_id, candidates.c.sender_id),
         )))
+        excluded.update(identifier for identifier, timestamp in sent_at.items()
+                        if timestamp < now() - cfg.chat_context_hours * 3600)
         reviews = await latest_reviews(session, group_id, speakers)
         excluded.update(identifier for identifier, review in reviews.items() if review.state not in ("clean", "exempt"))
         context = [{**row, "advertisement_reviewed": True} if row["id"] in reviews else row for row in context]
@@ -106,11 +111,11 @@ class ChatContext:
         excluded.update(row.message_id for row in sources if not row.eligible and not (
             row.message_id in allowed_images and row.text.startswith(UNREADABLE_IMAGE)
         ))
-        excluded.update(image_message_ids(recent) - allowed_images)
+        excluded.update(image_message_ids(recent, cfg.chat_burst_seconds) - allowed_images)
         excluded.update(identifier for identifier, origins in source_metadata.items() if external_channel_reasons(
             origins, group_id, cfg.model_dump(), rules, linked_channel_id=linked_channel_id,
         ))
-        for burst in message_bursts(recent):
+        for burst in message_bursts(recent, cfg.chat_burst_seconds):
             if not any(row.is_bot for row in burst) and any(reason != LINK_REASON for reason in input_reasons(
                 "\n".join(row.text for row in burst), rules, cfg.model_dump(),
                 direct=direct and any(row.message_id == message_id for row in burst),
@@ -190,17 +195,17 @@ class ChatContext:
         reset_at = float(reset.value) if reset else 0
         _, state = await session_state(session, turn.group_id, turn.topic_id)
         continuing = (
-            state.get("context_reset", 0) == reset_at and now() - state.get("context_started", 0) < 6 * 3600
+            state.get("context_reset", 0) == reset_at and now() - state.get("context_started", 0) < cfg.chat_context_hours * 3600
         )
         history = state.get("sent_context", []) if continuing else []
         history_ids = {row["id"] for row in history}
         cursor = state.get("context_cursor", 0) if continuing else 0
         recent = await self.recent(session, turn.group_id, turn.topic_id)
-        allowed_images = permitted_images(recent, turn.message_id, turn.direct)
-        image_ids = image_message_ids(recent) - allowed_images
+        allowed_images = permitted_images(recent, turn.message_id, turn.direct, cfg.chat_burst_seconds)
+        image_ids = image_message_ids(recent, cfg.chat_burst_seconds) - allowed_images
         conditions = (
             *self.clean_conditions(turn.group_id, turn.topic_id, allowed_images),
-            ChatMessage.sent_at >= now() - 6 * 3600,
+            ChatMessage.sent_at >= now() - cfg.chat_context_hours * 3600,
             ChatMessage.received_at >= reset_at,
             ChatMessage.message_id.not_in(image_ids),
             ~select(ChatTurn.id).where(
@@ -261,6 +266,7 @@ class ChatContext:
                     "name": row.sender_name,
                     "bot": row.is_bot,
                     "text": row.text,
+                    "sent_at": row.sent_at,
                     **({"channel_sources": origins} if origins else {}),
                     **({"reply_to": row.reply_to_id} if source or row.reply_to_id in visible_ids or row.is_bot else {}),
                     **({"quote": quote} if quote else {}),
@@ -288,7 +294,7 @@ class ChatContext:
         target = next((row for row in selected if row.message_id == turn.message_id), None)
         if target and turn.direct:
             entry = next(row for row in result if row["id"] == turn.message_id)
-            if turn.message_id in image_message_ids(recent):
+            if turn.message_id in image_message_ids(recent, cfg.chat_burst_seconds):
                 entry["image_unavailable"] = True
         combined = await self.filter(session, turn.group_id, turn.topic_id, history + result, cfg,
                                      message_id=turn.message_id, direct=turn.direct)
@@ -311,7 +317,7 @@ class ChatContext:
         ))
         if (not group or not group.approved or not group.enabled or not cfg.chat_enabled
                 or not cfg.chat_advertiser_cooldown or not target or target.is_bot
-                or now() - target.sent_at > 120 or now() - turn.created_at > 120
+                or now() - target.sent_at > cfg.chat_message_max_age_seconds or now() - turn.created_at > cfg.chat_message_max_age_seconds
                 or not await self.allowed(session, turn.group_id, turn.message_id, target.sender_id)):
             return []
         return [{"id": target.message_id, "speaker_id": target.sender_id, "name": target.sender_name,
@@ -361,10 +367,12 @@ class ChatContext:
                 **({"image_unavailable": True} if image else {})}
 
     async def remember_sent_context(self, session, turn, context):
+        group = await session.get(Group, turn.group_id)
+        cfg = GroupSettings.model_validate(group.settings)
         row, state = await session_state(session, turn.group_id, turn.topic_id)
         reset = await session.get(Meta, f"chat_reset:{turn.group_id}")
         reset_at = float(reset.value) if reset else 0
-        if state.get("context_reset", 0) != reset_at or now() - state.get("context_started", 0) >= 6 * 3600:
+        if state.get("context_reset", 0) != reset_at or now() - state.get("context_started", 0) >= cfg.chat_context_hours * 3600:
             state["context_started"] = now()
         cursor = await session.scalar(select(func.max(ChatMessage.id)).where(
             ChatMessage.group_id == turn.group_id, ChatMessage.topic_id == turn.topic_id,
@@ -395,6 +403,7 @@ class ChatContext:
             )
         )
         reset = await session.get(Meta, f"chat_reset:{turn.group_id}")
+        cfg = GroupSettings.model_validate(group.settings)
         valid = (
             current.state == "generating"
             and group.approved
@@ -404,13 +413,12 @@ class ChatContext:
             and target.sender_id == sender_id
             and (turn.review_only or sender_id not in group.settings.get("chat_no_reply_user_ids", []))
             and target.text == original
-            and now() - target.sent_at <= 120
-            and now() - turn.created_at <= 120
+            and now() - target.sent_at <= cfg.chat_message_max_age_seconds
+            and now() - turn.created_at <= cfg.chat_message_max_age_seconds
             and not (reset and float(reset.value) > turn.created_at)
             and await self.allowed(session, turn.group_id, turn.message_id, sender_id)
         )
         if valid:
-            cfg = GroupSettings.model_validate(group.settings)
             valid = context == (await self.review(session, turn, cfg) if turn.review_only else
                                 await self.filter(session, turn.group_id, turn.topic_id, context, cfg,
                                                   message_id=turn.message_id, direct=turn.direct))

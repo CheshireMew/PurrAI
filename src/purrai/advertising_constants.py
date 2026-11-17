@@ -10,5 +10,7 @@ BLACKLIST_PREFIX = "全局广告黑名单："
 BUTTON_REASON = "消息附带内联按钮，删除消息并永久封禁"
 
 
-def is_ban_reason(reason):
-    return reason == BUTTON_REASON or reason.startswith((AD_PREFIX, GROUP_PREFIX, CHANNEL_PREFIX, BLACKLIST_PREFIX))
+def is_ban_reason(reason, rules=None):
+    from purrai.reason_policy import classifies
+
+    return classifies(reason, "ban", rules)

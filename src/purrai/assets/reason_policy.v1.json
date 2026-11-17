@@ -1,0 +1,251 @@
+{
+  "ban": [
+    {
+      "id": "ban-1",
+      "title": "明确广告引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "明确广告引流："
+    },
+    {
+      "id": "ban-2",
+      "title": "外群链接引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外群链接引流："
+    },
+    {
+      "id": "ban-3",
+      "title": "外部频道广告：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外部频道广告："
+    },
+    {
+      "id": "ban-4",
+      "title": "全局广告黑名单：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "全局广告黑名单："
+    },
+    {
+      "id": "ban-5",
+      "title": "消息附带内联按钮，删除消息并永久封禁",
+      "enabled": true,
+      "mode": "exact",
+      "value": "消息附带内联按钮，删除消息并永久封禁"
+    }
+  ],
+  "contact": [
+    {
+      "id": "contact-1",
+      "title": "分享联系人，删除消息并踢出群聊",
+      "enabled": true,
+      "mode": "exact",
+      "value": "分享联系人，删除消息并踢出群聊"
+    },
+    {
+      "id": "contact-2",
+      "title": "分享联系人，删除消息并永久封禁",
+      "enabled": true,
+      "mode": "exact",
+      "value": "分享联系人，删除消息并永久封禁"
+    }
+  ],
+  "spam": [
+    {
+      "id": "spam-1",
+      "title": "重复刷屏",
+      "enabled": true,
+      "mode": "exact",
+      "value": "重复刷屏"
+    },
+    {
+      "id": "spam-2",
+      "title": "近似内容刷屏",
+      "enabled": true,
+      "mode": "exact",
+      "value": "近似内容刷屏"
+    },
+    {
+      "id": "spam-3",
+      "title": "短时间连续发送",
+      "enabled": true,
+      "mode": "exact",
+      "value": "短时间连续发送"
+    }
+  ],
+  "repeat": [
+    {
+      "id": "repeat-1",
+      "title": "重复刷屏",
+      "enabled": true,
+      "mode": "exact",
+      "value": "重复刷屏"
+    }
+  ],
+  "advertising_stats": [
+    {
+      "id": "advertising_stats-1",
+      "title": "明确广告引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "明确广告引流："
+    },
+    {
+      "id": "advertising_stats-2",
+      "title": "外群链接引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外群链接引流："
+    },
+    {
+      "id": "advertising_stats-3",
+      "title": "外部频道广告：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外部频道广告："
+    },
+    {
+      "id": "advertising_stats-4",
+      "title": "全局广告黑名单：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "全局广告黑名单："
+    },
+    {
+      "id": "advertising_stats-5",
+      "title": "业务招揽短语，仅删除：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "业务招揽短语，仅删除："
+    },
+    {
+      "id": "advertising_stats-6",
+      "title": "昵称＋正文组合：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "昵称＋正文组合："
+    },
+    {
+      "id": "advertising_stats-7",
+      "title": "禁止域名：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "禁止域名："
+    },
+    {
+      "id": "advertising_stats-8",
+      "title": "禁止引流账号：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "禁止引流账号："
+    },
+    {
+      "id": "advertising_stats-9",
+      "title": "分享联系人",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "分享联系人"
+    },
+    {
+      "id": "advertising_stats-10",
+      "title": "关键词：",
+      "enabled": true,
+      "mode": "contains",
+      "value": "关键词："
+    }
+  ],
+  "spam_stats": [
+    {
+      "id": "spam_stats-1",
+      "title": "重复刷屏",
+      "enabled": true,
+      "mode": "exact",
+      "value": "重复刷屏"
+    },
+    {
+      "id": "spam_stats-2",
+      "title": "近似内容刷屏",
+      "enabled": true,
+      "mode": "exact",
+      "value": "近似内容刷屏"
+    },
+    {
+      "id": "spam_stats-3",
+      "title": "短时间连续发送",
+      "enabled": true,
+      "mode": "exact",
+      "value": "短时间连续发送"
+    },
+    {
+      "id": "spam_stats-4",
+      "title": "多账号重复刷屏：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "多账号重复刷屏："
+    }
+  ],
+  "ai_history": [
+    {
+      "id": "ai_history-1",
+      "title": "AI确认广告",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "AI确认广告"
+    },
+    {
+      "id": "ai_history-2",
+      "title": "AI最近3天累计3次判定广告",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "AI最近3天累计3次判定广告"
+    }
+  ],
+  "target_learning": [
+    {
+      "id": "target_learning-1",
+      "title": "明确广告引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "明确广告引流："
+    },
+    {
+      "id": "target_learning-2",
+      "title": "外群链接引流：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外群链接引流："
+    },
+    {
+      "id": "target_learning-3",
+      "title": "外部频道广告：",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "外部频道广告："
+    },
+    {
+      "id": "target_learning-4",
+      "title": "分享联系人，删除消息并踢出群聊",
+      "enabled": true,
+      "mode": "exact",
+      "value": "分享联系人，删除消息并踢出群聊"
+    },
+    {
+      "id": "target_learning-5",
+      "title": "分享联系人，删除消息并永久封禁",
+      "enabled": true,
+      "mode": "exact",
+      "value": "分享联系人，删除消息并永久封禁"
+    }
+  ],
+  "media_gate": [
+    {
+      "id": "media_gate-1",
+      "title": "独立文字发言不足 ",
+      "enabled": true,
+      "mode": "prefix",
+      "value": "独立文字发言不足 "
+    }
+  ]
+}

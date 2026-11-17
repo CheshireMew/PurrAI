@@ -592,116 +592,6 @@
       ]
     },
     {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "239a53472131325b133d6bab60356e7b64fcce05fa9221ea205f07da0b01c8be",
-      "line": 255,
-      "examples": [
-        "明确广告引流："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "74b962fc225c114154e2b5cc786572b266a2a2aa9d6274322fa1d9535de54c98",
-      "line": 256,
-      "examples": [
-        "外群链接引流："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "73cee314944f24a42ebe19b651c590d2bacdb1181534e42eadfab4adf43d97cf",
-      "line": 257,
-      "examples": [
-        "外部频道广告："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "8e8261a517ebd454ea9d228deada1f0904285d2806ad228198733476d9923d7e",
-      "line": 258,
-      "examples": [
-        "全局广告黑名单："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "9f40f266591e1f59b1528267f661b22678ede0db21fffa6895e40d61fea6fc4a",
-      "line": 259,
-      "examples": [
-        "业务招揽短语，仅删除："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "71813f9aaecf1b6415619dda2c038c70d671db13d7b8e58f806f56a5cba73bc4",
-      "line": 261,
-      "examples": [
-        "昵称＋正文组合："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "0b94ceef2cfe0f4e2626e94ed8335e9a65ae7311ffd15aca4b16285b629fb645",
-      "line": 262,
-      "examples": [
-        "禁止域名："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "95f20d15c1d6004c4ef94c8e912605a89ed8fec8d78f63a382bf1fe525145598",
-      "line": 263,
-      "examples": [
-        "禁止引流账号："
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "934f4592eddc5b8cd002f1801c5612d8e9c2cc76dac9c8088f3a265112e20ba5",
-      "line": 264,
-      "examples": [
-        "分享联系人"
-      ]
-    },
-    {
-      "path": "src/purrai/management_queries.py",
-      "scope": "ManagementQueries.dashboard",
-      "kind": "string-match",
-      "digest": "122dc66d2da8418c98e15b5e65c5346c98d690f01f0b849534ebea1557396814",
-      "line": 268,
-      "examples": [
-        "多账号重复刷屏："
-      ]
-    },
-    {
-      "path": "src/purrai/media_gate.py",
-      "scope": "media_gate_exemption",
-      "kind": "string-match",
-      "digest": "0c49f53595ca1f1be41cae748dcc21b3fd4245e3eb50ef4f8d4be1ca086a0059",
-      "line": 199,
-      "examples": [
-        "独立文字发言不足 "
-      ]
-    },
-    {
       "path": "src/purrai/member_admin.py",
       "scope": "MemberAdministration.verification_action",
       "kind": "comparison",
@@ -862,18 +752,6 @@
       ]
     },
     {
-      "path": "src/purrai/promotion_targets.py",
-      "scope": "remember_targets",
-      "kind": "string-match",
-      "digest": "85495bb10cdfb6a96418acfe1f10dfe148d3e802521b277d30841ac7a56872c9",
-      "line": 194,
-      "examples": [
-        "外群链接引流：",
-        "外部频道广告：",
-        "明确广告引流："
-      ]
-    },
-    {
       "path": "src/purrai/rule_admin.py",
       "scope": "RuleAdministration.validate",
       "kind": "comparison",
@@ -932,16 +810,6 @@
       "line": 79,
       "examples": [
         "global"
-      ]
-    },
-    {
-      "path": "src/purrai/rules.py",
-      "scope": "assess",
-      "kind": "string-match",
-      "digest": "7ce68bcbecfbd24e11fcfd0d6bd0b24ba43189bdad3f0fd741df243aa3082836",
-      "line": 60,
-      "examples": [
-        "全局广告黑名单："
       ]
     },
     {
@@ -1224,16 +1092,6 @@
       ]
     },
     {
-      "path": "src/purrai/moderation_penalties.py",
-      "scope": "apply_penalty",
-      "kind": "comparison",
-      "digest": "cf99ccaf486662232dda0ca8853252a4326f47f514ac021ad4f35d4418f3551c",
-      "line": 117,
-      "examples": [
-        "重复刷屏"
-      ]
-    },
-    {
       "path": "src/purrai/telegram.py",
       "scope": "TelegramGateway.register_commands",
       "kind": "matching-data",
@@ -1346,17 +1204,6 @@
         "private"
       ],
       "review_note": "2026-11-16: 用户要求头像/简介核验。private 是 Telegram Chat.type 协议值，配合数值 ID 校验资料所属账号；不匹配昵称或业务词。"
-    },
-    {
-      "path": "src/purrai/advertisement_admin.py",
-      "scope": "AdvertisementAdministration.import_history",
-      "kind": "string-match",
-      "digest": "3489883ce99da8bc32cc16411eef20c8ad4741ad7eae85c544e55c114af28876",
-      "line": 141,
-      "examples": [
-        "AI最近3天累计3次判定广告",
-        "AI确认广告"
-      ]
     },
     {
       "path": "src/purrai/advertisement_similarity.py",
@@ -1491,11 +1338,82 @@
         "ai_review_instructions"
       ],
       "review": "2026-11-17: Authorized policy migration. Checks presence of the saved AI-review field to prevent old clients dropping it; never matches message vocabulary."
+    },
+    {
+      "path": "src/purrai/advertisement_admin.py",
+      "scope": "AdvertisementAdministration.import_history",
+      "kind": "keyword-call",
+      "digest": "9c4b8b3f9bec1a1d8190368b8b728b688b6f3712e21fdbe62038dfb05683c0cb",
+      "line": 143,
+      "examples": [
+        "ai_history"
+      ]
+    },
+    {
+      "path": "src/purrai/business_admin.py",
+      "scope": "BusinessAdministration.save",
+      "kind": "comparison",
+      "digest": "58774bc1a77cfec5596b3e6fb91fe7c9a931477f34146cf72f9487efa4d0cbde",
+      "line": 60,
+      "examples": [
+        "reason_policy"
+      ]
+    },
+    {
+      "path": "src/purrai/media_gate.py",
+      "scope": "media_gate_exemption",
+      "kind": "keyword-call",
+      "digest": "331c9152821bf39ac3ac77544bd8d85c0144e88d850c868f6cd6f342a344c556",
+      "line": 204,
+      "examples": [
+        "media_gate"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation_penalties.py",
+      "scope": "apply_penalty",
+      "kind": "keyword-call",
+      "digest": "6deff546e9940b0233fb8ad37b667c7d873a174049bdfd9a6b45de36f3328486",
+      "line": 46,
+      "examples": [
+        "spam"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation_penalties.py",
+      "scope": "apply_penalty",
+      "kind": "keyword-call",
+      "digest": "6deff546e9940b0233fb8ad37b667c7d873a174049bdfd9a6b45de36f3328486",
+      "line": 110,
+      "examples": [
+        "spam"
+      ]
+    },
+    {
+      "path": "src/purrai/moderation_penalties.py",
+      "scope": "apply_penalty",
+      "kind": "keyword-call",
+      "digest": "f58dfebc80073a841d264602081d8dd5cdc2213db4ca412c90f093b6d3e335e8",
+      "line": 123,
+      "examples": [
+        "repeat"
+      ]
+    },
+    {
+      "path": "src/purrai/promotion_targets.py",
+      "scope": "remember_targets",
+      "kind": "keyword-call",
+      "digest": "431cfd0e3b797cd4d052f353301ebc72aeb7303beeadce078395c0a37a960e28",
+      "line": 201,
+      "examples": [
+        "target_learning"
+      ]
     }
   ],
   "additional_seed_sha256": {
     "src/purrai/assets/recognition_policy.v1.json": "853ef92f010d74882b2f190d1ac5ca2e38a6be75f3cab32261c647c10de03074",
     "src/purrai/assets/group_defaults.v1.json": "22c9146ddae0422b46f3eac27c1ac5f65233e8a9edf0f9de3e6d32dc0c759919",
-    "src/purrai/assets/business_rules.v2.json": "47430b051ac430ea3d8f8dce498064000ccb4b060069e038aa2141f0a3a00995"
+    "src/purrai/assets/business_rules.v2.json": "47430b051ac430ea3d8f8dce498064000ccb4b060069e038aa2141f0a3a00995",
+    "src/purrai/assets/reason_policy.v1.json": "5b48ff1477681873ba8827f7d6c57a136d37faaeac17c198e40a9a7120fe58b7"
   }
 }
