@@ -1,6 +1,26 @@
 {
   "settings": {
     "defaults": {
+      "notice_seconds": 30,
+      "ai_ad_window_hours": 72,
+      "ai_ad_limit": 3,
+      "ai_ad_penalty": "permanent_mute",
+      "spam_mute_seconds": 1800,
+      "media_newcomer_days": 15,
+      "learned_target_penalty": "ban",
+      "chat_advertiser_cooldown_seconds": 1800,
+      "chat_evidence_hours": 168,
+      "chat_command_min_users": 3,
+      "chat_min_opening_chars": 4,
+      "chat_ignore_numeric_openings": true,
+      "chat_repeat_hours": 24,
+      "identity_enabled": false,
+      "identity_user_id": 0,
+      "identity_names": [],
+      "identity_parentheses": true,
+      "identity_match_bio": true,
+      "identity_match_photo": true,
+      "identity_action": "kick",
       "chat_enabled": false,
       "chat_proactive": true,
       "chat_advertiser_cooldown": true,
@@ -102,6 +122,146 @@
       "telegram_allowed_links": []
     },
     "fields": {
+      "notice_seconds": {
+        "default": 30,
+        "maximum": 3600,
+        "minimum": 5,
+        "title": "群内系统提醒保留秒数",
+        "type": "integer"
+      },
+      "ai_ad_window_hours": {
+        "default": 72,
+        "maximum": 720,
+        "minimum": 1,
+        "title": "AI广告累计窗口（小时）",
+        "type": "integer"
+      },
+      "ai_ad_limit": {
+        "default": 3,
+        "maximum": 100,
+        "minimum": 1,
+        "title": "AI广告累计次数",
+        "type": "integer"
+      },
+      "ai_ad_penalty": {
+        "default": "permanent_mute",
+        "enum": [
+          "delete",
+          "permanent_mute"
+        ],
+        "title": "AI广告累计处理",
+        "type": "string"
+      },
+      "spam_mute_seconds": {
+        "default": 1800,
+        "maximum": 2592000,
+        "minimum": 30,
+        "title": "刷屏禁言秒数",
+        "type": "integer"
+      },
+      "media_newcomer_days": {
+        "default": 15,
+        "maximum": 365,
+        "minimum": 0,
+        "title": "发图门槛适用天数",
+        "type": "integer"
+      },
+      "learned_target_penalty": {
+        "default": "ban",
+        "enum": [
+          "delete",
+          "permanent_mute",
+          "ban"
+        ],
+        "title": "新学习推广目标的处理",
+        "type": "string"
+      },
+      "chat_advertiser_cooldown_seconds": {
+        "default": 1800,
+        "maximum": 604800,
+        "minimum": 0,
+        "title": "广告账号聊天冷却秒数",
+        "type": "integer"
+      },
+      "chat_evidence_hours": {
+        "default": 168,
+        "maximum": 720,
+        "minimum": 1,
+        "title": "口令及广告记忆时长（小时）",
+        "type": "integer"
+      },
+      "chat_command_min_users": {
+        "default": 3,
+        "maximum": 100,
+        "minimum": 1,
+        "title": "学习口令所需人数",
+        "type": "integer"
+      },
+      "chat_min_opening_chars": {
+        "default": 4,
+        "maximum": 100,
+        "minimum": 0,
+        "title": "独立开场最少字数",
+        "type": "integer"
+      },
+      "chat_ignore_numeric_openings": {
+        "default": true,
+        "title": "忽略纯数字独立开场",
+        "type": "boolean"
+      },
+      "chat_repeat_hours": {
+        "default": 24,
+        "maximum": 720,
+        "minimum": 0,
+        "title": "相同聊天内容忽略时长（小时）",
+        "type": "integer"
+      },
+      "identity_enabled": {
+        "default": false,
+        "title": "防冒充核验",
+        "type": "boolean"
+      },
+      "identity_user_id": {
+        "default": 0,
+        "maximum": 4503599627370495,
+        "minimum": 0,
+        "title": "本人 Telegram ID",
+        "type": "integer"
+      },
+      "identity_names": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 20,
+        "title": "受保护昵称",
+        "type": "array"
+      },
+      "identity_parentheses": {
+        "default": true,
+        "title": "匹配昵称后的括号说明",
+        "type": "boolean"
+      },
+      "identity_match_bio": {
+        "default": true,
+        "title": "比对非空简介",
+        "type": "boolean"
+      },
+      "identity_match_photo": {
+        "default": true,
+        "title": "比对头像",
+        "type": "boolean"
+      },
+      "identity_action": {
+        "default": "kick",
+        "enum": [
+          "kick",
+          "ban"
+        ],
+        "title": "确认冒充后的处理",
+        "type": "string"
+      },
       "chat_enabled": {
         "default": false,
         "title": "Chat Enabled",
@@ -564,6 +724,26 @@
       "external_invite_ban": "外部私密邀请统一封禁"
     },
     "labels": {
+      "notice_seconds": "群内系统提醒保留秒数",
+      "ai_ad_window_hours": "AI广告累计窗口（小时）",
+      "ai_ad_limit": "AI广告累计次数",
+      "ai_ad_penalty": "AI广告累计处理",
+      "spam_mute_seconds": "刷屏禁言秒数",
+      "media_newcomer_days": "发图门槛适用天数",
+      "learned_target_penalty": "新学习推广目标的处理",
+      "chat_advertiser_cooldown_seconds": "广告账号聊天冷却秒数",
+      "chat_evidence_hours": "口令及广告记忆时长（小时）",
+      "chat_command_min_users": "学习口令所需人数",
+      "chat_min_opening_chars": "独立开场最少字数",
+      "chat_ignore_numeric_openings": "忽略纯数字独立开场",
+      "chat_repeat_hours": "相同聊天内容忽略时长（小时）",
+      "identity_enabled": "防冒充核验",
+      "identity_user_id": "本人 Telegram ID",
+      "identity_names": "受保护昵称",
+      "identity_parentheses": "匹配昵称后的括号说明",
+      "identity_match_bio": "比对非空简介",
+      "identity_match_photo": "比对头像",
+      "identity_action": "确认冒充后的处理",
       "chat_enabled": "群聊天",
       "chat_proactive": "主动参与讨论",
       "chat_advertiser_cooldown": "chat_advertiser_cooldown",
@@ -572,7 +752,7 @@
       "chat_ignored_texts": "聊天忽略口令（每行一条，完整匹配，- 清空）",
       "chat_no_reply_user_ids": "不回复名单（用户数字 ID，每行一个，- 清空）",
       "chat_command_learning": "自动识别口令",
-      "chat_command_threshold": "口令识别次数（7 天内，至少 3 位群友）",
+      "chat_command_threshold": "口令识别次数",
       "chat_command_exceptions": "口令识别例外（每行一条，- 清空）",
       "chat_history": "最近消息条数",
       "chat_interval": "主动接话检查间隔（秒）",
@@ -652,7 +832,10 @@
     "superseded": "已换新验证"
   },
   "operations": {
+    "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
+    "points_message": "积分互动",
+    "points_policy": "修改积分设置",
     "auto_reply_rule": "修改自动回复规则",
     "group_migration": "群升级数据接续",
     "emergency": "临时应急保护",
@@ -699,7 +882,7 @@
     "advertisement_check": "核实 Telegram 外群链接",
     "advertisement_ban": "广告或外群引流永久封禁",
     "rule_mute": "正文广告规则永久禁言",
-    "spam_mute": "重复刷屏临时禁言30分钟",
+    "spam_mute": "重复刷屏临时禁言",
     "ai_ad_mute": "AI广告永久禁言",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
@@ -729,7 +912,8 @@
       "allow_domain": "允许域名",
       "block_mention": "禁止引流账号",
       "allow_mention": "允许提及账号",
-      "block_target": "推广目标黑名单"
+      "block_target": "推广目标黑名单",
+      "block_emoji_pack": "消息表情包黑名单"
     },
     "modes": {
       "contains": "包含",

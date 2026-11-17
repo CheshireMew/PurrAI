@@ -118,8 +118,12 @@ async def test_deferred_background_is_included_when_a_direct_question_arrives(en
         assert await session.scalar(select(ChatTurn.state).where(ChatTurn.message_id == 2)) == "merged"
 
 
-async def test_bots_commands_service_notifications_are_excluded_but_own_chat_can_continue(env):
+async def test_bots_commands_service_notifications_are_excluded_but_own_chat_can_continue(env, client):
     chat, model = await configured(env, chat_proactive=False)
+    from test_recognition_policy import save
+    document = (await client.get("/api/settings/business-policy")).json()["document"]
+    document["recognition"]["utility_patterns"].append({"id": "test-admin", "title": "管理口令", "enabled": True, "pattern": "/admin"})
+    await save(client, document)
     for identifier, values in enumerate([
         {"from": {"id": 555, "is_bot": True}},
         {"from": {"id": 999, "is_bot": True}},

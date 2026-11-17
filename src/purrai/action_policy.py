@@ -17,6 +17,7 @@ class ActionPolicySpec:
 VERIFICATION = ActionPolicySpec(True, True, exemption="verification")
 MODERATION = ActionPolicySpec(True, True, True, "moderation")
 ACTION_POLICIES = {
+    "identity_check": MODERATION,
     "verify_mute": VERIFICATION,
     "challenge": VERIFICATION,
     "subscription_check": VERIFICATION,
@@ -34,6 +35,7 @@ ACTION_POLICIES = {
     "rule_mute": MODERATION,
     "spam_mute": MODERATION,
     "ai_ad_mute": MODERATION,
+    "sample_ad_mute": MODERATION,
     "moderation_mute": MODERATION,
     "delete": MODERATION,
     "emoji_status_check": ActionPolicySpec(True, True, True),
@@ -43,6 +45,7 @@ ACTION_POLICIES = {
     "join_link": ActionPolicySpec(notification=True),
     "owner_alert": ActionPolicySpec(notification=True),
     "auto_reply": ActionPolicySpec(notification=True),
+    "points_message": ActionPolicySpec(notification=True),
 }
 DEFAULT_POLICY = ActionPolicySpec()
 AUTOMATIC_MEMBER_ACTIONS = tuple(
@@ -73,7 +76,7 @@ class ActionPolicy:
         if not ACTION_POLICIES.get(action.kind, DEFAULT_POLICY).pause_with_group:
             return False
         # A kick already sent to Telegram still needs its compensating unban.
-        if action.kind == "contact_kick" and action.payload.get("kick_until"):
+        if action.kind in ("contact_kick", "identity_check") and action.payload.get("kick_until"):
             return False
         group = await session.get(Group, action.group_id)
         return bool(group and not group.enabled)

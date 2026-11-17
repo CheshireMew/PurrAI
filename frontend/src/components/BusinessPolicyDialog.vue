@@ -10,6 +10,7 @@ import { useDraftClose } from '../composables/useDraftClose'
 import { usePreviewResult } from '../composables/usePreviewResult'
 import ConditionEditor from './ConditionEditor.vue'
 import TextStepsEditor from './TextStepsEditor.vue'
+import RecognitionEditor from './RecognitionEditor.vue'
 
 const props = defineProps<{ open: boolean; groupId: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -23,7 +24,7 @@ const rule = computed(() => stage.value?.rules.find(item => item.id === ruleId.v
 const condition = computed(() => document.value?.conditions.find(item => item.id === conditionId.value))
 const view = computed(() => document.value?.views.find(item => item.id === viewId.value))
 const sample = ref({ text: '', sender_name: '', source_title: '', contact: false, contact_name: '', direct: false })
-type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[] }
+type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[]; utility_command?: boolean; command_candidate?: string; output_reasons?: string[]; advertised_targets?: string[] }
 const { result, run: runPreview, invalidate } = usePreviewResult<{ before: Preview; after: Preview; changed: boolean }>(() => [document.value, sample.value, props.groupId, props.open])
 const dirty = computed(() => !!baseline.value && JSON.stringify(document.value) !== JSON.stringify(baseline.value.document))
 const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value)
@@ -44,7 +45,7 @@ watch(stageId, () => { ruleId.value = stage.value?.rules[0]?.id || '' })
 function addRule() {
   if (!stage.value) return
   const item: BusinessRule = { id: 'rule-' + crypto.randomUUID(), title: '新规则', reason: '新规则命中', enabled: true,
-    action: stage.value.id.startsWith('chat_') ? 'exclude' : 'delete', condition: expression() }
+    action: stage.value.id.startsWith('chat_') ? 'exclude' : 'delete', advertiser_cooldown: false, condition: expression() }
   stage.value.rules.push(item); ruleId.value = item.id
 }
 function removeRule() {
@@ -91,7 +92,7 @@ function conclusion(value: Preview) {
 
 <template>
 <el-dialog v-model="dialog" title="业务组合规则" class="business-policy-dialog form-dialog" top="3vh" width="min(1120px, 96vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
-<p>这些规则对所有群生效。群内的“明确广告引流永久封禁”开关继续控制广告检查；聊天排除规则只影响聊天。保存前可比较当前规则和草稿的结果。</p>
+<p>这些配置由所有群共用。广告规则沿用各群的广告检查开关；口令识别和机器人输出限制单独生效。保存前可比较当前配置和草稿。</p>
 <el-alert v-if="error" :title="error" type="error" show-icon @close="error = ''"/>
 <div v-if="document" v-loading="busy">
 <el-tabs v-model="tab">
@@ -104,6 +105,7 @@ function conclusion(value: Preview) {
       <div class="stage-line"><el-switch v-model="rule.enabled" active-text="启用本条规则" aria-label="启用业务规则"/><el-select v-model="rule.action" aria-label="业务规则处置"><el-option v-for="action in stage.id.startsWith('chat_') ? ['exclude'] : ['delete', 'mute', 'ban']" :key="action" :value="action" :label="actions[action]"/></el-select></div>
       <el-form-item label="命中条件"><ConditionEditor v-model="rule.condition" :document="document"/></el-form-item>
       <el-form-item label="命中说明"><el-input v-model="rule.reason" aria-label="业务规则命中说明" maxlength="500"/></el-form-item>
+      <el-form-item label="命中后暂停回复该账号"><el-switch v-model="rule.advertiser_cooldown" aria-label="规则触发账号冷却"/></el-form-item>
       <el-form-item label="说明末尾附加的文本"><el-select :model-value="rule.reason_field || ''" aria-label="命中说明附加文本" @change="$event ? rule.reason_field = $event : delete rule.reason_field"><el-option value="" label="不附加文本"/><el-option v-for="item in document.views" :key="item.id" :value="item.id" :label="item.title"/></el-select></el-form-item>
       <div class="stage-line"><el-button @click="moveRule(-1)">提前检查</el-button><el-button @click="moveRule(1)">延后检查</el-button><el-button @click="removeRule">移除此规则</el-button></div>
     </el-form><el-empty v-else description="本组没有识别规则"/></div>
@@ -124,6 +126,13 @@ function conclusion(value: Preview) {
   <template v-if="view"><el-input v-model="view.title" aria-label="文本处理名称"/><el-select v-model="view.source" aria-label="处理前的文本"><el-option value="text" label="原始文本"/><el-option v-for="item in document.views.filter(item => item.id !== viewId)" :key="item.id" :value="item.id" :label="item.title"/></el-select><TextStepsEditor v-model="view.steps"/></template>
   <el-button @click="addView">添加文本处理</el-button>
 </el-tab-pane>
+<el-tab-pane v-if="document.recognition" name="recognition" label="口令与目标识别">
+  <RecognitionEditor v-model="document.recognition"/>
+</el-tab-pane>
+<el-tab-pane v-if="document.ai_review_instructions !== undefined" name="ai-review" label="AI 审核标准">
+  <el-input v-model="document.ai_review_instructions" type="textarea" :rows="10" maxlength="8000" show-word-limit aria-label="AI 审核标准"/>
+  <p>用于新消息与历史样本的 AI 审核；数据边界和返回格式由程序保持一致。</p>
+</el-tab-pane>
 </el-tabs>
 <section class="draft-preview">
 <h3>比较当前规则和草稿</h3>
@@ -131,7 +140,7 @@ function conclusion(value: Preview) {
 <el-input v-model="sample.text" type="textarea" :rows="3" aria-label="业务规则测试正文" placeholder="测试正文"/>
 <el-input v-model="sample.source_title" aria-label="业务规则测试转发来源" placeholder="转发来源标题，可留空"/>
 <div class="stage-line"><el-checkbox v-model="sample.direct">用户直接提问</el-checkbox><el-checkbox v-model="sample.contact">附带联系人</el-checkbox><el-input v-if="sample.contact" v-model="sample.contact_name" aria-label="业务规则测试联系人" placeholder="联系人名称"/><el-button :loading="busy" @click="preview">比较规则草稿</el-button></div>
-<div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p></div></div>
+<div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p><template v-if="tab === 'recognition'"><p>{{ value.utility_command ? '识别为直接忽略的功能口令' : '未命中直接忽略的功能口令' }}</p><p>可学习口令：{{ value.command_candidate || '无' }}</p><p>机器人输出限制：{{ value.output_reasons?.join('；') || '未命中' }}</p><p>提取的广告目标：{{ value.advertised_targets?.join('；') || '无' }}</p></template></div></div>
 </section>
 </div>
 <template #footer><span v-if="dirty" class="unsaved">草稿尚未保存</span><el-button :disabled="busy" @click="requestClose">关闭</el-button><el-button type="primary" :disabled="!document || !dirty" :loading="busy" @click="save">保存业务规则</el-button></template>

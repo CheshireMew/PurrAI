@@ -20,8 +20,8 @@ from purrai.business_rules import with_rules
 from purrai.message_identity import message_sender, profile_name
 
 
-def evaluate_saved(message, settings, rules, newcomer, own_keys, linked, proofs):
-    result = evaluate_message(message, settings, rules)
+def evaluate_saved(message, settings, rules, newcomer, own_keys, linked, proofs, emoji_packs=()):
+    result = evaluate_message(message, settings, rules, emoji_packs=emoji_packs)
     assessment = result.newcomer if newcomer else result.ordinary
     reasons = list(dict.fromkeys(assessment["reasons"] + assessment["name_reasons"]))
     if settings.get("external_group_ban", True):
@@ -65,12 +65,15 @@ class ArchivePreview:
             async with self.context.db.sessions() as session:
                 action = await session.scalar(select(Action).where(Action.dedupe_key == f"advertising-check:{group_id}:{item['message_id']}"))
                 proofs = action.payload.get("evidence", []) if action else []
+                from purrai.message_emoji import cached_packs, enabled
+                packs, missing = await cached_packs(session, message)
             args = (message, copy.deepcopy(group.settings))
-            before = await asyncio.to_thread(evaluate_saved, *args, rules, body.newcomer, keys, linked, proofs)
-            after = await asyncio.to_thread(evaluate_saved, *args, draft_rules, body.newcomer, keys, linked, proofs)
+            before = await asyncio.to_thread(evaluate_saved, *args, rules, body.newcomer, keys, linked, proofs, packs)
+            after = await asyncio.to_thread(evaluate_saved, *args, draft_rules, body.newcomer, keys, linked, proofs, packs)
             items.append({"id": identifier, "message_id": item["message_id"], "text": item["text"] or item["caption"],
                           "before": before, "after": after, "changed": before != after,
                           "incomplete": bool(item.get("recording_gap") or not item["original_observed"]),
+                          "unresolved_emoji": bool(missing and (enabled(rules) or enabled(draft_rules))),
                           "unresolved_links": bool(message_links(message) and not proofs)})
         return {"items": items, "changed_count": sum(item["changed"] for item in items),
                 "notes": ["按当前规则与本次新成员假设试跑，不重建历史刷屏次数或发图资格。",

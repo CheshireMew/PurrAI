@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "signin_points": 10,
+  "chat_points": 1,
+  "chat_daily_limit": 50,
+  "chat_min_characters": 3,
+  "chat_interval_seconds": 60,
+  "packet_enabled": true,
+  "packet_expiry_hours": 24,
+  "commands": {
+    "signin": ["签到", "签到加积分"],
+    "balance": ["积分", "我的积分", "我的排名"],
+    "ranking": ["积分排行", "积分排行榜"],
+    "packet": ["积分红包", "发积分红包"]
+  }
+}

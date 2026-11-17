@@ -19,6 +19,7 @@ import GroupsPage from './pages/GroupsPage.vue'
 import VerificationsPage from './pages/VerificationsPage.vue'
 import RulesPage from './pages/RulesPage.vue'
 import AutoRepliesPage from './pages/AutoRepliesPage.vue'
+import PointsPage from './pages/PointsPage.vue'
 import ViolationsPage from './pages/ViolationsPage.vue'
 import WhitelistPage from './pages/WhitelistPage.vue'
 import PermissionsPage from './pages/PermissionsPage.vue'
@@ -40,6 +41,7 @@ const nav = [
   { id: 'overview', name: '总览', icon: Grid },
   { id: 'groups', name: '群管理', icon: ChatDotRound },
   { id: 'members', name: '成员管理', icon: UserIcon },
+  { id: 'points', name: '养成计划', icon: CircleCheck },
   { id: 'operations', name: '操作记录', icon: Document },
   { id: 'chat', name: '聊天状态', icon: ChatDotRound },
   { id: 'auto-replies', name: '自动回复', icon: ChatDotRound },
@@ -62,7 +64,7 @@ watch(route, current => {
   restoringNavigation = false
 }, {flush: 'sync'})
 watch([page, selected], () => { if (!starting.value && !restoringNavigation) navigate(page.value, selected.value) }, {flush: 'sync'})
-const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages', 'members', 'operations', 'chat', 'auto-replies'].includes(page.value))
+const needsGroup = computed(() => ['verifications', 'rules', 'violations', 'whitelist', 'messages', 'members', 'operations', 'chat', 'auto-replies', 'points'].includes(page.value))
 watch(page, async () => {
   menuExpanded.value = false
   await nextTick()
@@ -200,6 +202,7 @@ onUnmounted(() => { clearInterval(timer); stopNavigation() })
 <OverviewPage v-if="page === 'overview'" :refresh-key="refreshKey" @navigate="page = $event"/>
 <GroupsPage v-else-if="page === 'groups'" :refresh-key="refreshKey"/>
 <MembersPage v-else-if="page === 'members' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
+<PointsPage v-else-if="page === 'points' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <OperationsPage v-else-if="page === 'operations' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <ChatDiagnosticsPage v-else-if="page === 'chat' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>
 <VerificationsPage v-else-if="page === 'verifications' && selected" :key="selected" :group-id="selected" :refresh-key="refreshKey"/>

@@ -1,12 +1,16 @@
 export type Expression = { op: string; [key: string]: any }
 export type TextStep = { op: string; pattern?: string; value?: string | Record<string, string> }
-export type BusinessRule = { id: string; title: string; reason: string; enabled: boolean; action: string; condition: Expression; reason_field?: string }
+export type BusinessRule = { id: string; title: string; reason: string; enabled: boolean; action: string; condition: Expression; reason_field?: string; advertiser_cooldown?: boolean }
 export type BusinessStage = { id: string; title: string; enabled: boolean; first_match: boolean; before: string[]; condition: Expression; rules: BusinessRule[] }
+export type RecognitionEntry = { id: string; title: string; enabled: boolean; pattern?: string; value?: string }
+export type RecognitionPolicy = Record<'utility_patterns' | 'candidate_patterns' | 'other_bot_patterns' | 'output_patterns' | 'phone_prefixes' | 'shortener_domains', RecognitionEntry[]>
 export type BusinessDocument = {
   format: number
   views: { id: string; title: string; source: string; steps: TextStep[] }[]
   conditions: { id: string; title: string; enabled: boolean; condition: Expression }[]
   stages: BusinessStage[]
+  recognition?: RecognitionPolicy
+  ai_review_instructions?: string
 }
 export type BusinessPolicy = { document: BusinessDocument; version: string }
 export const operations: Record<string, string> = {

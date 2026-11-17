@@ -14,16 +14,17 @@ EMOJI = re.compile(
     "[\U0001f000-\U0001faff\u2300-\u23ff\u2600-\u27bf\u2b00-\u2bff\u00a9\u00ae\u203c\u2049\u2122\u2139\u3030\u303d\u3297\u3299]"
 )
 MEDIA = ("photo", "sticker", "animation")
-NEW_MEMBER_SECONDS = 15 * 86400
 MAX_TEXT_CREDIT = 100  # Largest configurable media_min_text_messages.
 
 
-def restricted_newcomer(member, at):
+def restricted_newcomer(member, at, settings=None):
+    from purrai.schemas import GroupSettings
+    days = GroupSettings.model_validate(settings or {}).media_newcomer_days
     return bool(
         member
         and member.present
         and member.join_observed
-        and 0 < member.joined_at <= at < member.joined_at + NEW_MEMBER_SECONDS
+        and 0 < member.joined_at <= at < member.joined_at + days * 86400
     )
 
 
@@ -202,6 +203,6 @@ async def media_gate_exemption( session, action, group, member):
         return False
     minimum = group.settings.get("media_min_text_messages", 3)
     return (
-        not group.enabled or not minimum or not restricted_newcomer(member, now())
+        not group.enabled or not minimum or not restricted_newcomer(member, now(), group.settings)
         or await completed_text_count(session, group.id, action.user_id) >= minimum
     )

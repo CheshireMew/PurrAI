@@ -91,7 +91,10 @@ class RuleAdministration:
 
     @staticmethod
     def validate(body):
-        if body.kind == "block_target":
+        if body.kind == "block_emoji_pack":
+            from purrai.pack_names import emoji_pack_name
+            body.value = emoji_pack_name(body.value)
+        elif body.kind == "block_target":
             from purrai.promotion_targets import normalize_target
             target = normalize_target(body.value)
             if not target:
@@ -132,6 +135,7 @@ class RuleAdministration:
             body.sender_name,
             forwarded=body.forwarded,
             inline_buttons=body.inline_buttons,
+            message_emoji_packs=body.message_emoji_packs,
         )
         conditional = ai_keyword_rules(text, rules, body.sender_name)
         return {

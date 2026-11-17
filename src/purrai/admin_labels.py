@@ -23,7 +23,10 @@ STATE = {
 
 
 OPERATIONS = {
+    "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
+    "points_message": "积分互动",
+    "points_policy": "修改积分设置",
     "auto_reply_rule": "修改自动回复规则",
     "group_migration": "群升级数据接续",
     "emergency": "临时应急保护",
@@ -70,7 +73,7 @@ OPERATIONS = {
     "advertisement_check": "核实 Telegram 外群链接",
     "advertisement_ban": "广告或外群引流永久封禁",
     "rule_mute": "正文广告规则永久禁言",
-    "spam_mute": "重复刷屏临时禁言30分钟",
+    "spam_mute": "重复刷屏临时禁言",
     "ai_ad_mute": "AI广告永久禁言",
     "join_link": "生成申请入群链接",
     "verification_failure": "验证失败处理",
@@ -143,6 +146,7 @@ KINDS = {
     "block_mention": "禁止引流账号",
     "allow_mention": "允许提及账号",
     "block_target": "推广目标黑名单",
+    "block_emoji_pack": "消息表情包黑名单",
 }
 
 
@@ -162,7 +166,7 @@ CHAT_FIELDS = {
     "chat_persona": "性格与说话习惯",
     "chat_ignored_texts": "聊天忽略口令（每行一条，完整匹配，- 清空）",
     "chat_no_reply_user_ids": "不回复名单（用户数字 ID，每行一个，- 清空）",
-    "chat_command_threshold": "口令识别次数（7 天内，至少 3 位群友）",
+    "chat_command_threshold": "口令识别次数",
     "chat_command_exceptions": "口令识别例外（每行一条，- 清空）",
     "chat_history": "最近消息条数",
     "chat_interval": "主动接话检查间隔（秒）",

@@ -53,6 +53,7 @@ class Runtime:
                 ("verification-progress", self.service.progress.loop),
                 ("emoji-status", self.service.emoji_status.loop),
                 ("advertising-links", self.service.advertising.loop),
+                ("advertisement-review", self.service.advertisement_review.run),
                 ("chat", self.chat.run),
                 ("runtime-alerts", self.alert_loop),
                 ("operations-maintenance", self.maintenance_loop),
@@ -85,4 +86,5 @@ class Runtime:
         await self.events.close()
         await self.admin.ui.close()
         await self.chat.close()
+        await self.service.advertisement_review.close()
         await self.tg.close()

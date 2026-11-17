@@ -15,7 +15,13 @@
       "kind": "matching-data",
       "digest": "dc47c02bbf2b6af86b9ff69b2057ebc968f3d1973f1492a8adcc86d489f2d97f",
       "line": 15,
-      "examples": ["修改成员发言权限", "删除消息", "发送图片", "发送文字消息", "封禁成员"],
+      "examples": [
+        "修改成员发言权限",
+        "删除消息",
+        "发送图片",
+        "发送文字消息",
+        "封禁成员"
+      ],
       "review": "2026-11-15: Requested logging and alert repair. METHOD_LABELS maps Telegram API method names to display-only operation labels; never matches messages, profiles or advertisement keywords."
     },
     {
@@ -25,7 +31,11 @@
       "digest": "6a8384b2fd95a5d0e984f20a75769e9cd25065ea0cb8cd78b9955100af0bdda7",
       "line": 37,
       "review": "2026-11-15: User requested understandable operational alerts. This dictionary maps Action.kind protocol values to three display labels; it never reads or matches group message text, profiles, keywords or moderation rules.",
-      "examples": ["入群验证前限制发言", "发送入群验证码", "解除验证禁言"]
+      "examples": [
+        "入群验证前限制发言",
+        "发送入群验证码",
+        "解除验证禁言"
+      ]
     },
     {
       "path": "src/purrai/advertising_constants.py",
@@ -33,7 +43,9 @@
       "kind": "matching-data",
       "digest": "8388a76f4693a71a087702b0d31c1ca895c7b2956ea04ef00f4b173488090f22",
       "line": 10,
-      "examples": ["消息附带内联按钮，删除消息并永久封禁"]
+      "examples": [
+        "消息附带内联按钮，删除消息并永久封禁"
+      ]
     },
     {
       "path": "src/purrai/bot_auto_reply_panels.py",
@@ -146,16 +158,16 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "4a84d33f98a14d7d1364a6a03a16fd8feeb2e391b40ede9c0fa6fd1ae20cdfd7",
-      "line": 160,
+      "digest": "f2c8d1433f20b3811871eca8e3fda34396d83bdfd4d9eb84c61345acfad2e319",
+      "line": 164,
       "examples": [
         "不回复名单（用户数字 ID，每行一个，- 清空）",
         "主动接话检查间隔（秒）",
         "口令识别例外（每行一条，- 清空）",
-        "口令识别次数（7 天内，至少 3 位群友）",
+        "口令识别次数",
         "性格与说话习惯"
       ],
-      "review_note": "2026-11-16 user-requested no-reply list: CHAT_FIELDS adds only an editable settings label; no account IDs, business keywords or matching behavior."
+      "review": "2026-11-17: Authorized configurable-policy fix. OPERATIONS and CHAT_FIELDS are display-only labels; removed fixed duration/user-count wording so the UI does not contradict saved settings. No matching vocabulary added."
     },
     {
       "path": "src/purrai/admin_labels.py",
@@ -400,40 +412,10 @@
       "path": "src/purrai/chat_commands.py",
       "scope": "<module>",
       "kind": "matching-call",
-      "digest": "165c6930a2648cf1cb2cb13ad1a502f9e3acd7ed9988ab512c187a628903fbb2",
-      "line": 15,
-      "examples": [
-        "(?:发)?积分红包\\s*\\d+(?:\\.\\d+)?(?:\\s+\\d+)?"
-      ]
-    },
-    {
-      "path": "src/purrai/chat_commands.py",
-      "scope": "<module>",
-      "kind": "matching-call",
       "digest": "3f7c991b0ee1470239185d50a0cefb77f71d3cbdb52c241ff28a9ad87c39a874",
       "line": 16,
       "examples": [
         "@([a-z0-9_]+bot)\\s+(.+)"
-      ]
-    },
-    {
-      "path": "src/purrai/chat_commands.py",
-      "scope": "<module>",
-      "kind": "matching-call",
-      "digest": "67410de3a38b1871304175b169f8e38a24f4adaa1e5916a9b35e726bde191411",
-      "line": 18,
-      "examples": [
-        "(?:查询|查看|领取|兑换|刷新|我的|每日|今日|个人|群)?(?:积分|余额|金币|贡献|等级|经验|账户|背包|红包|抽奖|转盘|任务|奖励|签到|运势)(?:查询|排行|排名|明细|记录|中心|列表|商店|统计|转盘)?"
-      ]
-    },
-    {
-      "path": "src/purrai/chat_commands.py",
-      "scope": "utility_command",
-      "kind": "comparison",
-      "digest": "464443a8a98dbe790309ca2c8d92513c8527462ce140debb4ed95ba58c28b7ce",
-      "line": 31,
-      "examples": [
-        "积分排行"
       ]
     },
     {
@@ -467,16 +449,6 @@
       "line": 10,
       "examples": [
         "[a-z][a-z0-9+.-]*://[^\\s<>]+|(?:mailto|tg|data|javascript):[^\\s<>]+|(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/[^\\s<>]*)?|(?<![\\w@.-])(?:[\\w.+-]+@)?(?:[^\\W_][\\w-]*\\.)+(?:[^\\W\\d_][\\w-]+)(?::\\d+)?(?:/[^\\s<>]*)?"
-      ]
-    },
-    {
-      "path": "src/purrai/chat_safety.py",
-      "scope": "<module>",
-      "kind": "matching-call",
-      "digest": "3c2e56fdee7ea4f007a2f87b0b3a7f8f55418375547a44e44a08d303fdca571b",
-      "line": 17,
-      "examples": [
-        "(?:^|\\s)/(?:ban|mute|unban|unmute|release|reissue)(?:@[a-z0-9_]+)?(?=\\s|$)|(?:^|[\\n。！？])\\s*[【\\[]?(?:系统|管理员|群主|官方)(?:公告|通知|指令)[】\\]]?\\s*[:：]|(?:我(?:已经?|刚刚)|已成功)(?:将|把)[^。！？\\n]{0,40}(?:禁言|封禁|踢出|移出)|(?:我(?:已经?|刚刚)|已成功)(?:永久)?(?:禁言|封禁|踢出|移出|解除了?禁言|解除了?封禁)|\\b(?:I(?:'ve| have)|successfully)\\s+(?:banned|muted|kicked|unbanned|unmuted)\\b"
       ]
     },
     {
@@ -880,18 +852,6 @@
       ]
     },
     {
-      "path": "src/purrai/pack_names.py",
-      "scope": "<module>",
-      "kind": "matching-data",
-      "digest": "9c616b77fb18729e1bc625a4988f47590585339590e5f7efef8f73e55a163523",
-      "line": 6,
-      "examples": [
-        "bygbb666",
-        "gshechaba",
-        "tgvip_16"
-      ]
-    },
-    {
       "path": "src/purrai/promotion_targets.py",
       "scope": "<module>",
       "kind": "matching-data",
@@ -899,16 +859,6 @@
       "line": 9,
       "examples": [
         "全局广告黑名单："
-      ]
-    },
-    {
-      "path": "src/purrai/promotion_targets.py",
-      "scope": "advertised_targets",
-      "kind": "matching-call",
-      "digest": "fd57af218a17e8591d0a0741d142768b7bc30da7c2ad93bbab77cbb38956d984",
-      "line": 149,
-      "examples": [
-        "(?:电话|手机|联系电话|tel|phone|whatsapp)[ :：]*([+0-9][0-9 ()-]{6,24}[0-9])"
       ]
     },
     {
@@ -1209,21 +1159,6 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "5eb188cb0197944f39c5c05d397d489f64cbc9fd2d6d3240fded3a6b46e4aafd",
-      "line": 25,
-      "examples": [
-        "AI广告永久禁言",
-        "临时封禁",
-        "临时应急保护",
-        "临时禁言",
-        "人工核实发送结果"
-      ],
-      "review": "2026-11-14: Explicitly requested verification methods. admin_labels.OPERATIONS: display label for subscription_check action; no ad keywords."
-    },
-    {
-      "path": "src/purrai/admin_labels.py",
-      "scope": "<module>",
-      "kind": "matching-data",
       "digest": "f8a244beb390a3ec238090f7a14a90e077b1d90b6cab357a03bdf742f492b165",
       "line": 92,
       "examples": [
@@ -1243,18 +1178,6 @@
       "line": 8,
       "examples": [
         "链接消息不参与聊天"
-      ]
-    },
-    {
-      "path": "src/purrai/chat_observation.py",
-      "scope": "ChatObservation.observe",
-      "kind": "string-match",
-      "digest": "b8a21281cc09867bb058a02b6d8ff791288d7a85ff6b0f2dc78c4d9c938ad41f",
-      "line": 75,
-      "examples": [
-        "广告招揽：",
-        "明确广告引流：",
-        "聊天广告历史命中"
       ]
     },
     {
@@ -1353,6 +1276,226 @@
         "验证超时"
       ],
       "review": "2026-11-14: Explicitly requested verification repair. VerificationService.fail_verification: internal timeout reason selects final subscription lookup and timely inbox callback protection; not user text or an ad rule."
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "cbb629e1be5823b537b029401f79e6438df77edade1969be4f61830d4f098977",
+      "line": 25,
+      "examples": [
+        "AI广告永久禁言",
+        "临时封禁",
+        "临时应急保护",
+        "临时禁言",
+        "人工核实发送结果"
+      ],
+      "review": "2026-11-17: Authorized configurable-policy fix. OPERATIONS and CHAT_FIELDS are display-only labels; removed fixed duration/user-count wording so the UI does not contradict saved settings. No matching vocabulary added."
+    },
+    {
+      "path": "src/purrai/points_bot.py",
+      "scope": "ranking",
+      "kind": "matching-data",
+      "digest": "01d1e2b8702e33a5fddb4393e92ccf04b5a1caeba21f9c85f81e85ae02228e81",
+      "line": 34,
+      "examples": [
+        "积分榜"
+      ],
+      "review_note": "积分榜标题或领取按钮显示文字，不是匹配词；群口令从 points_policies.config 读取。"
+    },
+    {
+      "path": "src/purrai/points_bot.py",
+      "scope": "process_message",
+      "kind": "matching-data",
+      "digest": "3c8d8a08d3782fc64537ed6aa9004555714bf7be91ad23ec3f06b2f9864a7015",
+      "line": 164,
+      "examples": [
+        "领取积分"
+      ],
+      "review_note": "积分榜标题或领取按钮显示文字，不是匹配词；群口令从 points_policies.config 读取。"
+    },
+    {
+      "path": "src/purrai/points_cli.py",
+      "scope": "add_points_parser",
+      "kind": "comparison",
+      "digest": "486617227720dcd0f72bf61ca5031e33b24e3a81f22ff22190bc6027218e2903",
+      "line": 26,
+      "examples": [
+        "adjust"
+      ],
+      "review_note": "CLI 子命令 adjust 的协议分派，不识别广告或群消息词条。"
+    },
+    {
+      "path": "src/purrai/points_cli.py",
+      "scope": "add_points_parser",
+      "kind": "comparison",
+      "digest": "486617227720dcd0f72bf61ca5031e33b24e3a81f22ff22190bc6027218e2903",
+      "line": 31,
+      "examples": [
+        "adjust"
+      ],
+      "review_note": "CLI 子命令 adjust 的协议分派，不识别广告或群消息词条。"
+    },
+    {
+      "path": "src/purrai/identity_protection.py",
+      "scope": "IdentityProtection.profile",
+      "kind": "comparison",
+      "digest": "3519174fb54a28f80d5924ea039d6208ca3b46ec1696f318b90f796ce0368f25",
+      "line": 130,
+      "examples": [
+        "private"
+      ],
+      "review_note": "2026-11-16: 用户要求头像/简介核验。private 是 Telegram Chat.type 协议值，配合数值 ID 校验资料所属账号；不匹配昵称或业务词。"
+    },
+    {
+      "path": "src/purrai/advertisement_admin.py",
+      "scope": "AdvertisementAdministration.import_history",
+      "kind": "string-match",
+      "digest": "3489883ce99da8bc32cc16411eef20c8ad4741ad7eae85c544e55c114af28876",
+      "line": 141,
+      "examples": [
+        "AI最近3天累计3次判定广告",
+        "AI确认广告"
+      ]
+    },
+    {
+      "path": "src/purrai/advertisement_similarity.py",
+      "scope": "features",
+      "kind": "matching-call",
+      "digest": "c69acb3f35c964c505f81fc1d259ad2002d55bf3e61ec415751fbaee89061df7",
+      "line": 18,
+      "examples": [
+        "(?:https?://|www\\.|t\\.me/)[^\\s<>]+"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_model.py",
+      "scope": "ChatModel.completion",
+      "kind": "comparison",
+      "digest": "852827805f6c604a5a30320a3ac9076f802e79a735a6e8d736cb70fc4f787b3a",
+      "line": 48,
+      "examples": [
+        "max_completion_tokens"
+      ]
+    },
+    {
+      "path": "src/purrai/chat_model.py",
+      "scope": "ChatModel.completion",
+      "kind": "matching-data",
+      "digest": "34017f95f60d81279f2a511b2f715d81fddfa8e414edf4378ca667b2e824876c",
+      "line": 63,
+      "examples": [
+        "API Key 无效",
+        "API 地址或模型不存在",
+        "API 无权访问",
+        "API 限流或额度不足"
+      ]
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "42fe37b03c03558cba39ab53ff30d61afc60e9eaa05ad3372df632ac84b09957",
+      "line": 142,
+      "examples": [
+        "允许域名",
+        "允许提及账号",
+        "关键词",
+        "推广目标黑名单",
+        "消息表情包黑名单"
+      ]
+    },
+    {
+      "path": "src/purrai/rule_admin.py",
+      "scope": "RuleAdministration.validate",
+      "kind": "comparison",
+      "digest": "7ff83dd32e79cff93ce0694444154fbae7b1ada920664c61932ec8b66e2da4ee",
+      "line": 94,
+      "examples": [
+        "block_emoji_pack"
+      ]
+    },
+    {
+      "path": "src/purrai/business_admin.py",
+      "scope": "BusinessAdministration.save",
+      "kind": "comparison",
+      "digest": "be4191dbc181a3eb9c1828156d8bfcad38b306e8d13560deb59e85b20b184e09",
+      "line": 55,
+      "examples": [
+        "recognition"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "utility_command",
+      "kind": "keyword-call",
+      "digest": "df2e6b73248fab13d82e514e2111aa28d55c9a51883b2c77bdadf661dc98279b",
+      "line": 29,
+      "examples": [
+        "utility_patterns"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "utility_command",
+      "kind": "keyword-call",
+      "digest": "532f2111709c741319a82e84fe0775426bf5267a51c6bcd2f8c504eccbf62018",
+      "line": 29,
+      "examples": [
+        "utility_patterns"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "utility_command",
+      "kind": "keyword-call",
+      "digest": "d31cf724de175d65d57720edc9952f4e92d2f24a7e6af41f87b583328c6dba3c",
+      "line": 35,
+      "examples": [
+        "utility_patterns"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "utility_command",
+      "kind": "keyword-call",
+      "digest": "4b986792eecb61c23ac81a40087d9e2053e478bce33d2617129af2d1c5fcf8ea",
+      "line": 37,
+      "examples": [
+        "other_bot_patterns"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/chat_commands.py",
+      "scope": "candidate",
+      "kind": "keyword-call",
+      "digest": "e5a200a323c4876b2c4a9b3e3bddbbed8a1bcfc68c3032ba11ec4bb1eca14e63",
+      "line": 46,
+      "examples": [
+        "candidate_patterns"
+      ],
+      "review": "2026-11-17: User explicitly authorized migrating remaining business vocabulary. These strings are saved policy section identifiers passed to the generic evaluator or checked for document completeness, never words matched against messages."
+    },
+    {
+      "path": "src/purrai/business_admin.py",
+      "scope": "BusinessAdministration.save",
+      "kind": "comparison",
+      "digest": "915556c743404317e939d6d8051adc03dbd845ec2221fb6a035d1a2e90b9e9bb",
+      "line": 57,
+      "examples": [
+        "ai_review_instructions"
+      ],
+      "review": "2026-11-17: Authorized policy migration. Checks presence of the saved AI-review field to prevent old clients dropping it; never matches message vocabulary."
     }
-  ]
+  ],
+  "additional_seed_sha256": {
+    "src/purrai/assets/recognition_policy.v1.json": "853ef92f010d74882b2f190d1ac5ca2e38a6be75f3cab32261c647c10de03074",
+    "src/purrai/assets/group_defaults.v1.json": "22c9146ddae0422b46f3eac27c1ac5f65233e8a9edf0f9de3e6d32dc0c759919",
+    "src/purrai/assets/business_rules.v2.json": "47430b051ac430ea3d8f8dce498064000ccb4b060069e038aa2141f0a3a00995"
+  }
 }

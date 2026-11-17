@@ -1,6 +1,132 @@
 import { expect, test, type Page } from '@playwright/test'
 import catalog from './fixtures/catalog.json' with { type: 'json' }
-import businessSeed from '../../src/purrai/assets/business_rules.v1.json' with { type: 'json' }
+import businessSeed from '../../src/purrai/assets/business_rules.v2.json' with { type: 'json' }
+import recognitionSeed from '../../src/purrai/assets/recognition_policy.v1.json' with { type: 'json' }
+
+for (const width of [1440, 390]) {
+  test(`审核处置与提醒设置可保存 ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mock(page)
+    let saved: any = { document: { ...structuredClone(businessSeed), recognition: structuredClone(recognitionSeed) }, version: 'policy-1' }
+    await page.route('**/api/settings/business-policy', async route => {
+      if (route.request().method() === 'PUT') saved = { document: route.request().postDataJSON().document, version: 'policy-2' }
+      await route.fulfill({ json: saved })
+    })
+    await page.goto('/#/rules?group=-1001')
+    await page.getByRole('button', { name: '管理业务规则', exact: true }).click()
+    const policy = page.getByRole('dialog', { name: '业务组合规则', exact: true })
+    const cooldown = policy.getByRole('switch', { name: '规则触发账号冷却', exact: true })
+    const before = await cooldown.isChecked()
+    await cooldown.locator('..').locator('.el-switch__core').click()
+    await policy.getByRole('tab', { name: 'AI 审核标准', exact: true }).click()
+    await policy.getByRole('textbox', { name: 'AI 审核标准', exact: true }).fill('后台保存的审核准则')
+    await policy.getByRole('button', { name: '保存业务规则', exact: true }).click()
+    await expect(policy.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
+    expect(saved.document.ai_review_instructions).toBe('后台保存的审核准则')
+    expect(saved.document.stages.find((stage: any) => stage.id === 'advertising').rules[0].advertiser_cooldown).toBe(!before)
+    await policy.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('button', { name: '群管理', exact: true }).click()
+    await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+    const dialog = page.getByRole('dialog', { name: '群设置', exact: true })
+    await dialog.getByRole('tab', { name: '审核与提醒', exact: true }).click()
+    const input = dialog.getByLabel(catalog.settings.labels.notice_seconds, { exact: true })
+    await input.fill('45'); await input.press('Tab')
+    await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: 'AI广告累计处理', exact: true }) }).locator('.el-select__wrapper').click()
+    await page.getByRole('option', { name: '只删除广告消息', exact: true }).click()
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
+    const request = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    expect((await request).postDataJSON().settings).toMatchObject({ notice_seconds: 45, ai_ad_penalty: 'delete' })
+    await expect(dialog).not.toBeVisible()
+  })
+
+  test(`口令与目标识别可编辑预览停用并重新打开 ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mock(page)
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const recognition = structuredClone(recognitionSeed)
+    recognition.utility_patterns = [{ id: 'test-utility', title: '原口令', pattern: '原口令[0-9]+', enabled: true }]
+    let saved: any = { document: { ...structuredClone(businessSeed), recognition }, version: 'recognition-v1' }
+    let writes = 0
+    await page.route('**/api/settings/business-policy**', async route => {
+      const request = route.request()
+      if (request.url().endsWith('/preview')) {
+        const body = request.postDataJSON()
+        expect(body.document.recognition.utility_patterns[0].pattern).toBe('自定口令[0-9]+')
+        const result = { reasons: [], name_reasons: [], chat_reasons: [], delete_message: false, mute_member: false, ban_member: false,
+          command_candidate: '', output_reasons: [], advertised_targets: [] }
+        return route.fulfill({ json: { before: { ...result, utility_command: false }, after: { ...result, utility_command: true }, changed: true } })
+      }
+      if (request.method() === 'PUT') {
+        expect(request.headers()['if-match']).toBe(saved.version)
+        const body = request.postDataJSON()
+        expect(body.document.stages).toEqual(businessSeed.stages)
+        expect(body.document.recognition.phone_prefixes).toEqual(recognitionSeed.phone_prefixes)
+        saved = { document: body.document, version: `recognition-v${++writes + 1}` }
+      }
+      await route.fulfill({ json: saved })
+    })
+    await page.goto('/#/rules?group=-1001')
+    await page.getByRole('button', { name: '管理业务规则', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '业务组合规则', exact: true })
+    await dialog.getByRole('tab', { name: '口令与目标识别', exact: true }).click()
+    await dialog.getByLabel('识别规则名称', { exact: true }).fill('自定义测试')
+    await dialog.getByLabel('识别匹配表达式', { exact: true }).fill('自定口令[0-9]+')
+    await dialog.getByLabel('业务规则测试正文', { exact: true }).fill('自定口令40')
+    await dialog.getByRole('button', { name: '比较规则草稿', exact: true }).click()
+    await expect(dialog.getByText('识别为直接忽略的功能口令', { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: '保存业务规则', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
+    await dialog.locator('.el-switch').filter({ has: page.getByRole('switch', { name: '启用识别规则', exact: true }) }).locator('.el-switch__core').click()
+    await dialog.getByRole('button', { name: '保存业务规则', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
+    expect(saved.document.recognition.utility_patterns[0].enabled).toBe(false)
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('button', { name: '管理业务规则', exact: true }).click()
+    await dialog.getByRole('tab', { name: '口令与目标识别', exact: true }).click()
+    await expect(dialog.getByLabel('识别匹配表达式', { exact: true })).toHaveValue('自定口令[0-9]+')
+    await expect(dialog.getByRole('switch', { name: '启用识别规则', exact: true })).not.toBeChecked()
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
+    await page.screenshot({ path: testInfo.outputPath(`recognition-${width}.png`), fullPage: true })
+    await dialog.getByRole('button', { name: '移除', exact: true }).click()
+    await dialog.getByRole('button', { name: '保存业务规则', exact: true }).click()
+    await expect(dialog.getByText('本类规则为空，不执行匹配', { exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '保存业务规则', exact: true })).toBeDisabled()
+    expect(saved.document.recognition.utility_patterns).toEqual([])
+    expect(writes).toBe(3)
+    expect(errors).toEqual([])
+  })
+}
+
+test('消息表情包规则可独立预览并保存永久禁言处置', async ({ page }) => {
+  await mock(page)
+  await page.route('**/rules/preview', async route => {
+    const body = route.request().postDataJSON()
+    expect(body.draft.kind).toBe('block_emoji_pack')
+    expect(body.message_emoji_packs).toEqual(['arbitrary_pack_by_testbot'])
+    await route.fulfill({ json: { reasons: ['消息表情包黑名单：arbitrary_pack_by_testbot'], delete_message: true, mute_member: true } })
+  })
+  await page.goto('/#/rules?group=-1001')
+  await page.getByRole('button', { name: '添加规则', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '广告规则', exact: true })
+  await dialog.locator('.el-form-item').filter({ hasText: '规则类型' }).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '消息表情包黑名单', exact: true }).click()
+  await dialog.getByPlaceholder('t.me/addemoji 链接或表情包短名称').fill('arbitrary_pack_by_testbot')
+  await dialog.locator('.el-form-item').filter({ hasText: '正文命中处理' }).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '删消息并永久禁言', exact: true }).click()
+  await expect(dialog.getByText(/不检查昵称旁的状态表情/)).toBeVisible()
+  await dialog.getByRole('textbox', { name: '测试消息表情包' }).fill('arbitrary_pack_by_testbot')
+  await dialog.getByRole('button', { name: '预览当前草稿' }).click()
+  await expect(dialog.getByText(/消息表情包黑名单：arbitrary_pack_by_testbot/)).toBeVisible()
+  const request = page.waitForRequest(r => r.url().endsWith('/rules') && r.method() === 'POST')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  const body = (await request).postDataJSON()
+  expect(body.kind).toBe('block_emoji_pack')
+  expect(body.scope).toBe('message')
+  expect(body.penalty).toBe('permanent_mute')
+  await expect(dialog).toBeHidden()
+})
 
 const settings = { verification_failure_action: 'permanent_mute', archive_enabled: true, verification_enabled: true, verification_timeout: 180, max_attempts: 3, failure_ban_seconds: 600,
   newcomer_seconds: 259200, newcomer_forwards: true, newcomer_wallets: true, newcomer_links: true, newcomer_contacts: true, repeat_enabled: true,
@@ -219,6 +345,31 @@ test('状态表情说明与实际处罚和默认名单一致', async ({ page }) 
   await expect(dialog.getByText('群内发言命中会删除对应消息并永久禁言，成员留在群内', { exact: false })).toBeVisible()
   const defaults = dialog.getByText('程序初始名单', { exact: false })
   for (const pack of catalog.settings.defaults.emoji_status_blocked_packs) await expect(defaults).toContainText(pack)
+})
+
+test('防冒充设置可保存真实账号和任意昵称', async ({ page }, testInfo) => {
+  await mock(page)
+  let saved: any = null
+  await page.route('**/api/groups/-1001/settings', async route => {
+    saved = route.request().postDataJSON().settings
+    await route.fulfill({ json: { ...groups[0], settings: { ...catalog.settings.defaults, ...saved } } })
+  })
+  await page.goto('/#/groups')
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: '防广告', exact: true }).click()
+  await dialog.getByRole('switch', { name: '开启防冒充核验', exact: true }).locator('..').click()
+  await dialog.getByRole('spinbutton', { name: '本人的 Telegram 数字 ID' }).fill('123456')
+  await dialog.getByRole('textbox', { name: '受保护昵称' }).fill('任意测试名称\n另一个名称')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(saved.identity_enabled).toBe(true)
+  expect(saved.identity_user_id).toBe(123456)
+  expect(saved.identity_names).toEqual(['任意测试名称', '另一个名称'])
+  await page.getByRole('button', { name: '群设置', exact: true }).first().click()
+  await dialog.getByRole('tab', { name: '防广告', exact: true }).click()
+  await dialog.getByRole('heading', { name: '防冒充', exact: true }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('identity-settings.png') })
 })
 
 test('初始状态表情名单说明读取配置目录而非群名单', async ({ page }) => {

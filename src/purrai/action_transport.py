@@ -35,6 +35,21 @@ class ActionTransport:
         execution = session.info["action_execution"]
         if not method.startswith("get_"):
             await self.authorize_actor(session, action)
+            if action.kind == "ai_ad_mute" and "ai_keyword_evidence" not in action.payload:
+                from purrai.ai_advertising import cumulative_penalty_applies
+                from purrai.models import Group
+                if not await cumulative_penalty_applies(session, action, await session.get(Group, action.group_id)):
+                    raise ActionSuperseded(reason="AI广告累计设置或计数已变化，取消旧处罚", before_request=True)
+            if "advertisement_evidence" in action.payload:
+                from purrai.advertisement_store import evidence_applies
+                from purrai.models import Group
+                if not await evidence_applies(session, action, await session.get(Group, action.group_id)):
+                    raise ActionSuperseded(reason="广告样本、原消息或审核配置已变化，取消旧处罚", before_request=True)
+            if "identity_evidence" in action.payload and method != "unban_chat_member":
+                from purrai.identity_protection import evidence_current
+                from purrai.models import Group
+                if not evidence_current(await session.get(Group, action.group_id), action):
+                    raise ActionSuperseded(reason="防冒充设置已变化，停止旧处罚", before_request=True)
             if "ai_ad_evidence" in action.payload:
                 from purrai.ai_advertising import deletion_applies
                 from purrai.models import Group

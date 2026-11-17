@@ -1,0 +1,128 @@
+{
+  "utility_patterns": [
+    {
+      "id": "points-packet",
+      "title": "积分红包口令",
+      "enabled": true,
+      "pattern": "(?:发)?积分红包\\s*\\d+(?:\\.\\d+)?(?:\\s+\\d+)?"
+    },
+    {
+      "id": "points-ranking",
+      "title": "积分排行口令",
+      "enabled": true,
+      "pattern": "积分排行"
+    }
+  ],
+  "candidate_patterns": [
+    {
+      "id": "functional-phrases",
+      "title": "可学习的功能口令",
+      "enabled": true,
+      "pattern": "(?:查询|查看|领取|兑换|刷新|我的|每日|今日|个人|群)?(?:积分|余额|金币|贡献|等级|经验|账户|背包|红包|抽奖|转盘|任务|奖励|签到|运势)(?:查询|排行|排名|明细|记录|中心|列表|商店|统计|转盘)?"
+    }
+  ],
+  "other_bot_patterns": [
+    {
+      "id": "common-bot-commands",
+      "title": "其他机器人的常用口令",
+      "enabled": true,
+      "pattern": "(?:start|help|balance|checkin)"
+    }
+  ],
+  "output_patterns": [
+    {
+      "id": "management-claims",
+      "title": "管理指令或冒充管理操作",
+      "enabled": true,
+      "pattern": "(?:^|\\s)/(?:ban|mute|unban|unmute|release|reissue)(?:@[a-z0-9_]+)?(?=\\s|$)|(?:^|[\\n。！？])\\s*[【\\[]?(?:系统|管理员|群主|官方)(?:公告|通知|指令)[】\\]]?\\s*[:：]|(?:我(?:已经?|刚刚)|已成功)(?:将|把)[^。！？\\n]{0,40}(?:禁言|封禁|踢出|移出)|(?:我(?:已经?|刚刚)|已成功)(?:永久)?(?:禁言|封禁|踢出|移出|解除了?禁言|解除了?封禁)|\\b(?:I(?:'ve| have)|successfully)\\s+(?:banned|muted|kicked|unbanned|unmuted)\\b"
+    }
+  ],
+  "phone_prefixes": [
+    {
+      "id": "phone-1",
+      "title": "电话",
+      "value": "电话",
+      "enabled": true
+    },
+    {
+      "id": "phone-2",
+      "title": "手机",
+      "value": "手机",
+      "enabled": true
+    },
+    {
+      "id": "phone-3",
+      "title": "联系电话",
+      "value": "联系电话",
+      "enabled": true
+    },
+    {
+      "id": "phone-4",
+      "title": "tel",
+      "value": "tel",
+      "enabled": true
+    },
+    {
+      "id": "phone-5",
+      "title": "phone",
+      "value": "phone",
+      "enabled": true
+    },
+    {
+      "id": "phone-6",
+      "title": "whatsapp",
+      "value": "whatsapp",
+      "enabled": true
+    }
+  ],
+  "shortener_domains": [
+    {
+      "id": "shortener-1",
+      "title": "bit.ly",
+      "value": "bit.ly",
+      "enabled": true
+    },
+    {
+      "id": "shortener-2",
+      "title": "cutt.ly",
+      "value": "cutt.ly",
+      "enabled": true
+    },
+    {
+      "id": "shortener-3",
+      "title": "goo.gl",
+      "value": "goo.gl",
+      "enabled": true
+    },
+    {
+      "id": "shortener-4",
+      "title": "is.gd",
+      "value": "is.gd",
+      "enabled": true
+    },
+    {
+      "id": "shortener-5",
+      "title": "linktr.ee",
+      "value": "linktr.ee",
+      "enabled": true
+    },
+    {
+      "id": "shortener-6",
+      "title": "t.cn",
+      "value": "t.cn",
+      "enabled": true
+    },
+    {
+      "id": "shortener-7",
+      "title": "t.co",
+      "value": "t.co",
+      "enabled": true
+    },
+    {
+      "id": "shortener-8",
+      "title": "tinyurl.com",
+      "value": "tinyurl.com",
+      "enabled": true
+    }
+  ]
+}

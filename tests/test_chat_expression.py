@@ -59,13 +59,69 @@ async def test_inline_emoji_becomes_separate_sticker_and_both_outputs_are_saved(
 async def test_negative_participation_decision_sends_neither_text_nor_sticker(env):
     chat, model = await configured(env)
     await cache(chat)
-    model.result = ChatReply("这个内容不应该发出 😸", "😸", should_reply=False)
+    model.result = ChatReply("这个内容不应该发出 😸", "😸", should_reply=False,
+                             audience="others", decision_reason="两位群友正在确认安排，旁听即可。")
     await chat.observe(message(1, "大家在聊自己的事"))
     await due(chat)
     await chat.run_one()
     assert not any(kind in ("send_message", "send_sticker") for kind, _ in chat.tg.calls)
     async with chat.db.sessions() as session:
-        assert (await session.scalar(select(ChatTurn))).state == "silent"
+        turn = await session.scalar(select(ChatTurn))
+        assert turn.state == "silent"
+        details = json.loads((await session.get(Meta, f"chat-timing:{turn.id}")).value)
+        assert details["decision"] == {"audience": "others", "reason": "两位群友正在确认安排，旁听即可。",
+                                       "should_reply": False, "is_advertisement": False}
+
+
+async def test_reply_overrides_and_decision_summary_do_not_change_other_model_calls():
+    calls = []
+    verdict = {"audience": "others", "decision_reason": "双方正在对接安排，没有自然接话的位置。",
+               "should_reply": False, "is_advertisement": False, "reply": "不该发送", "sticker": "😸"}
+
+    def respond(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(verdict)}}]})
+
+    settings = Settings(_env_file=None, chat_api_extra={"thinking": {"type": "disabled"}},
+                        chat_reply_api_extra={"thinking": {"type": "enabled"}}, chat_reply_max_tokens=2048)
+    model = ChatModel(settings, httpx.MockTransport(respond))
+    try:
+        answer = await model.reply("judgment", "history")
+        assert not answer.should_reply and answer.text is None and answer.sticker is None
+        assert answer.decision_reason == verdict["decision_reason"] and answer.audience == "others"
+        await model.completion("review", "history", max_tokens=768)
+        assert calls[0]["thinking"] == {"type": "enabled"} and calls[0]["max_tokens"] == 2048
+        assert calls[1]["thinking"] == {"type": "disabled"} and calls[1]["max_tokens"] == 768
+    finally:
+        await model.close()
+
+
+async def test_reply_budget_reserves_the_configured_reasoning_output(env):
+    chat, model = await configured(env)
+    chat.settings.chat_reply_max_tokens = 2048
+    model.result = ChatReply(should_reply=False)
+    await chat.observe(message(1, "柴郡喵，先听听大家聊"))
+    await due(chat)
+    await chat.run_one()
+    system, payload = model.calls[0]
+    async with chat.db.sessions() as session:
+        turn = await session.scalar(select(ChatTurn))
+        details = json.loads((await session.get(Meta, f"chat-timing:{turn.id}")).value)
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        assert details["reserved_tokens"] == len(system.encode()) + len(encoded.encode()) + 512 + 2048
+
+
+@pytest.mark.parametrize("text,direct", [("@purrai_bot 帮我想个猫名", True), ("@purrai 帮我想个猫名", False)])
+async def test_request_keeps_actual_bot_identity_separate_from_similar_mentions(env, text, direct):
+    chat, model = await configured(env)
+    model.result = ChatReply(should_reply=False)
+    await chat.observe(message(1, text))
+    await due(chat)
+    await chat.run_one()
+    request = model.calls[0][1]
+    assert request["directly_addressed"] is direct
+    assert request["bot_username"] == "purrai_bot" and request["bot_id"] == chat.tg.user_id
+    assert request["messages"][-1]["mentions"] == [{"username": text.split()[0][1:], "is_you": direct}]
 
 
 @pytest.mark.parametrize("decision", [None, "yes", 1])

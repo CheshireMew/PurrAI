@@ -1,7 +1,7 @@
 import re
 
 from purrai.wallet_addresses import contains_wallet_address
-from purrai.business_rules import BusinessEngine
+from purrai.business_rules import BusinessEngine, BusinessReason, with_rules
 from purrai.text_matching import (
     normalize as normalize,
     content_digest as content_digest,
@@ -41,12 +41,25 @@ def assess(
     mentioned_users: list[dict] | None = None,
     source_titles: list[str] | None = None,
     inline_buttons: bool = False,
+    message_emoji_packs: list[str] | tuple = (),
 ) -> dict:
     reasons, names, mute_reasons, hit_ids = [], [], [], []
     engine = BusinessEngine(rules)
     body_text = engine.view("s_auth", text)
     body_discussion = engine.condition("communication_context", text)
     ban_reasons = []
+
+    def record_rule(reason, penalty, *, profile=False):
+        action = {"permanent_mute": "mute", "ban": "ban"}.get(penalty, "delete")
+        reason = BusinessReason(reason, action)
+        if profile and action == "mute":
+            names.append(reason)
+        else:
+            reasons.append(reason)
+            if action == "mute":
+                mute_reasons.append(reason)
+            elif action == "ban":
+                ban_reasons.append(reason)
     if inline_buttons and settings.get("inline_buttons_ban", False):
         reasons.append(BUTTON_REASON)
         ban_reasons.append(BUTTON_REASON)
@@ -64,10 +77,19 @@ def assess(
                     mute_reasons.append(hit.reason)
                 elif hit.action == "ban":
                     ban_reasons.append(hit.reason)
-    active = [r for r in rules if r.get("enabled", True)]
+    active = with_rules(rules, [r for r in rules if r.get("enabled", True)])
+    emoji_hit = False
+    for rule in active:
+        if rule["kind"] == "block_emoji_pack" and rule["value"].lower() in message_emoji_packs:
+            emoji_hit = True
+            reason = f"消息表情包黑名单：{rule['value']}"
+            record_rule(reason, rule.get("penalty", "delete"))
+            if rule.get("id"):
+                hit_ids.append(rule["id"])
     from purrai.promotion_targets import blacklist_reasons
     target_reasons = blacklist_reasons({"text": text}, active, settings=settings, urls=urls)
     reasons.extend(target_reasons)
+    mute_reasons.extend(reason for reason in target_reasons if getattr(reason, "action", "") == "mute")
     hit_ids.extend(rule["id"] for rule in active if rule.get("id") and rule["kind"] == "block_target"
                    and any(reason.endswith(rule["value"]) for reason in target_reasons))
     ban_reasons.extend(reason for reason in target_reasons if reason.startswith("全局广告黑名单："))
@@ -97,20 +119,22 @@ def assess(
                 else:
                     label = "关键词"
                 if scope == "name_and_message":
-                    names.append(f"昵称＋正文组合：{value} / {rule.get('context_value', '')}")
-                    reasons.append(f"昵称＋正文组合：{value} / {rule.get('context_value', '')}")
+                    record_rule(f"昵称＋正文组合：{value} / {rule.get('context_value', '')}",
+                                rule.get("name_penalty", "permanent_mute"), profile=True)
                 else:
                     if name_hit and scope in ("name", "either"):
-                        names.append(f"昵称{label}：{value}")
+                        record_rule(f"昵称{label}：{value}", rule.get("name_penalty", "permanent_mute"), profile=True)
                     if body_hit and scope in ("message", "either"):
-                        reasons.append(f"{label}：{value}")
-                        if rule.get("penalty") == "permanent_mute":
-                            mute_reasons.append(f"{label}：{value}")
+                        record_rule(f"{label}：{value}", rule.get("penalty", "delete"))
     allowed_mentions = {normalize(r["value"]).lstrip("@") for r in active if r["kind"] == "allow_mention"}
     blocked_mentions = {normalize(r["value"]).lstrip("@") for r in active if r["kind"] == "block_mention"}
     for username in mentions(sender_name):
         if username in blocked_mentions and username not in allowed_mentions:
-            names.append(f"禁止用户名：@{username}")
+            for rule in active:
+                if rule["kind"] == "block_mention" and normalize(rule["value"]).lstrip("@") == username:
+                    record_rule(f"禁止用户名：@{username}", rule.get("name_penalty", "permanent_mute"), profile=True)
+                    if rule.get("id"):
+                        hit_ids.append(rule["id"])
     for username in mentions(text):
         if username in allowed_mentions:
             continue
@@ -167,7 +191,7 @@ def assess(
             hit_ids.append(rule["id"])
     return {"reasons": list(dict.fromkeys(reasons)), "name_reasons": list(dict.fromkeys(names)),
             "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
-            "rule_ids": list(dict.fromkeys(hit_ids))}
+            "rule_ids": list(dict.fromkeys(hit_ids)), "message_emoji_hit": emoji_hit}
 
 
 def ai_keyword_rules(text, rules, sender_name=""):

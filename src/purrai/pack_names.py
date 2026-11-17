@@ -2,31 +2,11 @@
 
 import re
 from urllib.parse import urlsplit
+from purrai.installation_defaults import initial_list
 
-DEFAULT_BLOCKED_PACKS = ("bygbb666", "gshechaba", "tgvip_16")
-DEFAULT_CHAT_PACKS = (
-    "myadestes",
-    "Beach_Bat_Responses_by_fStikBot",
-    "poi466",
-    "LLMG_GIF",
-    "cookprivet",
-    "tofupack_by_fStikBot",
-    "catvideopack_by_fStikBot",
-    "superCheshire",
-    "sumyy3",
-    "HMS_Cheshire",
-    "p1_wmtz1349120938_by_WuMingv2Bot",
-    "Cheshire_the_kitten",
-    "sticker_ab2f7c92_by_moe_sticker_bot",
-    "sese11_by_WuMingv2Bot",
-    "p0_wmtz1678979585_by_WuMingv2Bot",
-    "p0_wmtz1296407908_by_WuMingv2Bot",
-    "GreatCheshire",
-    "BigCheshire",
-    "goodCheshire",
-    "AwesomeCheshireCat",
-)
-DEFAULT_ANTIFRAUD_PACKS = ("FTX888",)
+DEFAULT_BLOCKED_PACKS = tuple(initial_list("emoji_status_blocked_packs"))
+DEFAULT_CHAT_PACKS = tuple(initial_list("chat_sticker_packs"))
+DEFAULT_ANTIFRAUD_PACKS = tuple(initial_list("chat_antifraud_packs"))
 
 
 def _parse(value, route, *, strict_https, link_error, name_error):

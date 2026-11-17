@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import sys
 
-from sqlalchemy import create_engine, insert
+from sqlalchemy import MetaData, create_engine, insert, inspect
 
 from purrai.models import Action, Group, Rule, default_settings
 
@@ -22,13 +22,18 @@ def test_shared_migration_keeps_custom_settings_local_rules_and_old_receipts(tmp
 
     upgrade("0021")
     engine = create_engine(f"sqlite:///{database}")
+    legacy_rules = Rule.__table__.to_metadata(MetaData())
+    columns = {item["name"] for item in inspect(engine).get_columns("rules")}
+    for column in list(legacy_rules.c):
+        if column.name not in columns:
+            legacy_rules._columns.remove(column)
     custom = {**default_settings(), "chat_enabled": True, "chat_persona": "本群专属人设", "repeat_count": 9,
               "emoji_status_blocked_packs": ["local_pack"]}
     with engine.begin() as connection:
         connection.execute(insert(Group), [{"id": -1001, "settings": custom},
                                            {"id": -1002, "settings": default_settings()},
                                            {"id": -1003, "settings": default_settings()}])
-        connection.execute(insert(Rule), [
+        connection.execute(insert(legacy_rules), [
             {"id": "a" * 32, "group_id": -1001, "kind": "keyword", "value": "通用广告"},
             {"id": "b" * 32, "group_id": -1002, "kind": "keyword", "value": "通用广告"},
             {"id": "c" * 32, "group_id": -1001, "kind": "keyword", "value": "本群广告"},

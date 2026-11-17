@@ -16,6 +16,7 @@ from purrai.models import ChatTurn, now
 from purrai.schemas import GroupSettings
 from purrai.stickers import emoji_key
 from purrai.rules import ai_keyword_hints
+from purrai.advertisement_store import latest_reviews
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,10 @@ class ChatDelivery:
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
                 return True
             target = next((row for row in generated.context if row["id"] == turn.message_id), {})
+            from purrai.advertisement_store import criteria_version
+            if result.is_advertisement and generated.review_criteria is not None and generated.review_criteria != criteria_version(await effective_rules(session, turn.group_id)):
+                current.state, current.error = "skipped", "AI 审核标准已修改，取消旧广告判断"
+                return True
             if result.is_advertisement and generated.keyword_hints is not None and generated.keyword_hints != ai_keyword_hints(
                 target.get("text", ""), await effective_rules(session, turn.group_id), target.get("name", "")
             ):
@@ -72,14 +77,15 @@ class ChatDelivery:
                     finish_receipt(current)
                     return True
                 current.state = "silent"
-                if result.is_advertisement:
+                if result.is_advertisement and not await latest_reviews(session, turn.group_id, [turn.message_id]):
                     cfg = GroupSettings.model_validate(group.settings)
                     target = next((row for row in generated.context if row["id"] == turn.message_id), {})
                     await remember_ad(session, turn.group_id, turn.message_id, original, sender_id=sender_id,
                                       sender_name=target.get("name", ""),
                                       cooldown=cfg.chat_advertiser_cooldown)
                     await record_ai_advertisement(session, group, sender_id, turn.message_id, original,
-                        target.get("name", ""), protected_ids=self.receipts.settings.superadmin_ids)
+                        target.get("name", ""), protected_ids=self.receipts.settings.superadmin_ids,
+                        criteria=generated.review_criteria)
                 current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
                     "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容")
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)

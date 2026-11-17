@@ -15,11 +15,13 @@ from purrai.advertising_constants import AD_PREFIX, is_ban_reason
 def seed_document():
     # An installation seed, never merged over a saved policy or used as a fallback
     # for a disabled/deleted rule. Database copies are independently editable.
-    return json.loads(files("purrai").joinpath("assets/business_rules.v1.json").read_text(encoding="utf-8"))
+    return json.loads(files("purrai").joinpath("assets/business_rules.v2.json").read_text(encoding="utf-8"))
 
 
 def default_business_rules():
-    return copy.deepcopy(seed_document())
+    from purrai.recognition_policy import default_recognition
+
+    return {**copy.deepcopy(seed_document()), "recognition": default_recognition()}
 
 
 class RuleSet(list):
@@ -68,7 +70,7 @@ def transform(value, steps):
 
 
 class BusinessReason(str):
-    def __new__(cls, value, action="", rule_id=""):
+    def __new__(cls, value, action="", rule_id="", advertiser_cooldown=False):
         # Keep disposition unambiguous after JSON/SQLite round trips. These are
         # existing reason categories, not advertising vocabulary or conditions.
         if action == "ban" and not is_ban_reason(value):
@@ -77,6 +79,7 @@ class BusinessReason(str):
             value = ("规则禁言：" if action == "mute" else "规则删除：") + value.split("：", 1)[-1]
         result = super().__new__(cls, value)
         result.action, result.rule_id = action, rule_id
+        result.advertiser_cooldown = advertiser_cooldown
         return result
 
 
@@ -178,7 +181,8 @@ class BusinessEngine:
             if not rule["enabled"] or not self.test(rule["condition"], context):
                 continue
             reason = rule["reason"] + str(context.field(rule["reason_field"])) if rule.get("reason_field") else rule["reason"]
-            found.append(Hit(rule["id"], BusinessReason(reason, rule["action"], rule["id"]), rule["action"]))
+            found.append(Hit(rule["id"], BusinessReason(reason, rule["action"], rule["id"],
+                rule.get("advertiser_cooldown", False)), rule["action"]))
             if stage["first_match"]:
                 break
         return found

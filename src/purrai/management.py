@@ -46,6 +46,8 @@ class Management:
         self.chat_admin = ChatAdministration(context, chat)
         self.corrections = ViolationCorrection(context)
         self.protection = CoordinatedProtection(context)
+        from purrai.advertisement_admin import AdvertisementAdministration
+        self.advertisements = AdvertisementAdministration(context)
 
     @property
     def chat(self):

@@ -9,6 +9,7 @@ from purrai.chat_model import ChatReply
 from purrai.models import Action, ChatMessage, ChatTurn, Group, Member, Rule, RuleHit, Violation, Whitelist
 from purrai.service import Service
 from test_chat import age_reply, configured
+from test_advertisement_review import reviewer
 
 
 async def test_three_actual_model_verdicts_within_window_persist_and_permanently_mute(env, monkeypatch):
@@ -173,6 +174,7 @@ async def save_ai_keyword(client, value=None, mode=None, previous=None, **change
 ])
 async def test_keyword_and_first_actual_ai_verdict_delete_and_mute_once(env, client, word, text):
     chat, model = await configured(env)
+    worker, moderation_model = await reviewer(env)
     rule = await save_ai_keyword(client, word)
     model.result = ChatReply(should_reply=False, is_advertisement=True)
     incoming = message(201, text)
@@ -181,7 +183,8 @@ async def test_keyword_and_first_actual_ai_verdict_delete_and_mute_once(env, cli
     await drain(env[3])
     assert not any(method in ("delete_message", "restrict_chat_member") for method, _ in chat.tg.calls)
     await chat.observe(incoming)
-    assert await chat.run_one() and len(model.calls) == 1
+    assert not await chat.run_one() and not model.calls
+    assert await worker.run_one() and len(moderation_model.calls) == 1
     async with chat.db.transaction() as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 201, text, "成员")
@@ -280,6 +283,7 @@ async def test_name_keyword_can_review_short_body_without_proactive_chat(env, cl
 ])
 async def test_ai_keywords_use_independent_configured_fields(env, client, scope, body, name, expected):
     chat, model = await configured(env)
+    worker, moderation_model = await reviewer(env)
     await save_ai_keyword(client, scope=scope, meaning="这可能是推广暗语，也可能指普通手工作品；需结合语境。")
     preview = (await client.post("/api/groups/-1001/rules/preview", json={"text": body, "sender_name": name})).json()
     assert preview["ai_confirmation_required"] is expected
@@ -289,8 +293,9 @@ async def test_ai_keywords_use_independent_configured_fields(env, client, scope,
     incoming["from"].update(first_name=name, username="sample_user")
     await env[3].message(incoming)
     await chat.observe(incoming)
-    assert await chat.run_one() and len(model.calls) == 1
-    hints = model.calls[0][1]["keyword_hints"]
+    assert not await chat.run_one() and not model.calls
+    assert await worker.run_one() and len(moderation_model.calls) == 1
+    hints = moderation_model.calls[0][0]["keyword_hints"]
     assert bool(hints) is expected
     if expected:
         assert hints[0]["meaning"] == "这可能是推广暗语，也可能指普通手工作品；需结合语境。"
@@ -350,6 +355,7 @@ async def test_meaning_changed_while_model_running_cancels_old_verdict(env, clie
 async def test_actual_ai_ad_escalates_partial_external_restriction(env, client, monkeypatch, until):
     from purrai.models import now
     chat, model = await configured(env)
+    worker, _ = await reviewer(env)
     await save_ai_keyword(client, scope="either", meaning="仅作为参考")
     chat.tg.members[(-1001, 42)] = {"status": "restricted", "is_member": True,
         "until_date": int(now() + until) if until else 0, **chat.tg.defaults, "can_invite_users": False}
@@ -358,7 +364,8 @@ async def test_actual_ai_ad_escalates_partial_external_restriction(env, client, 
     incoming["from"]["first_name"] = "纸飞机"
     await env[3].message(incoming)
     await chat.observe(incoming)
-    assert await chat.run_one()
+    assert not await chat.run_one() and not model.calls
+    assert await worker.run_one()
     async with chat.db.transaction() as session:
         (await session.get(Member, (-1001, 42))).restriction_conflict = True
     await drain(env[3])
@@ -451,6 +458,7 @@ def test_dotted_word_ambiguity_uses_current_keyword_data():
 @pytest.mark.parametrize("verdict", [True, False])
 async def test_retired_templates_and_combinations_leave_candidates_for_ai(env, client, verdict):
     chat, model = await configured(env)
+    worker, moderation_model = await reviewer(env, lambda row: verdict)
     # Disable legacy combinations through their existing management API. Neither
     # the seed nor the matching engine needs a vocabulary change.
     original = (await client.get("/api/settings/business-policy")).json()
@@ -475,7 +483,8 @@ async def test_retired_templates_and_combinations_leave_candidates_for_ai(env, c
     await drain(env[3])
     assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in chat.tg.calls)
     await chat.observe(incoming)
-    assert await chat.run_one() and len(model.calls) == 1
+    assert not await chat.run_one() and not model.calls
+    assert await worker.run_one() and len(moderation_model.calls) == 1
     await drain(env[3])
     assert any(method == "delete_message" for method, _ in chat.tg.calls) is verdict
     assert any(method == "restrict_chat_member" for method, _ in chat.tg.calls) is verdict

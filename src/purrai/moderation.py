@@ -26,6 +26,7 @@ from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_rule_hits, record_violation
 from purrai.rules import activity_reasons, message_content
 from purrai.rule_evaluation import prepare_message, refresh_message_evidence
+from purrai.business_rules import BusinessReason
 from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
 from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -103,7 +104,7 @@ class Moderation:
         # A configuration edit during CPU work invalidates the entire assessment,
         # before fingerprints, evidence or penalties are written.
         for _ in range(3):
-            assessment = await prepare_message(self.db, message)
+            assessment = await prepare_message(self.db, message, self.tg)
             if assessment is None:
                 return
             async with self.db.transaction() as session:
@@ -167,6 +168,7 @@ class Moderation:
             from purrai.promotion_targets import blacklist_reasons
             target_reasons = blacklist_reasons(message, rules, settings=group.settings)
             profile["reasons"] += target_reasons
+            profile["mute_reasons"] += [reason for reason in target_reasons if getattr(reason, "action", "") == "mute"]
             profile["ban_reasons"] += [reason for reason in target_reasons if reason.startswith("全局广告黑名单：")]
             if group.settings.get("external_group_ban", True):
                 channel_reasons = external_channel_reasons(
@@ -210,7 +212,7 @@ class Moderation:
                 )
                 return
             minimum = group.settings.get("media_min_text_messages", 3)
-            if minimum and restricted_newcomer(member, now()) and visual_media(message):
+            if minimum and restricted_newcomer(member, now(), group.settings) and visual_media(message):
                 count = await text_count_before(session, message, minimum)
                 if count < minimum:
                     if not admin_checked:
@@ -256,7 +258,9 @@ class Moderation:
             message_violation=bool(result["reasons"]),
         )
         if changed:
-            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
+            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
+                "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
+                "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def record_member_message(
@@ -277,7 +281,9 @@ class Moderation:
             message_violation=True,
         )
         if changed:
-            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": []})
+            await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
+                "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
+                "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):

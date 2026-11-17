@@ -63,7 +63,7 @@ class GroupConfiguration:
             group = await session.get(Group, group_id)
             if (changes or body.reset) and body.baseline is not None:
                 current_values = GroupSettings.model_validate(group.settings).model_dump()
-                defaults = (await policy(session)).settings
+                defaults = GroupSettings.model_validate((await policy(session)).settings).model_dump()
                 intended = {**changes, **{key: defaults[key] for key in body.reset}}
                 conflicts = [
                     key
@@ -76,11 +76,14 @@ class GroupConfiguration:
                     )
             if body.enabled is False:
                 group.enabled, group.status = False, "paused"
-            if changes:
-                group.settings = GroupSettings.model_validate({**group.settings, **changes}).model_dump()
-            if body.reset:
-                defaults = (await policy(session)).settings
-                group.settings = {**group.settings, **{key: defaults[key] for key in body.reset}}
+            if changes or body.reset:
+                from pydantic import ValidationError
+                defaults = await self.read_defaults() if body.reset else {}
+                try:
+                    group.settings = GroupSettings.model_validate({**group.settings, **changes,
+                        **{key: defaults[key] for key in body.reset}}).model_dump()
+                except ValidationError as exc:
+                    raise ManagementError(422, exc.errors()[0]["msg"]) from exc
             group.setting_overrides = sorted((set(group.setting_overrides or []) | changes.keys()) - set(body.reset))
             return await self.context.record(
                 session, actor, group_id, "settings", reason, row_dict(group), request_id

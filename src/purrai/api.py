@@ -35,6 +35,11 @@ from purrai.schemas import (
 
 
 def install_api(app):
+    from purrai.advertisement_api import install_advertisement_api
+    install_advertisement_api(app)
+    from purrai.points_api import install_points_api
+    install_points_api(app)
+
     @app.get("/api/groups/{identifier}/auto-replies")
     async def auto_replies(identifier: int, request: Request, user: Identity = Depends(identity),
                            query: str = Query("", max_length=250), page_number: int = Query(1, ge=1)):

@@ -1,11 +1,47 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from purrai.pack_names import DEFAULT_BLOCKED_PACKS, emoji_pack_name as pack_name
 from purrai.pack_names import DEFAULT_ANTIFRAUD_PACKS, DEFAULT_CHAT_PACKS, sticker_pack_name
+from purrai.installation_defaults import initial_list
 
 
 class GroupSettings(BaseModel):
+    notice_seconds: int = Field(default=30, ge=5, le=3600, title="群内系统提醒保留秒数")
+    ai_ad_window_hours: int = Field(default=72, ge=1, le=720, title="AI广告累计窗口（小时）")
+    ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")
+    ai_ad_penalty: Literal["delete", "permanent_mute"] = Field(default="permanent_mute", title="AI广告累计处理")
+    spam_mute_seconds: int = Field(default=1800, ge=30, le=2592000, title="刷屏禁言秒数")
+    media_newcomer_days: int = Field(default=15, ge=0, le=365, title="发图门槛适用天数")
+    learned_target_penalty: Literal["delete", "permanent_mute", "ban"] = Field(default="ban", title="新学习推广目标的处理")
+    chat_advertiser_cooldown_seconds: int = Field(default=1800, ge=0, le=604800, title="广告账号聊天冷却秒数")
+    chat_evidence_hours: int = Field(default=168, ge=1, le=720, title="口令及广告记忆时长（小时）")
+    chat_command_min_users: int = Field(default=3, ge=1, le=100, title="学习口令所需人数")
+    chat_min_opening_chars: int = Field(default=4, ge=0, le=100, title="独立开场最少字数")
+    chat_ignore_numeric_openings: bool = Field(default=True, title="忽略纯数字独立开场")
+    chat_repeat_hours: int = Field(default=24, ge=0, le=720, title="相同聊天内容忽略时长（小时）")
+    identity_enabled: bool = Field(default=False, title="防冒充核验")
+    identity_user_id: int = Field(default=0, ge=0, le=2**52 - 1, strict=True, title="本人 Telegram ID")
+    identity_names: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=20, title="受保护昵称")
+    identity_parentheses: bool = Field(default=True, title="匹配昵称后的括号说明")
+    identity_match_bio: bool = Field(default=True, title="比对非空简介")
+    identity_match_photo: bool = Field(default=True, title="比对头像")
+    identity_action: Literal["kick", "ban"] = Field(default="kick", title="确认冒充后的处理")
+
+    @field_validator("identity_names")
+    @classmethod
+    def clean_identity_names(cls, values):
+        return list(dict.fromkeys(v.strip() for v in values if v.strip()))
+
+    @model_validator(mode="after")
+    def valid_identity_protection(self, info: ValidationInfo):
+        if info.context and info.context.get("partial"):
+            return self
+        if self.identity_enabled and (not self.identity_user_id or not self.identity_names
+                                     or not (self.identity_match_bio or self.identity_match_photo)):
+            raise ValueError("防冒充需要本人的数字 ID、受保护昵称，及至少一种资料比对方式")
+        return self
+
     chat_enabled: bool = False
     chat_proactive: bool = True
     chat_advertiser_cooldown: bool = True
@@ -15,7 +51,7 @@ class GroupSettings(BaseModel):
         max_length=1000,
     )
     chat_ignored_texts: list[str] = Field(
-        default_factory=lambda: ["签到", "积分", "抽奖", "注册币安", "注册 OKX", "币圈教程"],
+        default_factory=lambda: initial_list("chat_ignored_texts"),
         max_length=100,
     )
     chat_no_reply_user_ids: list[Annotated[int, Field(strict=True, gt=0, le=2**52 - 1)]] = Field(
@@ -181,7 +217,7 @@ class SettingsPatch(BaseModel):
         unknown = set(value) - GroupSettings.model_fields.keys()
         if unknown:
             raise ValueError("未知群设置：" + "、".join(sorted(unknown)))
-        return GroupSettings.model_validate(value).model_dump(include=set(value))
+        return GroupSettings.model_validate(value, context={"partial": True}).model_dump(include=set(value))
 
 
 class EmojiPackChange(BaseModel):
@@ -212,13 +248,14 @@ class GroupAccessInput(BaseModel):
 
 
 class RuleInput(BaseModel):
-    kind: Literal["keyword", "block_domain", "allow_domain", "block_mention", "allow_mention", "block_target"]
+    kind: Literal["keyword", "block_domain", "allow_domain", "block_mention", "allow_mention", "block_target", "block_emoji_pack"]
     value: str = Field(min_length=1, max_length=250)
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
     scope: Literal["message", "name", "either", "name_and_message"] = "message"
     context_value: str = Field(default="", max_length=250)
     meaning: str = Field(default="", max_length=1000)
-    penalty: Literal["delete", "permanent_mute", "ai_confirmed_mute"] = "delete"
+    penalty: Literal["delete", "permanent_mute", "ai_confirmed_mute", "ban"] = "delete"
+    name_penalty: Literal["delete", "permanent_mute", "ban"] = "permanent_mute"
     enabled: bool = True
 
     @field_validator("value")
@@ -230,6 +267,11 @@ class RuleInput(BaseModel):
 
     @model_validator(mode="after")
     def safe_matching(self):
+        if self.kind == "block_emoji_pack":
+            self.value = pack_name(self.value)
+            if self.scope != "message":
+                raise ValueError("消息表情包规则仅检查实际发送内容；状态表情请使用独立黑名单")
+            self.mode = "exact"
         if self.penalty == "ai_confirmed_mute" and (self.kind != "keyword" or self.scope == "name_and_message"):
             raise ValueError("AI确认后处罚仅用于独立关键词，不使用昵称与正文组合")
         if self.kind == "keyword":
@@ -261,6 +303,13 @@ class SharedPolicyPatch(BaseModel):
 
 class PreviewInput(BaseModel):
     text: str = Field(max_length=10000)
+    message_emoji_packs: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("message_emoji_packs")
+    @classmethod
+    def normalize_message_emoji_packs(cls, value):
+        return list(dict.fromkeys(pack_name(item) for item in value))
+
     inline_buttons: bool = False
     newcomer: bool = False
     contact: bool = False

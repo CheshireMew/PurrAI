@@ -235,7 +235,9 @@ class RestrictionActions:
         if member and member.owned_restriction and member.owned_restriction.get("kind") == "verification":
             action.state = "cancelled"
             return
-        duration = 1800 if action.kind == "spam_mute" else action.payload.get("duration_seconds", group.settings["mute_seconds"])
+        from purrai.schemas import GroupSettings
+        duration = (GroupSettings.model_validate(group.settings).spam_mute_seconds if action.kind == "spam_mute"
+                    else action.payload.get("duration_seconds", group.settings["mute_seconds"]))
         if member and action.payload.get("generation") and member.generation != action.payload["generation"]:
             raise RestrictionPreserved()
         if member is None:

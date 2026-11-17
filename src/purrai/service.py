@@ -10,6 +10,7 @@ from purrai.maintenance import Maintenance
 from purrai.member_events import MemberEvents
 from purrai.member_trust import MemberTrust
 from purrai.moderation import Moderation
+from purrai.identity_protection import IdentityProtection
 from purrai.restriction_state import owns_verification_ban, restriction_identity
 from purrai.serialization import row_dict as row_dict
 from purrai.verification import VerificationService
@@ -28,6 +29,9 @@ class Service:
         self.progress = VerificationProgress(db, telegram, settings, self.trust.exempt_administrator)
         self.emoji_status = EmojiStatusGuard(db, telegram, settings, enqueue, self.trust.exempt_administrator)
         self.advertising = AdvertisingGuard(db, telegram, settings, self.trust)
+        self.identity_protection = IdentityProtection(db, telegram, settings)
+        from purrai.advertisement_review import AdvertisementReviewer
+        self.advertisement_review = AdvertisementReviewer(db, telegram, settings)
         self.moderation = Moderation(db, telegram, settings, self.trust, self.emoji_status, self.advertising)
         self.members = MemberEvents(db, telegram, settings, self.trust, self.moderation, self.emoji_status)
         self.actions = ActionRunner(
@@ -40,6 +44,7 @@ class Service:
             self.emoji_status,
             self.access,
             self.advertising,
+            self.identity_protection,
         )
         self.action_claims = self.actions.action_claims
 
@@ -48,10 +53,18 @@ class Service:
     owns_verification_ban = staticmethod(owns_verification_ban)
 
     async def member_event(self, event, bot_event=False, event_id=0):
-        return await self.members.member_event(event, bot_event, event_id)
+        result = await self.members.member_event(event, bot_event, event_id)
+        from purrai.telegram import is_present
+        if not bot_event and is_present(event.get("new_chat_member", {})):
+            await self.identity_protection.queue(event["chat"]["id"], event["new_chat_member"].get("user"))
+        return result
 
     async def message(self, message, edited=False, update_id=0, archived_at_receipt=False):
-        return await self.moderation.message(message, edited, update_id, archived_at_receipt)
+        result = await self.moderation.message(message, edited, update_id, archived_at_receipt)
+        await self.advertisement_review.observe(message, edited, update_id)
+        if message["chat"]["type"] in ("group", "supergroup") and not message.get("sender_chat"):
+            await self.identity_protection.queue(message["chat"]["id"], message.get("from"))
+        return result
 
     async def join_request(self, event, event_id=0):
         return await self.verification.join_request(event, event_id)

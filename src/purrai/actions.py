@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class ActionRunner:
-    def __init__(self, db, telegram, settings, verification, trust, progress, emoji_status, access, advertising):
+    def __init__(self, db, telegram, settings, verification, trust, progress, emoji_status, access, advertising, identity_protection):
         self.db, self.tg, self.settings = db, telegram, settings
         self.verification, self.progress, self.emoji_status = verification, progress, emoji_status
         self.advertising = advertising
@@ -41,11 +41,14 @@ class ActionRunner:
         administration = RestrictionActions(transport, trust)
         verification_actions = VerificationActions(transport, verification, restrictions, administration)
         automatic = AutomaticActions(restrictions)
+        async def identity_check(session, action, group, verification, member):
+            return await identity_protection.execute(session, action, group, verification, member, restrictions)
         self.notifications = NotificationActions(db, transport)
         self.preparation = ActionPreparation(transport, self.policy)
         self.report_error = verification_actions.record_error
         self.preserve_restriction = verification_actions.preserve_restriction
         self.handlers = {
+            "identity_check": ActionHandler(identity_check, automatic.prepare, False),
             "verify_mute": ActionHandler(verification_actions.mute, verification_actions.prepare, verification_actions.requires_member_check),
             "challenge": ActionHandler(verification_actions.challenge, verification_actions.prepare, verification_actions.requires_member_check),
             "subscription_check": ActionHandler(verification_actions.subscription_check, verification_actions.prepare, verification_actions.requires_member_check),
@@ -57,6 +60,7 @@ class ActionRunner:
             "manual_mute": ActionHandler(administration.mute, administration.prepare),
             "spam_mute": ActionHandler(administration.spam_mute, administration.prepare),
             "ai_ad_mute": ActionHandler(automatic.ai_ad_mute, automatic.prepare),
+            "sample_ad_mute": ActionHandler(automatic.sample_ad_mute, automatic.prepare),
             "unban": ActionHandler(administration.unban, administration.prepare),
             "contact_kick": ActionHandler(automatic.contact_kick, automatic.prepare),
             "contact_ban": ActionHandler(automatic.contact_ban, automatic.prepare),
@@ -72,6 +76,7 @@ class ActionRunner:
             "archive_export": ActionHandler(self.notifications.export_archive, self.notifications.prepare),
             "warn": ActionHandler(self.notifications.warn, self.notifications.prepare),
             "auto_reply": ActionHandler(self.notifications.auto_reply, self.notifications.prepare, False),
+            "points_message": ActionHandler(self.notifications.points_message, self.notifications.prepare, False),
             "owner_alert": ActionHandler(self.notifications.owner_alert, self.notifications.prepare, False),
         }
 

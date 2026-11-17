@@ -77,6 +77,14 @@ def test_modifying_the_installation_seed_is_not_a_backdoor_for_new_cases():
     assert any("安装种子" in error for error in guard.differences(after, before))
 
 
+@pytest.mark.parametrize("path", guard.ADDITIONAL_SEEDS)
+def test_migrated_recognition_and_defaults_seeds_cannot_be_changed_silently(path):
+    before, after = state(""), state("")
+    before["additional_seed_sha256"] = {path: "unchanged"}
+    after["additional_seed_sha256"] = {path: "changed"}
+    assert any("安装种子" in error for error in guard.differences(after, before))
+
+
 def test_cli_fails_closed_when_the_baseline_cannot_be_read(monkeypatch, capsys):
     def missing(_):
         raise FileNotFoundError("baseline missing")

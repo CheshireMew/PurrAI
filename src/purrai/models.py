@@ -5,6 +5,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Float,
     ForeignKey,
     Index,
@@ -36,6 +37,97 @@ def default_settings() -> dict:
 
 class Base(DeclarativeBase):
     pass
+
+
+class PointsAccount(Base):
+    __tablename__ = "points_accounts"
+    __table_args__ = (UniqueConstraint("group_id", "source_key"), UniqueConstraint("group_id", "user_id"),
+                      CheckConstraint("balance >= 0 AND balance <= 9007199254740991"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    source_key: Mapped[str] = mapped_column(String)
+    display_name: Mapped[str] = mapped_column(String)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    balance: Mapped[int] = mapped_column(BigInteger, default=0)
+    source_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
+class PointsImport(Base):
+    __tablename__ = "points_imports"
+    __table_args__ = (UniqueConstraint("group_id", "batch_key"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    batch_key: Mapped[str] = mapped_column(String)
+    digest: Mapped[str] = mapped_column(String)
+    source: Mapped[str] = mapped_column(Text)
+    count: Mapped[int] = mapped_column(Integer)
+    total_points: Mapped[int] = mapped_column(BigInteger)
+    actor_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
+class PointsEntry(Base):
+    __tablename__ = "points_entries"
+    __table_args__ = (UniqueConstraint("group_id", "request_id"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("points_accounts.id"), index=True)
+    kind: Mapped[str] = mapped_column(String)
+    delta: Mapped[int] = mapped_column(BigInteger)
+    balance_after: Mapped[int] = mapped_column(BigInteger)
+    reason: Mapped[str] = mapped_column(Text)
+    actor_id: Mapped[int] = mapped_column(BigInteger)
+    request_id: Mapped[str] = mapped_column(String)
+    intent: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
+class PointsPolicy(Base):
+    __tablename__ = "points_policies"
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
+    config: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class PointsDaily(Base):
+    __tablename__ = "points_daily"
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    day: Mapped[str] = mapped_column(String, primary_key=True)
+    signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    chat_points: Mapped[int] = mapped_column(Integer, default=0)
+    last_chat_at: Mapped[float] = mapped_column(Float, default=0)
+    last_digest: Mapped[str] = mapped_column(String, default="")
+
+
+class PointsPacket(Base):
+    __tablename__ = "points_packets"
+    __table_args__ = (UniqueConstraint("group_id", "message_id"),
+                     CheckConstraint("remaining >= 0 AND remaining_count >= 0"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(BigInteger)
+    target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    message_id: Mapped[int] = mapped_column(BigInteger)
+    total: Mapped[int] = mapped_column(BigInteger)
+    count: Mapped[int] = mapped_column(Integer)
+    remaining: Mapped[int] = mapped_column(BigInteger)
+    remaining_count: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[float] = mapped_column(Float, index=True)
+    refunded: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
+class PointsClaim(Base):
+    __tablename__ = "points_claims"
+    packet_id: Mapped[str] = mapped_column(ForeignKey("points_packets.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    points: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
 
 
 class Group(Base):
@@ -147,6 +239,7 @@ class Rule(Base):
     context_value: Mapped[str] = mapped_column(String, default="")
     meaning: Mapped[str] = mapped_column(String, default="", server_default="")
     penalty: Mapped[str] = mapped_column(String, default="delete")
+    name_penalty: Mapped[str] = mapped_column(String, default="permanent_mute", server_default="permanent_mute")
     inherited_from: Mapped[str] = mapped_column(String, server_default="")
     customized: Mapped[bool] = mapped_column(Boolean, server_default="1")
 
@@ -308,6 +401,61 @@ class ChatTurn(Base):
     response: Mapped[str] = mapped_column(Text, default="")
     sent_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     error: Mapped[str] = mapped_column(String, default="")
+
+
+class AdvertisementPolicy(Base):
+    __tablename__ = "advertisement_policies"
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class AdvertisementSample(Base):
+    __tablename__ = "advertisement_samples"
+    __table_args__ = (UniqueConstraint("group_id", "source_key"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    sender_name: Mapped[str] = mapped_column(String, default="")
+    scope: Mapped[str] = mapped_column(String, default="context")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    source: Mapped[str] = mapped_column(String)
+    source_key: Mapped[str] = mapped_column(String)
+    message_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    violation_id: Mapped[str] = mapped_column(String, default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    actor_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+    updated_at: Mapped[float] = mapped_column(Float, default=now)
+    review_state: Mapped[str] = mapped_column(String, default="done")
+    review_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    review_after: Mapped[float] = mapped_column(Float, default=0)
+    review_error: Mapped[str] = mapped_column(Text, default="")
+
+
+class AdvertisementReview(Base):
+    __tablename__ = "advertisement_reviews"
+    __table_args__ = (
+        UniqueConstraint("group_id", "message_id", "revision"),
+        Index("ix_ad_review_queue", "state", "available_at"),
+        Index("ix_ad_review_message", "group_id", "message_id"),
+    )
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
+    message_id: Mapped[int] = mapped_column(BigInteger)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    revision: Mapped[str] = mapped_column(String)
+    message: Mapped[dict] = mapped_column(JSON)
+    event_at: Mapped[float] = mapped_column(Float)
+    update_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    state: Mapped[str] = mapped_column(String, default="pending")
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[float] = mapped_column(Float, default=now)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+    updated_at: Mapped[float] = mapped_column(Float, default=now)
+    error: Mapped[str] = mapped_column(Text, default="")
 
 
 class Inbox(Base):

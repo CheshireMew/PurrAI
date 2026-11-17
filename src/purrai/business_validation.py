@@ -51,7 +51,12 @@ def validate_document(document):
             else:
                 raise ValueError("不支持的文本处理步骤")
 
-    keys(document, ("format", "views", "conditions", "stages"))
+    keys(document, ("format", "views", "conditions", "stages"), ("recognition", "ai_review_instructions"))
+    if "ai_review_instructions" in document:
+        label(document["ai_review_instructions"], 8000)
+    if "recognition" in document:
+        from purrai.recognition_policy import RecognitionPolicy
+        document = {**document, "recognition": RecognitionPolicy.model_validate(document["recognition"]).model_dump()}
     require(document["format"] == 1, "不支持的规则文档格式")
     require(len(json.dumps(document, ensure_ascii=False)) <= 500_000, "规则文档超过 500 KB")
     indexed = {}
@@ -148,7 +153,8 @@ def validate_document(document):
         expression(stage["condition"], set())
         require(isinstance(stage["rules"], list) and len(stage["rules"]) <= 1000, "规则组最多包含 1000 条规则")
         for rule in stage["rules"]:
-            keys(rule, ("id", "title", "enabled", "action", "reason", "condition"), ("reason_field",))
+            keys(rule, ("id", "title", "enabled", "action", "reason", "condition"), ("reason_field", "advertiser_cooldown"))
+            require(type(rule.get("advertiser_cooldown", False)) is bool, "账号冷却设置必须是布尔值")
             identifier(rule["id"])
             require(rule["id"] not in rule_ids, "规则标识不能重复")
             rule_ids.add(rule["id"])

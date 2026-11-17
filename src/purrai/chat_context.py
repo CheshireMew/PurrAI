@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, literal, or_, select, union_all
 
 from purrai.shared_policy import effective_rules
+from purrai.advertisement_store import latest_reviews
 from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
 from purrai.chat_participation import excluded_ids as participation_exclusions
@@ -52,13 +53,13 @@ class ChatContext:
         if not context:
             return []
         _, command_state = await chat_commands.load(session, group_id)
-        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
+        rules = await effective_rules(session, group_id)
+        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
         speakers = {row["id"]: row["speaker_id"] for row in context}
         for row in context:
             if row.get("reply_to"):
                 speakers.setdefault(row["reply_to"], row.get("reply_to_speaker_id", 0))
         recent = await self.recent(session, group_id, topic_id)
-        rules = await effective_rules(session, group_id)
         allowed_images = permitted_images(recent, message_id, direct)
         if direct:
             target = next((row for row in recent if row.message_id == message_id), None)
@@ -96,6 +97,9 @@ class ChatContext:
         excluded = set(await session.scalars(select(candidates.c.message_id).where(
             blocked_message(group_id, candidates.c.message_id, candidates.c.sender_id),
         )))
+        reviews = await latest_reviews(session, group_id, speakers)
+        excluded.update(identifier for identifier, review in reviews.items() if review.state not in ("clean", "exempt"))
+        context = [{**row, "advertisement_reviewed": True} if row["id"] in reviews else row for row in context]
         excluded.update(identifier for identifier, sender in speakers.items() if sender in cfg.chat_no_reply_user_ids)
         excluded.update(identifier for identifier, name in names.items()
                         if assess("", [], rules, cfg.model_dump(), sender_name=name)["name_reasons"])
@@ -119,14 +123,14 @@ class ChatContext:
         ]
         if cfg.chat_advertiser_cooldown:
             excluded.update(row["id"] for row in records if not row.get("bot")
-                            and chat_commands.advertiser_blocked(command_state, row.get("speaker_id")))
+                            and chat_commands.advertiser_blocked(command_state, row.get("speaker_id"), cfg))
         links.update(row["id"] for row in records if has_link(row["text"], rules=rules))
         excluded.update(links)
         excluded.update(row["id"] for row in records if row.get("reply_to") in links)
         excluded.update(row["id"] for row in records if (
-            not row["text"].strip() or row["text"].lstrip().startswith("/")
-            or ignored_text(row["text"], ignored, getattr(self.tg, "username", ""))
-            or not row.get("bot") and chat_commands.known_ad(command_state, row["text"], row.get("speaker_id"), row.get("name", ""))
+            not row["text"].strip()
+            or ignored_text(row["text"], ignored, getattr(self.tg, "username", ""), rules=rules)
+            or not row.get("bot") and chat_commands.known_ad(command_state, row["text"], row.get("speaker_id"), row.get("name", ""), rules=rules)
             or not row.get("bot") and input_reasons(row["text"], rules, cfg.model_dump(), direct=direct and row["id"] == message_id)
             or not row.get("bot") and assess("", [], rules, cfg.model_dump(), sender_name=row.get("name", ""))["name_reasons"]
         ))
@@ -138,9 +142,9 @@ class ChatContext:
                 continue
             quote = row.get("quote", "")
             if (row.get("reply_to") in excluded or input_reasons(quote, rules, cfg.model_dump())
-                    or quote and (ignored_text(quote, ignored, getattr(self.tg, "username", ""))
+                    or quote and (ignored_text(quote, ignored, getattr(self.tg, "username", ""), rules=rules)
                                   or chat_commands.known_ad(command_state, quote,
-                                      row.get("reply_to_speaker_id"), names.get(row.get("reply_to"), row.get("reply_to_name", ""))))):
+                                      row.get("reply_to_speaker_id"), names.get(row.get("reply_to"), row.get("reply_to_name", "")), rules=rules))):
                 row = {key: value for key, value in row.items()
                        if key not in ("reply_to", "quote", "reply_to_speaker_id", "reply_to_name")}
             result.append(row)
@@ -169,7 +173,6 @@ class ChatContext:
                 ChatMessage.message_id.in_(allowed_images), ChatMessage.text.startswith(UNREADABLE_IMAGE),
             )),
             ChatMessage.text != "",
-            ~ChatMessage.text.startswith("/"),
             ~blocked_message(group_id, ChatMessage.message_id, ChatMessage.sender_id),
             or_(
                 ChatMessage.is_bot.is_(False),
@@ -220,8 +223,9 @@ class ChatContext:
             )
         ).all()
         _, command_state = await chat_commands.load(session, turn.group_id)
-        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
-        rows = [row for row in rows if not ignored_text(row.text, ignored, getattr(self.tg, "username", ""))][:cfg.chat_history]
+        rules = await effective_rules(session, turn.group_id)
+        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
+        rows = [row for row in rows if not ignored_text(row.text, ignored, getattr(self.tg, "username", ""), rules=rules)][:cfg.chat_history]
         source_ids = {row.reply_to_id for row in rows if row.reply_to_id}
         sources = (
             {

@@ -10,13 +10,18 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "docs/rule_boundaries_baseline.json"
-BASELINE_SHA256 = "9eae2bcaee903fe66e1d02ae1b061318084e25a260711a2937f5d0a8f91b20cc"
+BASELINE_SHA256 = "6105081a7e409ac627cc39fe046fa329b3a31816c32678907e18cf352c5492ed"
 ADAPTERS = (
     "src/purrai/solicitation_rules.py",
     "src/purrai/advertising_patterns.py",
     "src/purrai/chat_input.py",
 )
 SEED = "src/purrai/assets/business_rules.v1.json"
+ADDITIONAL_SEEDS = (
+    "src/purrai/assets/recognition_policy.v1.json",
+    "src/purrai/assets/group_defaults.v1.json",
+    "src/purrai/assets/business_rules.v2.json",
+)
 TEXT_NAMES = re.compile(r"(?:^|_)(?:text|body|content|caption|name|title|profile|haystack)(?:$|_)")
 POLICY_NAMES = re.compile(r"keyword|phrase|term|pattern|words|blacklist|whitelist|blocked|forbidden", re.I)
 MATCH_CALLS = {"compile", "search", "match", "fullmatch", "findall", "finditer", "sub", "subn"}
@@ -135,7 +140,9 @@ def inventory(root):
         if relative in ADAPTERS:
             adapters[relative] = digest(ast.parse(source))
     return {"format": 2, "adapter_ast": adapters, "entries": records,
-            "seed_sha256": hashlib.sha256((root / SEED).read_bytes()).hexdigest()}
+            "seed_sha256": hashlib.sha256((root / SEED).read_bytes()).hexdigest(),
+            "additional_seed_sha256": {path: hashlib.sha256((root / path).read_bytes()).hexdigest()
+                                       for path in ADDITIONAL_SEEDS}}
 
 
 def identity(item):
@@ -158,6 +165,8 @@ def differences(current, baseline):
             errors.append(f"{path}：冻结的规则适配入口发生变化，须核实通用能力改动，不得重新嵌入业务样例")
     if current.get("seed_sha256") != baseline.get("seed_sha256"):
         errors.append(f"{SEED}：安装种子发生变化；日常业务词应通过后台维护，不得修改种子绕过管理入口")
+    if current.get("additional_seed_sha256", {}) != baseline.get("additional_seed_sha256", {}):
+        errors.append("识别规则或群默认配置的安装种子发生变化；日常业务词应通过后台维护")
     return errors
 
 

@@ -56,16 +56,16 @@ class ChatBudget:
         else:
             session.add(Meta(key=KEY, value=value))
 
-    async def reserve(self, group_id, user_id, system, payload, turn_id=None):
+    async def reserve(self, group_id, user_id, system, payload, turn_id=None, *, review=False, max_tokens=None):
         # UTF-8 bytes + framing + the server-enforced output bound deliberately
         # over-reserve common BPE inputs. This is a local budget, not a currency bill.
-        tokens = len(system.encode("utf-8")) + len(payload.encode("utf-8")) + 512 + self.settings.chat_max_tokens
+        tokens = len(system.encode("utf-8")) + len(payload.encode("utf-8")) + 512 + (max_tokens or self.settings.chat_max_tokens)
         group_key, user_key = str(group_id), str(user_id)
         async with self.db.transaction() as session:
             from purrai.models import Group
 
             group = await session.get(Group, group_id)
-            if not group or not group.approved or not group.settings.get("chat_enabled"):
+            if not group or not group.approved or (not group.enabled if review else not group.settings.get("chat_enabled")):
                 raise BudgetExceeded("此群尚未获准使用聊天，或聊天已关闭")
             topic_id = 0
             if turn_id is not None:
@@ -83,9 +83,14 @@ class ChatBudget:
             bounds = [(cfg.chat_daily_calls, cfg.chat_daily_tokens, 0, "全部群"),
                       (cfg.chat_group_daily_calls, cfg.chat_group_daily_tokens, cfg.chat_group_interval, "本群"),
                       (cfg.chat_user_daily_calls, cfg.chat_user_daily_tokens, cfg.chat_user_interval, "这位成员")]
+            if review:
+                # Review batches have multiple authors. Charge the shared global/group
+                # budgets once, without charging all authors to one arbitrary member.
+                counters = counters[:2]
+                bounds = [(calls, limit, 0, label) for calls, limit, _, label in bounds[:2]]
             for counter, (calls, limit, interval, label) in zip(counters, bounds):
                 if counter.get("calls", 0) >= calls or counter.get("tokens", 0) + tokens > limit:
-                    raise BudgetExceeded(f"{label}今日 AI 聊天额度已用完；明日恢复，验证和防广告不受影响")
+                    raise BudgetExceeded(f"{label}今日 AI 额度已用完；本地规则继续执行，AI 审核等待额度恢复")
                 if now() - counter.get("last_attempt", 0) < interval:
                     raise BudgetCooldown(
                         f"{label}调用间隔未到，已排队等待；验证和防广告不受影响",
@@ -99,7 +104,7 @@ class ChatBudget:
             session.add(Meta(key="chat-reservation:" + identifier, value="reserved", expires_at=now() + 7 * 86400))
             await usage(session, data["day"], group_id, topic_id, calls=1, tokens=tokens)
             await timing(session, turn_id, request_started_at=now(), reserved_tokens=tokens, token_usage_confirmed=False)
-            return Reservation(data["day"], group_key, user_key, tokens, topic_id, identifier, turn_id)
+            return Reservation(data["day"], group_key, "" if review else user_key, tokens, topic_id, identifier, turn_id)
 
     async def settle(self, reservation, actual_tokens):
         if type(actual_tokens) is not int or actual_tokens < 0:
@@ -116,7 +121,10 @@ class ChatBudget:
             row, data = await self.load(session)
             if not row or data["day"] != reservation.day:
                 return
-            for counter in (data["global"], data["groups"][reservation.group], data["users"][reservation.user]):
+            counters = [data["global"], data["groups"][reservation.group]]
+            if reservation.user:
+                counters.append(data["users"][reservation.user])
+            for counter in counters:
                 counter["tokens"] = max(0, counter["tokens"] + actual_tokens - reservation.tokens)
             self.save(session, row, data)
 

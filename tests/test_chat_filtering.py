@@ -261,17 +261,22 @@ async def test_no_reply_list_removes_frozen_history_bot_replies_and_quoted_text(
 @pytest.mark.parametrize("advertisement", [False, True])
 async def test_no_reply_list_preserves_keyword_ad_review_and_moderation(client, env, advertisement):
     from conftest import drain
+    from purrai.models import AdvertisementReview
+    from test_advertisement_review import reviewer
     from test_ai_advertising_limit import save_ai_keyword
 
     chat, model = await configured(env, chat_no_reply_user_ids=[42])
     await save_ai_keyword(client, value="纸飞机", meaning="需结合语境判断")
     model.result = ChatReply(text="这句聊天不能发出", should_reply=True, is_advertisement=advertisement)
+    guard, review_model = await reviewer(env, lambda _: advertisement)
     incoming = message(1, "柴郡喵，这段纸飞机内容要判断")
     await env[3].message(incoming)
     await chat.observe(incoming)
-    assert await chat.run_one() and len(model.calls) == 1
+    assert await guard.run_one() and len(review_model.calls) == 1
+    assert not await chat.run_one() and not model.calls
     async with chat.db.sessions() as session:
-        assert (await session.scalar(select(ChatTurn))).review_only
+        reviewed = await session.scalar(select(AdvertisementReview))
+        assert reviewed.result["advertisement"] is advertisement
     assert not any(method in ("send_message", "send_sticker") for method, _ in chat.tg.calls)
     await drain(env[3])
     deleted = [data["message_id"] for method, data in chat.tg.calls if method == "delete_message"]

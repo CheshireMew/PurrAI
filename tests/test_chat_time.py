@@ -19,11 +19,12 @@ def timestamp(value):
 
 
 def turn(identifier=1):
-    return SimpleNamespace(id=identifier, group_id=-1001, topic_id=0, message_id=identifier, response="")
+    return SimpleNamespace(id=identifier, group_id=-1001, topic_id=0, message_id=identifier,
+                           response="", direct=True, review_only=False)
 
 
 def budget():
-    return SimpleNamespace(reserve=AsyncMock(return_value="reservation"), settle=AsyncMock())
+    return SimpleNamespace(settings=Settings(_env_file=None), reserve=AsyncMock(return_value="reservation"), settle=AsyncMock())
 
 
 async def generate(generation, record):

@@ -1,4 +1,4 @@
-"""Bounded operational timings and daily usage; no chat body or model output."""
+"""Bounded timings, daily usage and short participation summaries; no full chat bodies."""
 
 import json
 

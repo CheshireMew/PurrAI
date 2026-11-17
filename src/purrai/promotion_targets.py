@@ -5,10 +5,10 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from purrai.telegram_links import TelegramLink, allowed_link, extract_links, parse_link
+from purrai.recognition_policy import values
 
 PREFIX = "全局广告黑名单："
 KINDS = {"account", "channel", "invite", "phone", "email", "contact", "domain", "url"}
-SHORTENERS = {"t.co", "t.cn", "bit.ly", "tinyurl.com", "goo.gl", "cutt.ly", "is.gd", "linktr.ee"}
 
 
 def normalize_target(value):
@@ -118,7 +118,7 @@ def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=
                 elif link.kind == "invite":
                     add(("phone:" if link.target.isdigit() and 7 <= len(link.target) <= 15 else "invite:") + link.target)
         elif host:
-            add("url:" + url if host in SHORTENERS else url if host == "wa.me" else "domain:" + host)
+            add("url:" + url if host in values(rules, "shortener_domains") else url if host == "wa.me" else "domain:" + host)
     for source in channel_sources(message):
         post = str(source.get("post") or "")
         if allowed_link(TelegramLink("private_post", str(source["id"]), post), settings, rules,
@@ -146,22 +146,27 @@ def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=
         add(email)
     for phone in re.findall(r"(?<![\w@])\+[0-9][0-9 ()-]{6,24}[0-9](?!\w)", authored):
         add(phone)
-    for phone in re.findall(r"(?:电话|手机|联系电话|tel|phone|whatsapp)[ :：]*([+0-9][0-9 ()-]{6,24}[0-9])", authored, re.I):
-        add("phone:" + phone)
+    for prefix in values(rules, "phone_prefixes"):
+        for phone in re.findall(re.escape(prefix) + r"[ :：]*([+0-9][0-9 ()-]{6,24}[0-9])", authored, re.I):
+            add("phone:" + phone)
     return sorted(found)
 
 
 def blacklist_reasons(message, rules, *, settings=None, urls=None, evidence=()):
     from purrai.advertising_patterns import discussion
 
-    blocked = {normalize_target(rule["value"]) for rule in rules
-               if rule.get("enabled", True) and rule["kind"] == "block_target"}
+    blocked = [rule for rule in rules if rule.get("enabled", True) and rule["kind"] == "block_target"]
     if not blocked:
         return []
-    hits = blocked.intersection(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence))
+    targets = set(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence))
     text = message.get("text") or message.get("caption") or ""
-    prefix = "举报中引用广告黑名单，仅删除：" if discussion(text, rules) else PREFIX
-    return [prefix + target for target in sorted(hits)]
+    reporting = discussion(text, rules)
+    prefix = "举报中引用广告黑名单，仅删除：" if reporting else PREFIX
+    from purrai.business_rules import BusinessReason
+    return [BusinessReason(prefix + normalize_target(rule["value"]),
+            "delete" if reporting else {"delete": "delete", "permanent_mute": "mute", "ban": "ban"}[rule.get("penalty", "ban")],
+            rule.get("id", ""))
+            for rule in blocked if normalize_target(rule["value"]) in targets]
 
 
 async def independent_target_rules(session, rules, group_id, message_id):
@@ -205,11 +210,17 @@ async def remember_targets(session, group, violation, evidence):
     existing = {normalize_target(rule["value"]): rule for rule in current.rules if rule["kind"] == "block_target"}
     observed = advertised_targets(message, rules,
                settings=group.settings, evidence=evidence.get("links", []), exclude_sender=True)
+    # A local target's chosen disposition must not be replaced by a stronger
+    # automatically learned global copy of that same target.
+    local_targets = {normalize_target(rule["value"]) for rule in rules
+                     if rule["kind"] == "block_target" and not rule.get("inherited_from")}
+    observed = [target for target in observed if target not in local_targets]
     if not observed:
         return []
     targets = [target for target in observed if target not in existing]
+    from purrai.schemas import GroupSettings
     new_rules = [{"id": uid(), "kind": "block_target", "value": target, "mode": "exact",
-                  "scope": "message", "context_value": "", "penalty": "delete", "enabled": True,
+                  "scope": "message", "context_value": "", "penalty": GroupSettings.model_validate(group.settings).learned_target_penalty, "enabled": True,
                   "origin": "learned", "learned_at": now()}
                  for target in targets]
     if targets:

@@ -9,6 +9,8 @@ from purrai.db import Database
 def main():
     parser = argparse.ArgumentParser(description="PurrAI Telegram 群管理服务")
     sub = parser.add_subparsers(dest="command", required=True)
+    from purrai.points_cli import add_points_parser, run_points
+    add_points_parser(sub)
     sub.add_parser("init-db", help="执行数据库迁移")
     run = sub.add_parser("run", help="以单 worker 启动后台和机器人")
     run.add_argument("--host")
@@ -23,7 +25,9 @@ def main():
     restore.add_argument("source", type=Path)
     args = parser.parse_args()
     settings = Settings()
-    if args.command == "init-db":
+    if args.command == "points":
+        run_points(args, settings)
+    elif args.command == "init-db":
         from alembic import command
         from alembic.config import Config
         from alembic.script import ScriptDirectory

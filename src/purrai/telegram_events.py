@@ -19,6 +19,8 @@ class TelegramEvents:
     def __init__(self, service, admin, chat):
         self.service, self.admin, self.chat = service, admin, chat
         self.auto_replies = AutoReplies(service.db)
+        from purrai.points_bot import PointsBot
+        self.points = PointsBot(service.db, service.tg)
         self.current_update_id = ContextVar("purrai_update_id", default=0)
         self.ack_tasks, self.ack_slots = set(), asyncio.Semaphore(8)
         self.dispatcher = Dispatcher()
@@ -52,6 +54,8 @@ class TelegramEvents:
 
     async def callback(self, event):
         query = telegram_data(event)
+        if await self.points.callback(query):
+            return
         if not await self.admin.callback(query):
             async with self.service.db.sessions() as session:
                 receipt = await session.get(Inbox, self.current_update_id.get())
@@ -80,6 +84,8 @@ class TelegramEvents:
                 message, update_id=self.current_update_id.get(), archived_at_receipt=True
             )
         await self.admin.message(message)
+        if await self.points.observe(message):
+            return
         if await self.auto_replies.observe(message):
             return
         await self.chat.observe(message, update_id=self.current_update_id.get())

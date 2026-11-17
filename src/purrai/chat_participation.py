@@ -11,7 +11,6 @@ from purrai.chat_retraction import receipt
 from purrai.models import ChatMessage, ChatTurn, Meta, now
 from purrai.rules import compact, normalize
 
-WINDOW = 24 * 3600
 MAX_SEEN = 1000
 SHORT_REASON = "独立开场过短或为纯数字"
 REPEAT_REASON = "同一成员近期已发送相同内容"
@@ -34,7 +33,7 @@ def low_information(text, cfg, telegram):
     if text.startswith(("[贴纸", "[无法读取的图片]")):
         return False
     value = body(text, cfg, telegram)
-    return len(value) <= 3 or value.isdecimal()
+    return len(value) < cfg.chat_min_opening_chars or cfg.chat_ignore_numeric_openings and value.isdecimal()
 
 
 def fingerprint(topic_id, sender_id, text, cfg, telegram):
@@ -42,14 +41,15 @@ def fingerprint(topic_id, sender_id, text, cfg, telegram):
     return f"{topic_id}:{sender_id}:{digest}"
 
 
-async def load(session, group_id):
+async def load(session, group_id, cfg):
     row = await session.get(Meta, f"chat_participation:{group_id}")
     try:
         data = json.loads(row.value) if row else {}
         seen = data.get("seen", {})
         seen = {key: value for key, value in seen.items()
                 if isinstance(value, dict) and isinstance(value.get("at"), (int, float))
-                and value["at"] >= now() - WINDOW and type(value.get("message_id")) is int}
+                and cfg.chat_repeat_hours > 0 and value["at"] >= now() - cfg.chat_repeat_hours * 3600
+                and type(value.get("message_id")) is int}
     except (ValueError, TypeError, AttributeError):
         seen = {}
     return row, seen
@@ -90,7 +90,7 @@ async def assess(session, group_id, topic_id, message_id, sender_id, text, cfg, 
             and reply_to not in await reply_ids(session, group_id, topic_id)
             and not has_dialogue(await dialogue_history(session, group_id, topic_id, telegram), sender_id, message_id, now())):
         return SHORT_REASON
-    row, seen = await load(session, group_id)
+    row, seen = await load(session, group_id, cfg)
     key = fingerprint(topic_id, sender_id, text, cfg, telegram)
     previous = seen.get(key)
     if previous and previous["message_id"] != message_id:
@@ -108,7 +108,7 @@ async def assess(session, group_id, topic_id, message_id, sender_id, text, cfg, 
 
 
 async def excluded_ids(session, group_id, topic_id, records, cfg, telegram):
-    _, seen = await load(session, group_id)
+    _, seen = await load(session, group_id, cfg)
     replies = await reply_ids(session, group_id, topic_id)
     dialogue = await dialogue_history(session, group_id, topic_id, telegram)
     received = dict((await session.execute(select(ChatMessage.message_id, ChatMessage.received_at).where(

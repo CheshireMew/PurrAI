@@ -77,6 +77,7 @@ class NotificationActions:
         await deliver_once(
             self.action_call, session, action, "send_message", chat_id=action.payload["chat_id"], text="\n".join(lines)[:4000]
         )
+        await schedule_notice_cleanup(session, action)
 
     async def join_link(self, session, action, group, verification, member):
         response = await deliver_once(
@@ -118,3 +119,7 @@ class NotificationActions:
     async def auto_reply(self, session, action, group, verification, member):
         from purrai.auto_replies import send_reply
         return await send_reply(self.action_call, session, action, group)
+
+    async def points_message(self, session, action, group, verification, member):
+        from purrai.points_bot import process_message
+        return await process_message(self.action_call, session, action, group)

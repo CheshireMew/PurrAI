@@ -115,7 +115,7 @@ class MemberEvents:
             owned = member.owned_restriction or {}
             if (
                 event.get("from", {}).get("id") == self.tg.user_id
-                and (owned.get("kind") in ("contact_kick", "verification_kick")
+                and (owned.get("kind") in ("contact_kick", "verification_kick", "identity_kick")
                      or owned.get("kind") == "ban" and owned.get("automatic_permanent"))
                 and ban_matches(new, owned["until_date"])
             ):

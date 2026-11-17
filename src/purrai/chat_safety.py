@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from purrai.rules import assess, domain, domain_matches, mentions, normalize
 from purrai.business_rules import with_rules
+from purrai.recognition_policy import output_reasons as recognition_output_reasons
 
 # Include bare domains and email addresses: Telegram can linkify them even when
 # the model omits https://. Normalize full-width and zero-width characters first.
@@ -13,14 +14,6 @@ LINKS = re.compile(
     r"|(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:/[^\s<>]*)?"
     r"|(?<![\w@.-])(?:[\w.+-]+@)?(?:[^\W_][\w-]*\.)+"
     r"(?:[^\W\d_][\w-]+)(?::\d+)?(?:/[^\s<>]*)?",
-    re.I,
-)
-MANAGEMENT = re.compile(
-    r"(?:^|\s)/(?:ban|mute|unban|unmute|release|reissue)(?:@[a-z0-9_]+)?(?=\s|$)"
-    r"|(?:^|[\n。！？])\s*[【\[]?(?:系统|管理员|群主|官方)(?:公告|通知|指令)[】\]]?\s*[:：]"
-    r"|(?:我(?:已经?|刚刚)|已成功)(?:将|把)[^。！？\n]{0,40}(?:禁言|封禁|踢出|移出)"
-    r"|(?:我(?:已经?|刚刚)|已成功)(?:永久)?(?:禁言|封禁|踢出|移出|解除了?禁言|解除了?封禁)"
-    r"|\b(?:I(?:'ve| have)|successfully)\s+(?:banned|muted|kicked|unbanned|unmuted)\b",
     re.I,
 )
 
@@ -61,6 +54,5 @@ def output_reasons(text: str | None, rules: list[dict], settings: dict, bot_user
         return ["无法安全识别的链接"]
     if any(username not in allowed_mentions for username in mentions(canonical)):
         reasons.append("未经允许的引流账号")
-    if MANAGEMENT.search(canonical):
-        reasons.append("管理指令或冒充管理操作")
+    reasons.extend(recognition_output_reasons(rules, canonical))
     return list(dict.fromkeys(reasons))

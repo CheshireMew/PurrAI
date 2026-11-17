@@ -5,49 +5,43 @@ import json
 import re
 
 from purrai.chat_input import input_reasons
-from purrai.models import Meta, now
+from purrai.models import Group, Meta, now
+from purrai.schemas import GroupSettings
 from purrai.rules import normalize
 from purrai.message_identity import profile_name
+from purrai.recognition_policy import matches
+from purrai.shared_policy import effective_rules
 
-WINDOW = 7 * 86400
+WINDOW = GroupSettings().chat_evidence_hours * 3600  # Initial-policy compatibility export.
 MAX_COMMANDS = 200
 MAX_EVENTS = 100
-MIN_USERS = 3
-ADVERTISER_COOLDOWN = 30 * 60
-POINTS = re.compile(r"(?:发)?积分红包\s*\d+(?:\.\d+)?(?:\s+\d+)?")
 OTHER_BOT = re.compile(r"@([a-z0-9_]+bot)\s+(.+)", re.I)
 BOT_COMMAND = re.compile(r"/?([a-z][a-z0-9_]*)(?:\s+[a-z0-9_.:-]+)*", re.I)
-FUNCTION = re.compile(
-    r"(?:查询|查看|领取|兑换|刷新|我的|每日|今日|个人|群)?"
-    r"(?:积分|余额|金币|贡献|等级|经验|账户|背包|红包|抽奖|转盘|任务|奖励|签到|运势)"
-    r"(?:查询|排行|排名|明细|记录|中心|列表|商店|统计|转盘)?"
-)
 
 
 def canonical(text):
     return "".join(normalize(text).split())
 
 
-def utility_command(text, bot_username=""):
+def utility_command(text, bot_username="", *, rules=None):
     value = normalize(text)
-    if POINTS.fullmatch(value) or POINTS.fullmatch(canonical(value)) or canonical(value) == "积分排行":
+    if matches(rules, "utility_patterns", value) or matches(rules, "utility_patterns", canonical(value)):
         return True
     match = OTHER_BOT.fullmatch(value)
     if not match or match[1].casefold() == bot_username.casefold().lstrip("@"):
         return False
     command = BOT_COMMAND.fullmatch(match[2])
-    return bool(POINTS.fullmatch(match[2]) or candidate(match[2])
-                or command and (match[2].startswith("/") or "_" in command[1]
-                                or command[1] in {"start", "help", "balance", "checkin"}))
+    return bool(matches(rules, "utility_patterns", match[2]) or candidate(match[2], rules)
+                or command and matches(rules, "other_bot_patterns", command[1]))
 
 
-def candidate(text):
+def candidate(text, rules=None):
     value = canonical(text)
     if len(value) > 80:
         return ""
     value = value.rstrip("0123456789.")
     # Count whole functional phrases, never individual words inside conversation.
-    if len(value) > 20 or not FUNCTION.fullmatch(value):
+    if len(value) > 20 or not matches(rules, "candidate_patterns", value):
         return ""
     return value
 
@@ -56,19 +50,23 @@ def ad_key(text):
     return hashlib.sha256(canonical(text).encode()).hexdigest()
 
 
-def known_ad(data, text, sender_id=None, sender_name=""):
-    phrase = candidate(text)
+def known_ad(data, text, sender_id=None, sender_name="", *, rules=None):
+    phrase = candidate(text, rules)
     keys = [ad_key(text)] + ([ad_key(phrase)] if phrase else [])
     scoped = [f"member:{sender_id}:{ad_key(sender_name)}:{key}" for key in keys] if sender_id else []
     return any(key in data["ads"] for key in keys + scoped)
 
 
 async def load(session, group_id):
+    group = await session.get(Group, group_id)
+    cfg = GroupSettings.model_validate(group.settings if group else {})
     row = await session.get(Meta, f"chat_input:{group_id}")
     data = json.loads(row.value) if row else {"commands": {}, "ads": {}}
-    cutoff = now() - WINDOW
+    cutoff = now() - cfg.chat_evidence_hours * 3600
+    advertiser_cutoff = now() - max(cfg.chat_evidence_hours * 3600, cfg.chat_advertiser_cooldown_seconds)
     data["ads"] = {key: at for key, at in data.get("ads", {}).items() if at >= cutoff}
-    data["advertisers"] = {key: until for key, until in data.get("advertisers", {}).items() if until > now()}
+    data["advertisers"] = {key: value for key, value in data.get("advertisers", {}).items()
+                           if (value.get("at", 0) if isinstance(value, dict) else value) >= advertiser_cutoff}
     commands = {}
     for phrase, events in data.get("commands", {}).items():
         events = [event for event in events if event[2] >= cutoff]
@@ -90,21 +88,23 @@ def save(session, row, group_id, data):
     return data
 
 
-def learned(data, cfg):
+def learned(data, cfg, rules=None):
     exceptions = {canonical(text) for text in cfg.chat_command_exceptions}
     return [phrase for phrase, events in data["commands"].items()
-            if cfg.chat_command_learning and phrase not in exceptions
+            if cfg.chat_command_learning and phrase not in exceptions and candidate(phrase, rules)
             and len(events) >= cfg.chat_command_threshold
-            and len({event[1] for event in events}) >= MIN_USERS
+            and len({event[1] for event in events}) >= cfg.chat_command_min_users
             and ad_key(phrase) not in data["ads"]]
 
 
-async def observe(session, group_id, message, cfg, *, eligible, edited=False, advertising=False):
+async def observe(session, group_id, message, cfg, *, eligible, edited=False, advertising=False, rules=None):
+    if rules is None:
+        rules = await effective_rules(session, group_id)
     row, data = await load(session, group_id)
-    eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id")))
+    eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id"), cfg))
     eligible = eligible and not known_ad(data, message.get("text") or message.get("caption") or "",
-        message.get("from", {}).get("id"), profile_name(message.get("from") or {}))
-    phrase = candidate(message.get("text") or message.get("caption") or "")
+        message.get("from", {}).get("id"), profile_name(message.get("from") or {}), rules=rules)
+    phrase = candidate(message.get("text") or message.get("caption") or "", rules)
     if advertising and phrase:
         data["commands"].pop(phrase, None)
     message_id = message["message_id"]
@@ -118,23 +118,30 @@ async def observe(session, group_id, message, cfg, *, eligible, edited=False, ad
                 if not data["commands"][key]:
                     del data["commands"][key]
     elif (cfg.chat_command_learning and phrase and eligible and ad_key(phrase) not in data["ads"]
-          and now() - WINDOW <= message.get("date", now()) <= now() + 60):
+          and now() - cfg.chat_evidence_hours * 3600 <= message.get("date", now()) <= now() + 60):
         data["commands"].setdefault(phrase, []).append([message_id, message["from"]["id"], message.get("date", now())])
     if row or data["commands"] or data["ads"]:
         save(session, row, group_id, data)
     return data
 
 
-def advertiser_blocked(data, sender_id):
-    return data.get("advertisers", {}).get(str(sender_id), 0) > now()
+def advertiser_blocked(data, sender_id, cfg=None):
+    cfg = cfg or GroupSettings()
+    value = data.get("advertisers", {}).get(str(sender_id), {})
+    if not cfg.chat_advertiser_cooldown_seconds:
+        return False
+    # Old receipts already carry an expiry. The migration converts them to facts.
+    until = value.get("at", 0) + cfg.chat_advertiser_cooldown_seconds if isinstance(value, dict) else value
+    return until > now()
 
 
 async def remember_advertiser(session, group_id, sender_id):
     if type(sender_id) is not int or sender_id <= 0:
         return
     row, data = await load(session, group_id)
-    data["advertisers"][str(sender_id)] = now() + ADVERTISER_COOLDOWN
-    data["advertisers"] = dict(sorted(data["advertisers"].items(), key=lambda item: item[1], reverse=True)[:MAX_COMMANDS])
+    data["advertisers"][str(sender_id)] = {"at": now()}
+    data["advertisers"] = dict(sorted(data["advertisers"].items(),
+        key=lambda item: item[1].get("at", 0) if isinstance(item[1], dict) else item[1], reverse=True)[:MAX_COMMANDS])
     save(session, row, group_id, data)
 
 
@@ -142,7 +149,7 @@ async def remember_ad(session, group_id, message_id, text, sender_id=None, *, se
     row, data = await load(session, group_id)
     prefix = f"member:{sender_id}:{ad_key(sender_name)}:" if sender_id else ""
     data["ads"][prefix + ad_key(text)] = now()
-    phrase = candidate(text)
+    phrase = candidate(text, await effective_rules(session, group_id))
     if phrase:
         data["ads"][prefix + ad_key(phrase)] = now()
         if not sender_id:
@@ -157,9 +164,9 @@ async def remember_ad(session, group_id, message_id, text, sender_id=None, *, se
 
 
 def status(data, cfg, rules=()):
-    active = set(learned(data, cfg))
+    active = set(learned(data, cfg, rules))
     return {"enabled": cfg.chat_command_learning, "threshold": cfg.chat_command_threshold,
-            "minimum_users": MIN_USERS, "window_days": WINDOW // 86400,
+            "minimum_users": cfg.chat_command_min_users, "window_days": cfg.chat_evidence_hours / 24,
             "items": [{"text": phrase, "count": len(events), "users": len({event[1] for event in events}),
                        "ignored": phrase in active}
                       for phrase, events in sorted(data["commands"].items(), key=lambda item: (-len(item[1]), item[0]))

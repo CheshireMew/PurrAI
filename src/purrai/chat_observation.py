@@ -66,32 +66,33 @@ class ChatObservation:
                 session, group_id, {**message, "from": sender}, cfg,
                 eligible=bool(not no_reply and not direct and not reasons and not urls and not has_image(message)
                               and not (message.get("forward_origin") or message.get("forward_date"))
-                              and human_message(message, bot_username=getattr(self.tg, "username", "")) and allowed),
-                edited=edited, advertising=bool(reasons),
+                              and human_message(message, bot_username=getattr(self.tg, "username", ""), rules=rules) and allowed),
+                edited=edited, advertising=bool(reasons), rules=rules,
             )
-            ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
-            command = ignored_text(text, ignored, getattr(self.tg, "username", ""))
+            ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
+            command = ignored_text(text, ignored, getattr(self.tg, "username", ""), rules=rules)
             can_review = bool(
                 not reasons and not command and allowed and group.enabled and cfg.chat_advertiser_cooldown
                 and sender.get("id") not in self.settings.superadmin_ids
-                and human_message(message, bot_username=getattr(self.tg, "username", ""))
+                and human_message(message, bot_username=getattr(self.tg, "username", ""), rules=rules)
                 and not has_image(message)
             )
             keyword_review = can_review and bool(ai_keyword_rules(text, rules, profile_name(sender)))
             review_only = can_review and (
-                chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender))
-                or chat_commands.advertiser_blocked(command_state, sender.get("id"))
+                chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules)
+                or chat_commands.advertiser_blocked(command_state, sender.get("id"), cfg)
             )
-            if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender)):
+            if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules):
                 reasons.append("聊天广告历史命中")
-            if cfg.chat_advertiser_cooldown and any(reason.startswith(("广告招揽：", "明确广告引流：", "聊天广告历史命中")) for reason in reasons):
+            if cfg.chat_advertiser_cooldown and (any(getattr(reason, "advertiser_cooldown", False) for reason in reasons)
+                    or chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules)):
                 await chat_commands.remember_advertiser(session, group_id, sender.get("id"))
-            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender.get("id")):
+            if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender.get("id"), cfg):
                 reasons.append("广告账号聊天冷却中")
-            image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE})
+            image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE}, rules=rules)
             eligible = human_message(
                 {**message, "text": text or UNREADABLE_IMAGE} if image else message, ignored,
-                bot_username=getattr(self.tg, "username", ""),
+                bot_username=getattr(self.tg, "username", ""), rules=rules,
             ) and (direct or not (image or has_image(message.get("reply_to_message") or {})))
             if command:
                 image, eligible = False, False
@@ -137,7 +138,7 @@ class ChatObservation:
                 row.reply_text = reply_snapshot(message, direct=direct)
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
-            if not (eligible or image or review_only or reasons and human_message(message)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
+            if not (eligible or image or review_only or reasons and human_message(message, rules=rules)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
                 return
             # Ordinary supergroup replies also carry a thread ID. Only forum
             # topic messages belong to separate conversations and send targets.
@@ -178,6 +179,10 @@ class ChatObservation:
         group_id, topic_id = row.group_id, row.topic_id
         message_id = row.message_id
         if review_only:
+            from purrai.models import AdvertisementReview
+            if await session.scalar(select(AdvertisementReview.id).where(
+                AdvertisementReview.group_id == group_id, AdvertisementReview.message_id == message_id).limit(1)):
+                return  # The independent queue owns review and its retry lifecycle.
             if now() - message["date"] > 120:
                 return
             session.add(ChatTurn(group_id=group_id, topic_id=topic_id, message_id=message_id,

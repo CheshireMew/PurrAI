@@ -78,7 +78,7 @@ class MemberRestrictions:
         if not reconciled and current.get("status") == "kicked":
             raise RestrictionPreserved("成员已有其他封禁，保留当前封禁")
         active = await active_verifications(session, member)
-        violation_label = "广告引流违规" if action.kind == "advertisement_ban" else "状态表情违规"
+        violation_label = action.reason if action.kind == "identity_check" else "广告引流违规" if action.kind == "advertisement_ban" else "状态表情违规"
         member.restriction_conflict = False
         member.owned_restriction = {
             "kind": "ban", "source_action": action.id, "until_date": 0,
@@ -161,7 +161,7 @@ class MemberRestrictions:
         owned = moderation_ownership(member, current, action)
         already_muted = bool(
             owned
-            and owned.get("kind") in ("profile", "emoji_status", "rule", "ai_ad")
+            and owned.get("kind") in ("profile", "emoji_status", "rule", "ai_ad", "sample_ad")
             and owned.get("until_date") == 0
             and current.get("status") == "restricted"
             and permission_state_matches(current, owned.get("permissions"), 0, tolerance=0)
@@ -198,8 +198,9 @@ class MemberRestrictions:
             **({"verification_id": active[0].id} if active else {}),
         }
         await schedule_moderation_expiry(session, group, member)
-        ai_label = "AI确认广告且命中关键词" if "ai_keyword_evidence" in action.payload else "AI最近3天累计3次判定广告"
-        violation_label = ai_label if kind == "ai_ad" else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规"
+        ai_label = "AI确认广告且命中关键词" if "ai_keyword_evidence" in action.payload else action.reason or "AI累计广告处理"
+        violation_label = ("已确认广告样本匹配" if kind == "sample_ad" else ai_label if kind == "ai_ad"
+                           else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规")
         begin_penalty(active, violation_label, "permanent_mute")
         if not already_muted:
             await self.action_call(
@@ -261,11 +262,11 @@ class MemberRestrictions:
                 0,
             )
 
-    async def kick_member(self, session, group, member, action, kind):
+    async def kick_member(self, session, group, member, action, kind, *, allow_existing_restriction=False):
         current = await self.action_call(
             session, action, "get_chat_member", chat_id=group.id, user_id=member.user_id
         )
-        if is_admin(current) or member.restriction_conflict:
+        if is_admin(current) or member.restriction_conflict and not allow_existing_restriction:
             raise RestrictionPreserved()
         if is_present(current):
             if action.actor_id is None and not group.enabled:
@@ -285,6 +286,7 @@ class MemberRestrictions:
                 "before_kick_status": current.get("status"),
                 "before_kick_until": current.get("until_date", 0),
             }
+            member.restriction_conflict = False
             member.owned_restriction = {"kind": kind, "until_date": until}
             await self.action_call(
                 session, action, "ban_chat_member", chat_id=group.id, user_id=member.user_id, until_date=until

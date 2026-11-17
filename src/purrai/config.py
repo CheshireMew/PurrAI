@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     chat_timeout: int = Field(default=30, ge=5, le=120)
     chat_max_tokens: int = Field(default=256, ge=100, le=4096)
     chat_api_extra: dict = Field(default_factory=dict)
+    chat_reply_api_extra: dict = Field(default_factory=dict)
+    chat_reply_max_tokens: int | None = Field(default=None, ge=100, le=4096)
     chat_daily_calls: int = Field(default=2500, ge=1, le=100000)
     chat_group_daily_calls: int = Field(default=1000, ge=1, le=100000)
     chat_user_daily_calls: int = Field(default=300, ge=1, le=100000)

@@ -77,13 +77,13 @@ def reply_snapshot(message, *, direct=True):
     return json.dumps(snapshot, ensure_ascii=False)
 
 
-def ignored_text(text, phrases, bot_username=""):
+def ignored_text(text, phrases, bot_username="", *, rules=None):
     # Reply keyboards send ordinary text. Match the whole button label, never a
     # word inside a real question; whitespace and Latin case are insignificant.
     from purrai.chat_commands import candidate, canonical, utility_command
 
     labels = {canonical(phrase) for phrase in phrases}
-    return utility_command(text, bot_username) or canonical(text) in labels or candidate(text) in labels
+    return utility_command(text, bot_username, rules=rules) or canonical(text) in labels or candidate(text, rules) in labels
 
 
 def anonymous_admin(message):
@@ -104,14 +104,13 @@ def chat_sender(message):
     return message.get("from") or {}
 
 
-def human_message(message, ignored_texts=(), *, bot_username=""):
+def human_message(message, ignored_texts=(), *, bot_username="", rules=None):
     sender = chat_sender(message)
     origin = message.get("forward_origin") or {}
     text = sticker_text(message)
     return bool(
         text
-        and not text.lstrip().startswith("/")
-        and not ignored_text(text, ignored_texts, bot_username)
+        and not ignored_text(text, ignored_texts, bot_username, rules=rules)
         and sender.get("id")
         and not sender.get("is_bot")
         and (not message.get("sender_chat") or anonymous_admin(message))

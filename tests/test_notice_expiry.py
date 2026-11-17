@@ -6,7 +6,7 @@ from purrai.notice_cleanup import NoticeCleanup
 from purrai.service import Service
 
 
-async def test_spam_notice_uses_name_and_expires_at_180_seconds_even_if_group_paused(env, monkeypatch):
+async def test_spam_notice_uses_name_and_expires_at_30_seconds_even_if_group_paused(env, monkeypatch):
     _, db, tg, svc = env
     async with db.transaction() as session:
         group = await session.get(Group, -1001)
@@ -20,7 +20,7 @@ async def test_spam_notice_uses_name_and_expires_at_180_seconds_even_if_group_pa
         notice = await session.scalar(select(Action).where(Action.kind == "warn"))
         deletion = await session.scalar(select(Action).where(Action.dedupe_key == "cleanup:notice:" + notice.id))
         deadline, identifier = deletion.available_at, deletion.payload["message_id"]
-        assert 179 <= deadline - notice.updated_at <= 181
+        assert 29 <= deadline - notice.updated_at <= 31
         group = await session.get(Group, -1001)
         group.enabled = False
     restarted = Service(db, tg, env[0])

@@ -31,12 +31,12 @@ class MessageAssessment:
         return self.settings == group.settings and self.rules == await effective_rules(session, group.id)
 
 
-def evaluate_message(message, settings, rules):
+def evaluate_message(message, settings, rules, *, emoji_packs=()):
     text, urls = message_content(message)
     sender = message_sender(message)
     args = dict(sender_name=sender_name(sender, include_username=True),
                 contact=contact_should_block(message, settings, rules), source_titles=source_titles(message),
-                inline_buttons=has_inline_buttons(message))
+                inline_buttons=has_inline_buttons(message), message_emoji_packs=emoji_packs)
     profile = assess(text, urls, rules, settings, **args)
     args.update(forwarded=bool(message.get("forward_origin") or message.get("forward_date")
                               or message.get("forward_from") or message.get("forward_from_chat")
@@ -49,17 +49,21 @@ def evaluate_message(message, settings, rules):
                              content_digest(text) if text else "", similarity_signature(text))
 
 
-async def prepare_message(db, message):
+async def prepare_message(db, message, telegram=None):
     async with db.sessions() as session:
         group = await session.get(Group, message["chat"]["id"])
         if not group or not group.approved or not group.enabled:
             return None
         settings = copy.deepcopy(group.settings)
         rules = copy.deepcopy(await effective_rules(session, group.id))
-    return await asyncio.to_thread(evaluate_message, message, settings, rules)
+    from purrai.message_emoji import enabled, resolve
+    packs = await resolve(db, telegram, message) if enabled(rules) else ()
+    return await asyncio.to_thread(evaluate_message, message, settings, rules, emoji_packs=packs)
 
 
 async def rule_penalty_applies(session, action, group):
+    if action.payload.get("message_evidence", {}).get("check_message_rules"):
+        return await message_penalty_applies(session, action, group)
     evidence = action.payload.get("rule_evidence")
     if evidence is None:
         violation = await session.get(Violation, action.payload.get("violation_id"))
@@ -97,7 +101,9 @@ async def message_penalty_applies(session, action, group):
         version = tuple(evidence.get("version", (current.get("edit_date", current["date"]), bool(current.get("edit_date")), 0)))
         # Archiving can be switched off between receipt and an edit. The stored
         # archive is then older than the pending action's refreshed evidence.
-        return row[0] if row is not None and tuple(row[1:]) >= version else current
+        # Archives intentionally trim quoted messages. For the same revision,
+        # retain the full evidence captured by the moderation path.
+        return row[0] if row is not None and tuple(row[1:]) > version else current
 
     execution = session.info["action_execution"]
     for _ in range(3):
@@ -105,15 +111,27 @@ async def message_penalty_applies(session, action, group):
         if message.get("chat", {}).get("id") != group.id or message_sender(message).get("id") != action.user_id:
             return False
         settings, rules = copy.deepcopy(group.settings), copy.deepcopy(await effective_rules(session, group.id))
-        result = await execution.external(lambda: asyncio.to_thread(evaluate_message, message, settings, rules))
+        from purrai.promotion_targets import blacklist_reasons, independent_target_rules
+        independent = await independent_target_rules(session, rules, group.id, message.get("message_id"))
+        from purrai.message_emoji import cached_packs
+        packs, _ = await cached_packs(session, message)
+        result = await execution.external(lambda: asyncio.to_thread(evaluate_message, message, settings, independent, emoji_packs=packs))
         if not group.enabled or not group.approved:
             return False
         if (settings != group.settings or rules != await effective_rules(session, group.id)
                 or message != await latest()):
             continue
         ordinary = result.ordinary
+        target_reasons = blacklist_reasons(message, independent, settings=settings)
+        ordinary["reasons"] += target_reasons
+        ordinary["mute_reasons"] += [reason for reason in target_reasons if reason.action == "mute"]
+        ordinary["ban_reasons"] += [reason for reason in target_reasons if reason.action == "ban"]
         if action.kind == "delete":
             return bool(ordinary["reasons"] or ordinary["name_reasons"])
+        if action.kind == "rule_mute":
+            return bool(ordinary["mute_reasons"])
+        if action.kind == "profile_mute":
+            return bool(ordinary["name_reasons"])
         return bool(ordinary["ban_reasons"] or any(reason in CONTACT_REASONS for reason in ordinary["reasons"]))
     raise ConnectionError("消息或规则正在变化，稍后重新核实处罚")
 

@@ -57,7 +57,7 @@ async def test_upgraded_cached_commands_and_ads_are_removed_including_associated
         row, state = await session_state(session, -1001, 0)
         state.update(context_started=now(), context_reset=0, sent_context=[
             {"id": 900 + i, "speaker_id": 42, "text": text, "bot": False}
-            for i, text in enumerate(["积分红包 10", "@other_bot campaign_001 g123", PRODUCTION_ADS[0]])
+            for i, text in enumerate(["积分红包 10", "@other_bot balance", PRODUCTION_ADS[0]])
         ] + [{"id": 910, "speaker_id": 999, "text": "不该继续出现的旧点评", "bot": True, "reply_to": 900}])
         store_state(session, row, -1001, 0, state)
     await chat.observe(message(1, "柴郡喵，周末看什么电影？"))
@@ -67,7 +67,7 @@ async def test_upgraded_cached_commands_and_ads_are_removed_including_associated
 
 @pytest.mark.parametrize("text", [
     "积分排行", "积分红包 10", "发积分红包 1", "积分红包１０", "积分红包 10 2", "积分红包 0.5",
-    "积 分红 包 10", "@other_bot campaign_001 g12345", "@other_bot start 123", "@other_bot balance",
+    "积 分红 包 10", "@other_bot start 123", "@other_bot balance",
     "@other_bot /start 123", "@other_bot 积分红包 10", "@other_bot 每日任务",
 ])
 async def test_parameterized_and_other_bot_commands_do_not_request_model_or_enter_context(env, text):

@@ -21,9 +21,15 @@ const settingsTabs = [
   { name: 'chat', label: '群聊天' }, { name: 'emoji', label: '状态表情' }, { name: 'archive', label: '消息归档' },
   { name: 'inheritance', label: '继承与恢复' },
   { name: 'protection', label: '联合刷屏与应急' },
+  { name: 'policy', label: '审核与提醒' },
 ]
+const policyNumbers = ['notice_seconds', 'ai_ad_window_hours', 'ai_ad_limit', 'spam_mute_seconds',
+  'media_newcomer_days', 'chat_advertiser_cooldown_seconds', 'chat_evidence_hours', 'chat_command_min_users',
+  'chat_min_opening_chars', 'chat_repeat_hours'] as const
 const copySettings = (value: GroupSettings): GroupSettings => JSON.parse(JSON.stringify(value))
 const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaults))
+const identityNamesText = computed({ get: () => form.identity_names.join('\n'),
+  set: (value: string) => { form.identity_names = value.split(/\r?\n/).map(v => v.trim()).filter(Boolean) } })
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
 const ignoredChatText = ref('')
@@ -183,6 +189,15 @@ async function save() {
 <p v-else>正在读取继承来源…</p>
 </template>
 <el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
+<section v-show="activeTab === 'policy'" aria-label="审核与提醒设置">
+<div class="settings-grid"><el-form-item v-for="key in policyNumbers" :key="key" :label="catalog!.settings.labels?.[key] || key">
+<el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum" :aria-label="catalog!.settings.labels?.[key] || key"/>
+</el-form-item></div>
+<el-form-item label="AI广告累计处理"><el-select v-model="form.ai_ad_penalty" aria-label="AI广告累计处理"><el-option value="delete" label="只删除广告消息"/><el-option value="permanent_mute" label="达到累计次数后永久禁言"/></el-select></el-form-item>
+<el-form-item label="新学习推广目标的处理"><el-select v-model="form.learned_target_penalty" aria-label="新学习推广目标的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并永久封禁"/></el-select></el-form-item>
+<el-form-item label="忽略纯数字独立开场"><el-switch v-model="form.chat_ignore_numeric_openings" aria-label="忽略纯数字独立开场"/></el-form-item>
+<p class="muted">系统提醒包括处罚通知和发到群里的操作结果。账号冷却和重复聊天时长设为 0 可关闭对应限制；历史已过期的记录不会恢复。</p>
+</section>
 <section v-show="activeTab === 'verification'" aria-label="入群验证设置">
 <el-form-item label="验证方式">
 <el-select v-model="form.verification_method" aria-label="验证方式">
@@ -218,8 +233,21 @@ async function save() {
 </div>
 </section>
 <section v-show="activeTab === 'moderation'" aria-label="防广告处理说明">
+<h3>防冒充</h3>
+<el-form-item label="开启防冒充核验"><el-switch v-model="form.identity_enabled" aria-label="开启防冒充核验"/></el-form-item>
+<div class="settings-grid">
+<el-form-item label="本人的 Telegram 数字 ID"><el-input-number v-model="form.identity_user_id" :min="0" :max="4503599627370495" :controls="false" aria-label="本人的 Telegram 数字 ID"/></el-form-item>
+<el-form-item label="受保护昵称"><el-input v-model="identityNamesText" type="textarea" :rows="2" aria-label="受保护昵称" placeholder="每行一个昵称"/></el-form-item>
+<el-form-item label="确认冒充后的处理"><el-select v-model="form.identity_action" aria-label="确认冒充后的处理"><el-option value="kick" label="踢出群聊"/><el-option value="ban" label="踢出并禁止再次加入"/></el-select></el-form-item>
+</div>
+<div class="settings-toggles">
+<el-form-item label="匹配昵称后的括号说明"><el-switch v-model="form.identity_parentheses"/></el-form-item>
+<el-form-item label="比对头像"><el-switch v-model="form.identity_match_photo"/></el-form-item>
+<el-form-item label="比对非空简介"><el-switch v-model="form.identity_match_bio"/></el-form-item>
+</div>
+<p class="muted">本人按数字 ID 识别。同名成员的头像或非空简介与本人一致才执行处置；空资料和读取失败不作为相同证据。入群、发言及编辑消息时检查，重复核验至少间隔 10 分钟。群管理员及防广告白名单豁免。</p>
 <p class="muted">开启“带按钮消息删除并永久封禁”后，普通成员发送带内联按钮的消息会被删除并永久封禁，不限入群时间，也包括未入群的频道评论者。访客机器人代发时处罚发起用户；管理员、防广告白名单和本机器人消息豁免。</p>
-<p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 15 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
+<p class="muted">发图门槛仅限有可靠入群记录的新成员：发够指定条数的不同纯文字，或入群满 {{ form.media_newcomer_days }} 天即解除。没有入群记录的成员免除此门槛，广告检测继续生效。</p>
 <p class="muted">开启“只拦截广告联系人名片”时，普通名片可以分享，广告名片和黑名单联系方式会删除消息并永久封禁；关闭时，普通成员分享任何联系人都会封禁。群主、管理员及防广告白名单豁免。</p>
 <p class="muted">明确广告招揽和外群链接不限入群时长，删消息并永久封禁。公开链接会先核实群组类型；外部私密邀请统一处理。本群已知链接、允许链接及允许提及账号豁免链接检查；名单不豁免广告正文。明确举报或防骗引用只删外群链接，不自动永久封禁。</p>
 <el-form-item label="允许的 Telegram 链接">
@@ -263,7 +291,7 @@ async function save() {
 <el-switch v-model="form.chat_advertiser_cooldown" aria-label="AI广告识别与累计处罚"/>
 </el-form-item>
 </div>
-<p class="muted">默认开启。AI确认广告即删除消息；同一成员在本群72小时内有3条消息被AI实际判为广告，永久禁言。命中“AI确认广告后处罚”的关键词时，首次即永久禁言。机器人30分钟内不回复该账号，但继续审查后续消息；同一条消息不重复计数。</p>
+<p class="muted">独立广告审核不受聊天开关和聊天间隔限制。AI确认广告即删除；累计窗口、次数和处置可在“审核与提醒”修改。选择“AI确认广告后处罚”的关键词按本条规则执行；同一消息不重复计数。</p>
 <el-form-item label="聊天昵称">
 <el-input v-model="form.chat_name" :minlength="bounds('chat_name').minLength" :maxlength="bounds('chat_name').maxLength" placeholder="群友也可以叫这个昵称来唤醒机器人"/>
 </el-form-item>
@@ -273,7 +301,7 @@ async function save() {
 <el-form-item label="聊天忽略口令">
 <el-input v-model="ignoredChatText" type="textarea" :rows="3" placeholder="每行一条其他机器人的按钮文字，例如签到、积分、币圈教程"/>
 </el-form-item>
-<p class="muted">整条消息与口令相同时不进入 AI 聊天或上下文；“今天积分怎么算”等正常句子仍可讨论。积分红包后带数字、明确发给其他机器人的结构化指令直接排除，留空只关闭自定义名单。</p>
+<p class="muted">整条消息与口令相同时不进入 AI 聊天或上下文。公共口令识别在“管理业务规则”维护；仅有斜杠或下划线不会自动获得豁免。</p>
 <el-form-item label="不回复名单">
 <el-input v-model="noReplyUsersText" type="textarea" :rows="3" placeholder="用户数字 ID，每行一个"/>
 </el-form-item>
@@ -281,7 +309,7 @@ async function save() {
 <el-form-item label="自动识别重复口令">
 <el-switch v-model="form.chat_command_learning" aria-label="自动识别重复口令"/>
 </el-form-item>
-<el-form-item label="7 天内识别次数（至少 3 位群友）">
+<el-form-item :label="`${form.chat_evidence_hours} 小时内识别次数（至少 ${form.chat_command_min_users} 位群友）`">
 <el-input-number v-model="form.chat_command_threshold" :min="bounds('chat_command_threshold').minimum" :max="bounds('chat_command_threshold').maximum"/>
 </el-form-item>
 <p class="muted">只统计短功能口令；广告、链接、普通问句、重复投递和编辑不计数。达到门槛后从 AI 输入和历史上下文中排除，不删除群消息。</p>

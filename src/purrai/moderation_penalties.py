@@ -20,7 +20,7 @@ from purrai.verification_state import ACTIVE
 
 SPAM_REASONS = {"重复刷屏", "近似内容刷屏", "短时间连续发送"}
 SPAM_SETTINGS = ("repeat_enabled", "repeat_window", "repeat_count", "similar_enabled", "similar_window",
-                 "similar_count", "similar_threshold", "similar_min_length", "burst_enabled", "burst_window", "burst_count")
+                 "similar_count", "similar_threshold", "similar_min_length", "burst_enabled", "burst_window", "burst_count", "spam_mute_seconds")
 
 
 async def apply_penalty(session, group, violation, member, actor_id=None, reason="", *, evidence=None):
@@ -29,7 +29,8 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
     message = (evidence or {}).get("message")
     text, urls = message_content(message) if message else (violation.excerpt if violation.message_violation else "", [])
     rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name}
-    message_evidence = {"message_evidence": evidence} if BUTTON_REASON in violation.reasons and evidence else {}
+    message_evidence = {"message_evidence": evidence} if evidence and (
+        BUTTON_REASON in violation.reasons or evidence.get("check_message_rules")) else {}
     identifiers = []
     if violation.message_violation:
         action = await enqueue(
@@ -99,7 +100,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
             f"{'profile-mute' if profile else 'rule-mute'}:{violation.id}",
             group.id,
             violation.user_id,
-            {"violation_id": violation.id, "generation": member.generation, "rule_evidence": rule_evidence},
+            {"violation_id": violation.id, "generation": member.generation, "rule_evidence": rule_evidence, **message_evidence},
             1,
             actor_id,
             reason if profile else reason or "正文广告规则命中，删除消息并永久禁言",
@@ -116,7 +117,7 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
                 {"violation_id": violation.id, "message_id": violation.message_id, "generation": member.generation,
                  "fingerprint": fingerprint.digest,
                  "spam_settings": {key: group.settings.get(key) for key in SPAM_SETTINGS}},
-                1, actor_id, "重复刷屏，删除消息并临时禁言30分钟")
+                1, actor_id, "刷屏命中，按当前设置删除消息并临时禁言")
             identifiers.append(action.id)
             if "重复刷屏" in violation.reasons:
                 copies = await session.scalars(select(Fingerprint).where(

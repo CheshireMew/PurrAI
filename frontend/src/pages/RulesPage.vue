@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Rule } from '../types'
 import RuleEditor from '../components/RuleEditor.vue'
 import BusinessPolicyDialog from '../components/BusinessPolicyDialog.vue'
+import AdvertisementSamples from '../components/AdvertisementSamples.vue'
 import { useRecords } from '../composables/useRecords'
 import { usePreview } from '../composables/usePreview'
 import { api, label, time } from '../api'
@@ -41,6 +42,7 @@ useRefresh(load, () => props.refreshKey)
 <section class="panel" v-loading="busy">
 <div class="panel-title">
 <h2>本群广告规则</h2>
+<AdvertisementSamples :group-id="groupId"/>
 <el-button type="primary" @click="edit()">添加规则</el-button>
 </div>
 <form class="filterbar" @submit.prevent="search">

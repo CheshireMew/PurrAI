@@ -6,6 +6,7 @@ import logging
 from sqlalchemy import and_, func, or_, select
 
 from purrai import chat_commands
+from purrai.advertisement_store import latest_reviews
 from purrai.chat_state import (
     has_sent_text, ignored_text, image_message_ids,
     message_bursts, session_state, store_state,
@@ -44,8 +45,10 @@ class ChatScheduler:
                         return prepared
 
     async def pending_batch(self, session, group, topic_id, cfg):
+        from purrai.shared_policy import effective_rules
+        rules = await effective_rules(session, group.id)
         _, command_state = await chat_commands.load(session, group.id)
-        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg)
+        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
         batch = (await session.scalars(select(ChatTurn).where(
             ChatTurn.group_id == group.id, ChatTurn.topic_id == topic_id,
             ChatTurn.state == "pending", or_(ChatTurn.available_at <= now(), and_(
@@ -57,6 +60,15 @@ class ChatScheduler:
                     or not cfg.chat_enabled or not self.settings.chat_ready):
                 self.skip([item], "聊天任务已过期或群聊天已停用")
         batch = [item for item in batch if item.state == "pending"]
+        reviews = await latest_reviews(session, group.id, [item.message_id for item in batch])
+        waiting = set()
+        for item in batch:
+            review = reviews.get(item.message_id)
+            if review and review.state in ("pending", "requesting", "failed"):
+                waiting.add(item.id)
+            elif review and (review.state not in ("clean", "exempt") or item.review_only):
+                self.skip([item], "独立广告审核已处理此消息")
+        batch = [item for item in batch if item.state == "pending" and item.id not in waiting]
         if not batch:
             return [], []
         recent = await self.contexts.recent(session, group.id, topic_id)
@@ -65,7 +77,7 @@ class ChatScheduler:
             *self.contexts.clean_conditions(group.id, topic_id),
             ChatMessage.message_id.in_([item.message_id for item in batch]),
         )) if row.sender_id not in cfg.chat_no_reply_user_ids
-            and not ignored_text(row.text, ignored, getattr(self.tg, "username", "")) and now() - row.sent_at <= 120}
+            and not ignored_text(row.text, ignored, getattr(self.tg, "username", ""), rules=rules) and now() - row.sent_at <= 120}
         for item in batch:
             if item.review_only:
                 if not await self.contexts.review(session, item, cfg):
