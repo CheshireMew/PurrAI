@@ -14,6 +14,8 @@ class AdvertisementSettings(BaseModel):
     minimum_sample_coverage: float = Field(default=0.55, ge=0.4, le=1)
     sample_action: Literal["delete", "permanent_mute"] = "delete"
     batch_size: int = Field(default=12, ge=1, le=24)
+    context_messages: int = Field(default=5, ge=0, le=10)
+    context_window_seconds: int = Field(default=900, ge=30, le=3600)
 
 
 class AdvertisementSampleInput(BaseModel):
@@ -21,7 +23,7 @@ class AdvertisementSampleInput(BaseModel):
     request_id: str = Field(default="", exclude=True)
     text: str = Field(min_length=1, max_length=4096)
     sender_name: str = Field(default="", max_length=500)
-    scope: Literal["text", "context"] = "text"
+    scope: Literal["text", "bio", "context"] = "text"
     enabled: bool = True
     reason: str = Field(min_length=1, max_length=500)
 
@@ -30,6 +32,7 @@ class AdvertisementPreview(BaseModel):
     text: str = Field(min_length=1, max_length=4096)
     sender_name: str = Field(default="", max_length=500)
     quoted: bool = False
+    scope: Literal["text", "bio"] = "text"
 
 
 class AdvertisementImport(BaseModel):

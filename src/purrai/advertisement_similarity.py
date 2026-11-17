@@ -44,12 +44,12 @@ def compare(value, sample, minimum_length=14, minimum_sample_coverage=0.55):
             "direct": not additions and sample_coverage >= minimum_sample_coverage and not quoted(value)}
 
 
-def rank(value, samples, settings, *, context_sensitive=False):
+def rank(value, samples, settings, *, context_sensitive=False, scope="text"):
     if not settings.similarity_enabled:
         return None
     best = None
     for sample in samples:
-        if not sample.enabled or sample.scope != "text":
+        if not sample.enabled or sample.scope != scope:
             continue
         result = compare(value, sample.text, settings.minimum_length, settings.minimum_sample_coverage)
         result.update(sample_id=sample.id, sample_version=sample.version,

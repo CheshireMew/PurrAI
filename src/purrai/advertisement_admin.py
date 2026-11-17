@@ -36,7 +36,7 @@ class AdvertisementAdministration:
             items = []
             for row in rows:
                 corrected = bool(row.violation_id and await session.get(Meta, "violation-correction:" + row.violation_id))
-                items.append({**row_dict(row), "corrected": corrected, "usable": row.enabled and row.scope == "text" and not corrected})
+                items.append({**row_dict(row), "corrected": corrected, "usable": row.enabled and row.scope in ("text", "bio") and not corrected})
             return {"settings": cfg.model_dump(), "version": version, "items": items,
                     "total": await session.scalar(select(func.count()).select_from(AdvertisementSample).where(*conditions)),
                     "reviews": dict(counts), "model_ready": self.context.settings.chat_ready}
@@ -91,7 +91,7 @@ class AdvertisementAdministration:
             cfg, _ = await policy(session, group_id)
             bank = await samples(session, group_id)
         import asyncio
-        result = await asyncio.to_thread(rank, body.text, bank, cfg, context_sensitive=body.quoted)
+        result = await asyncio.to_thread(rank, body.text, bank, cfg, context_sensitive=body.quoted, scope=body.scope)
         if result:
             result["sample"] = row_dict(next(row for row in bank if row.id == result["sample_id"]))
         return {"enabled": cfg.enabled, "result": result, "action": cfg.sample_action if cfg.enabled and result and result["matched"] else "review"}

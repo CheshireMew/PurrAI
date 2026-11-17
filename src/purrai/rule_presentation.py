@@ -29,6 +29,7 @@ def describe_rule(rule):
         name = penalty_label(rule.get("name_penalty", "permanent_mute"))
         consequence = {
             "message": f"正文命中{body}",
+            "bio": f"用户简介命中{body}",
             "name": f"昵称或用户名命中{name}",
             "either": f"昵称或用户名命中{name}；正文命中{body}",
             "name_and_message": f"昵称与正文同时命中才{name}",

@@ -15,6 +15,7 @@ from purrai.shared_policy import effective_rules
 from purrai.sender_identity import sender_name
 from purrai.message_identity import message_sender
 from purrai.solicitation_rules import contact_should_block
+from purrai.sender_profile import attach, biography
 
 
 @dataclass
@@ -26,6 +27,7 @@ class MessageAssessment:
     newcomer: dict
     digest: str
     similarity: tuple
+    sender_profile: dict
 
     async def current(self, session, group):
         return self.settings == group.settings and self.rules == await effective_rules(session, group.id)
@@ -35,6 +37,7 @@ def evaluate_message(message, settings, rules, *, emoji_packs=()):
     text, urls = message_content(message)
     sender = message_sender(message)
     args = dict(sender_name=sender_name(sender, include_username=True),
+                sender_bio=biography(message),
                 contact=contact_should_block(message, settings, rules), source_titles=source_titles(message),
                 inline_buttons=has_inline_buttons(message), message_emoji_packs=emoji_packs)
     profile = assess(text, urls, rules, settings, **args)
@@ -46,7 +49,8 @@ def evaluate_message(message, settings, rules, *, emoji_packs=()):
                                  if entity.get("type") == "text_mention"])
     return MessageAssessment(settings, rules, profile, assess(text, urls, rules, settings, **args),
                              assess(text, urls, rules, settings, newcomer=True, **args),
-                             content_digest(text) if text else "", similarity_signature(text))
+                             content_digest(text) if text else "", similarity_signature(text),
+                             copy.deepcopy(message.get("_sender_profile") or {}))
 
 
 async def prepare_message(db, message, telegram=None):
@@ -57,12 +61,13 @@ async def prepare_message(db, message, telegram=None):
         settings = copy.deepcopy(group.settings)
         rules = copy.deepcopy(await effective_rules(session, group.id))
     from purrai.message_emoji import enabled, resolve
+    await attach(db, telegram, message, settings)
     packs = await resolve(db, telegram, message) if enabled(rules) else ()
     return await asyncio.to_thread(evaluate_message, message, settings, rules, emoji_packs=packs)
 
 
 async def rule_penalty_applies(session, action, group):
-    if action.payload.get("message_evidence", {}).get("check_message_rules"):
+    if any(action.payload.get("message_evidence", {}).get(key) for key in ("check_message_rules", "bio_dependent")):
         return await message_penalty_applies(session, action, group)
     evidence = action.payload.get("rule_evidence")
     if evidence is None:
@@ -77,7 +82,7 @@ async def rule_penalty_applies(session, action, group):
         rules = copy.deepcopy(await effective_rules(session, group.id))
         result = await execution.external(lambda: asyncio.to_thread(
             assess, evidence.get("text", ""), evidence.get("urls", []), rules, settings,
-            sender_name=evidence.get("sender_name", "")))
+            sender_name=evidence.get("sender_name", ""), sender_bio=evidence.get("bio", "")))
         if settings == group.settings and rules == await effective_rules(session, group.id):
             return bool(result["name_reasons"] if action.kind == "profile_mute" else result["mute_reasons"])
     raise ConnectionError("审核规则正在变化，稍后重新核实处罚")
@@ -88,6 +93,10 @@ async def message_penalty_applies(session, action, group):
     original = (action.payload.get("message_evidence") or {}).get("message")
     if not original or not group or not group.enabled:
         return False
+    if action.payload["message_evidence"].get("bio_dependent"):
+        from purrai.sender_profile import digest, evidence_current
+        if not await evidence_current(session, action, group, digest(original.get("_sender_profile") or {})):
+            return False
 
     async def latest():
         row = (await session.execute(select(MessageRevision.payload, MessageRevision.event_at,

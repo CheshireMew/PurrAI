@@ -29,9 +29,10 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
     rules = await effective_rules(session, group.id)
     message = (evidence or {}).get("message")
     text, urls = message_content(message) if message else (violation.excerpt if violation.message_violation else "", [])
-    rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name}
+    from purrai.sender_profile import biography
+    rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name, "bio": biography(message or {})}
     message_evidence = {"message_evidence": evidence} if evidence and (
-        BUTTON_REASON in violation.reasons or evidence.get("check_message_rules")) else {}
+        BUTTON_REASON in violation.reasons or evidence.get("check_message_rules") or evidence.get("bio_dependent")) else {}
     identifiers = []
     if violation.message_violation:
         action = await enqueue(

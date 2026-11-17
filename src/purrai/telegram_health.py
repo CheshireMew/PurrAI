@@ -79,7 +79,7 @@ class TelegramHealth:
                    timeout=timeout, outcome=outcome)
         failed = outcome in ("network_error", "unauthorized", "rate_limited", "client_error")
         row["authentication_failed"] = failed and (outcome == "unauthorized" or row.get("authentication_failed", False))
-        auxiliary = purpose == "source_check" and not row["authentication_failed"]
+        auxiliary = purpose in ("source_check", "profile_lookup") and not row["authentication_failed"]
         if failed:
             row["first_failure"] = row["first_failure"] or at
             row.update(failures=row["failures"] + 1, consecutive_failures=row["consecutive_failures"] + 1,
@@ -102,7 +102,7 @@ class TelegramHealth:
     def status(self):
         methods = [dict(row) for row in self.methods.values()]
         failures = [row for row in methods if row["consecutive_failures"]]
-        warnings = [row for row in failures if row.get("purpose") == "source_check"
+        warnings = [row for row in failures if row.get("purpose") in ("source_check", "profile_lookup")
                     and not row.get("authentication_failed") and row["outcome"] != "unauthorized"]
         problems = [row for row in failures if row not in warnings]
         return {"degraded": bool(problems), "problems": problems, "warnings": warnings, "methods": methods}

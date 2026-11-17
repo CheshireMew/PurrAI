@@ -51,23 +51,22 @@ class Moderation:
         result = assessment.profile
         if not result["name_reasons"] and not result["ban_reasons"]:
             return False
-        violation = Violation(
-            id=uid(),
+        violation, _ = await record_violation(session,
             group_id=group.id,
             user_id=user["id"],
             message_id=-int(member.generation[:15], 16),
             sender_name=profile,
-            excerpt="入群昵称检查",
+            excerpt=(assessment.sender_profile.get("bio", "") if result.get("bio_reasons") else "入群昵称检查"),
             reasons=list(dict.fromkeys(result["name_reasons"] + result["ban_reasons"])),
             profile_violation=bool(result["name_reasons"]),
             message_violation=False,
-            warning_active=False,
         )
-        session.add(violation)
-        await session.flush()
         await record_rule_hits(session, group.id, violation.message_id, result.get("rule_ids", []))
         await apply_penalty(session, group, violation, member, evidence={"message": {
-            "from": user, "chat": {"id": group.id, "type": group.type}, "text": ""}})
+            "from": user, "chat": {"id": group.id, "type": group.type}, "text": "",
+            "message_id": violation.message_id, "date": now(),
+            "_sender_profile": assessment.sender_profile}, "check_message_rules": True,
+            "bio_dependent": bool(result.get("bio_reasons"))})
         return True
 
     async def message(self, message: dict, edited=False, update_id=0, archived_at_receipt=False):
@@ -259,6 +258,7 @@ class Moderation:
         )
         if changed:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
+                "bio_dependent": bool(result.get("bio_reasons")),
                 "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
                 "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
@@ -282,6 +282,7 @@ class Moderation:
         )
         if changed:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
+                "bio_dependent": bool(result.get("bio_reasons")),
                 "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
                 "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))

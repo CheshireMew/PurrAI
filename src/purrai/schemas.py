@@ -7,6 +7,8 @@ from purrai.installation_defaults import initial_list
 
 
 class GroupSettings(BaseModel):
+    bio_advertising_enabled: bool = Field(default=True, title="检查用户简介广告")
+    bio_cache_seconds: int = Field(default=300, ge=30, le=3600, title="用户简介刷新间隔（秒）")
     notice_seconds: int = Field(default=30, ge=5, le=3600, title="群内系统提醒保留秒数")
     ai_ad_window_hours: int = Field(default=72, ge=1, le=720, title="AI广告累计窗口（小时）")
     ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")
@@ -255,7 +257,7 @@ class RuleInput(BaseModel):
     kind: Literal["keyword", "block_domain", "allow_domain", "block_mention", "allow_mention", "block_target", "block_emoji_pack"]
     value: str = Field(min_length=1, max_length=250)
     mode: Literal["contains", "exact", "compact", "pinyin"] = "contains"
-    scope: Literal["message", "name", "either", "name_and_message"] = "message"
+    scope: Literal["message", "name", "bio", "either", "name_and_message"] = "message"
     context_value: str = Field(default="", max_length=250)
     meaning: str = Field(default="", max_length=1000)
     penalty: Literal["delete", "permanent_mute", "ai_confirmed_mute", "ban"] = "delete"
@@ -307,6 +309,7 @@ class SharedPolicyPatch(BaseModel):
 
 class PreviewInput(BaseModel):
     text: str = Field(max_length=10000)
+    sender_bio: str = Field(default="", max_length=4096)
     message_emoji_packs: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("message_emoji_packs")

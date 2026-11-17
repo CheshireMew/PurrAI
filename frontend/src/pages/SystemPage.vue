@@ -65,7 +65,8 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <p>最近收取消息：{{ time(system.last_poll || 0) }}</p>
 <p v-for="problem in system.telegram_health?.problems" :key="problem.method" class="status-error">{{ problem.label }}：连续失败 {{ problem.consecutive_failures }} 次，最近请求等待 {{ problem.seconds }} 秒；最近失败 {{ time(problem.last_failure) }}。</p>
 <el-alert v-if="system.source_checks?.delayed" :title="`原消息核对延迟：${system.source_checks.delayed} 条记录等待重试，下次计划 ${time(system.source_checks.next_retry_at)}。原消息被删除后，机器人撤回回复可能延迟。`" type="warning" :closable="false"/>
-<el-alert v-else-if="system.telegram_health?.warnings?.length" title="原消息核对暂未确认恢复，正在等待下一次核对结果。" type="warning" :closable="false"/>
+<el-alert v-else-if="system.telegram_health?.warnings?.some(item => item.purpose === 'source_check')" title="原消息核对暂未确认恢复，正在等待下一次核对结果。" type="warning" :closable="false"/>
+<el-alert v-if="system.telegram_health?.warnings?.some(item => item.purpose === 'profile_lookup')" title="用户简介暂时无法读取，正文审核仍在继续。" type="warning" :closable="false"/>
 <p class="muted">最近备份：{{ system.last_backup || '尚未生成' }}</p>
 <p v-if="system.chat_budget" class="muted">今日 AI 模型请求 {{ system.chat_budget.global_calls }}/{{ system.chat_budget.global_call_limit }}；Token 预算 {{ system.chat_budget.global_tokens }}/{{ system.chat_budget.global_token_limit }}。按北京时间零点重置，达到上限只暂停 AI 聊天。</p>
 <el-alert v-if="system.archive_status" :title="system.archive_status" type="warning" :closable="false"/>

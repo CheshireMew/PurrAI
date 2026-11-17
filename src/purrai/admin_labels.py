@@ -64,7 +64,7 @@ OPERATIONS = {
     "backup": "生成备份",
     "retry": "重试任务",
     "retry_event": "重试事件",
-    "profile_mute": "昵称命中永久禁言",
+    "profile_mute": "昵称或简介命中永久禁言",
     "emoji_status_check": "检查名字旁状态表情",
     "emoji_status_mute": "状态表情命中永久禁言",
     "contact_kick": "分享联系人踢出群聊",
@@ -93,6 +93,7 @@ FAILURE_ACTIONS = {
 
 
 BOOLEANS = {
+    "bio_advertising_enabled": "检查用户简介广告",
     "coordinated_enabled": "多账号重复刷屏检测",
     "raid_enabled": "集中入群时自动应急保护",
     "archive_enabled": "记录群消息归档",
@@ -115,6 +116,7 @@ BOOLEANS = {
 
 
 NUMBERS = {
+    "bio_cache_seconds": "用户简介刷新间隔（秒）",
     "coordinated_window": "多账号刷屏统计窗口（秒）",
     "coordinated_count": "相同内容的不同账号数",
     "coordinated_min_length": "多账号刷屏最短内容长度",
@@ -154,6 +156,7 @@ MODES = {"contains": "包含", "exact": "完整", "compact": "忽略表情和分
 
 
 SCOPES = {
+    "bio": "用户简介",
     "message": "正文",
     "name": "昵称及用户名",
     "either": "昵称或正文",

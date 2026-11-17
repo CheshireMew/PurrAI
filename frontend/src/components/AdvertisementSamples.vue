@@ -9,9 +9,10 @@ const { mutations } = useWorkspace()
 const open = ref(false), busy = ref(false), error = ref(''), page = ref(1), query = ref('')
 const data = ref<any>(null), history = ref<any>(null), historyPage = ref(1), historyState = ref('')
 const editing = ref<any>(null), editor = ref(false), preview = ref<any>(null), previewText = ref(''), quoted = ref(false)
+const previewScope = ref('text')
 const form = reactive({ text: '', sender_name: '', scope: 'text', enabled: true, reason: '' })
 const stateLabels: Record<string, string> = { pending: '等待审核', requesting: '正在审核', clean: '非广告', advertisement: 'AI确认广告', matched: '本地样本命中', handled: '规则已处理', ignored: '功能口令或空正文', failed: '审核失败', cancelled: '已取消', superseded: '消息已编辑', exempt: '已豁免' }
-const scopeLabels: Record<string, string> = { text: '正文可独立判断', context: '需结合昵称或上下文' }
+const scopeLabels: Record<string, string> = { text: '正文可独立判断', bio: '简介可独立判断', context: '需结合资料或上下文' }
 const sourceLabels: Record<string, string> = { model: 'AI确认', manual: '管理员确认', history: '历史判定' }
 const base = () => `/api/groups/${props.groupId}`
 async function safe(work: () => Promise<void>) {
@@ -55,7 +56,7 @@ async function importHistory(apply: boolean) {
   })
 }
 async function test() {
-  await safe(async () => { preview.value = await api(`${base()}/advertisement-samples/preview`, { method: 'POST', body: JSON.stringify({ text: previewText.value, quoted: quoted.value }) }) })
+  await safe(async () => { preview.value = await api(`${base()}/advertisement-samples/preview`, { method: 'POST', body: JSON.stringify({ text: previewText.value, quoted: quoted.value, scope: previewScope.value }) }) })
 }
 async function retry(row: any) {
   await safe(async () => {
@@ -78,7 +79,7 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
           <el-alert v-if="importing" :title="`${importing.applied ? '已导入' : '可导入'} ${importing.count} 条历史判定。导入后由 AI 批量复核正文适用范围，再用于本地匹配；不会处罚历史消息。`" type="info" :closable="false"/>
           <el-button v-if="importing && !importing.applied && importing.count" @click="importHistory(true)">确认导入</el-button>
           <el-table :data="data.items" empty-text="暂无已确认广告样本">
-            <el-table-column prop="text" label="广告正文" min-width="260"><template #default="{ row }"><span class="ad-text">{{ row.text }}</span></template></el-table-column>
+            <el-table-column prop="text" label="广告内容" min-width="260"><template #default="{ row }"><span class="ad-text">{{ row.text }}</span></template></el-table-column>
             <el-table-column label="来源" width="120"><template #default="{ row }">{{ sourceLabels[row.source] }}<div v-if="row.message_id">消息 {{ row.message_id }}</div></template></el-table-column>
             <el-table-column label="状态" min-width="180"><template #default="{ row }">{{ row.corrected ? '原判定已纠正' : !row.enabled ? '已停用' : row.usable ? '参与本地匹配' : row.review_state === 'pending' || row.review_state === 'requesting' ? '等待 AI 复核' : '仅保留判定' }}<div>{{ scopeLabels[row.scope] }}</div><div v-if="row.review_error">{{ row.review_error }}</div></template></el-table-column>
             <el-table-column label="操作" width="80"><template #default="{ row }"><el-button text @click="edit(row)">编辑</el-button></template></el-table-column>
@@ -86,14 +87,15 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
           <el-pagination v-model:current-page="page" :page-size="20" :total="data.total" layout="prev, pager, next, total" @current-change="safe(load)"/>
           <h3>试一条消息</h3>
           <el-input v-model="previewText" type="textarea" :rows="3" aria-label="样本匹配测试消息"/>
-          <div class="ad-tools"><el-checkbox v-model="quoted">包含引用或转发</el-checkbox><el-button :disabled="!previewText.trim()" @click="test">测试本地匹配</el-button></div>
+          <div class="ad-tools"><el-select v-model="previewScope" aria-label="样本测试范围"><el-option label="消息正文" value="text"/><el-option label="用户简介" value="bio"/></el-select><el-checkbox v-model="quoted">包含引用或转发</el-checkbox><el-button :disabled="!previewText.trim()" @click="test">测试本地匹配</el-button></div>
           <el-alert v-if="preview" :type="preview.action !== 'review' ? 'warning' : 'info'" :closable="false" :title="preview.action !== 'review' ? `命中样本，相似度 ${preview.result.score.toFixed(3)}，${preview.action === 'delete' ? '删除消息' : '删除并永久禁言'}` : '未达到本地处置条件，交由 AI 审核'"/>
           <p v-if="preview?.result" class="ad-text">对照样本：{{ preview.result.sample.text }}</p>
         </el-tab-pane>
         <el-tab-pane label="审核记录">
           <div class="ad-tools"><el-select v-model="historyState" aria-label="审核状态" @change="historyPage = 1; safe(loadHistory)"><el-option label="全部状态" value=""/><el-option v-for="(label, value) in stateLabels" :key="value" :label="label" :value="value"/></el-select><el-button @click="safe(loadHistory)">刷新</el-button></div>
           <el-table :data="history?.items || []" empty-text="暂无审核记录">
-            <el-table-column label="消息" min-width="240"><template #default="{ row }"><span class="ad-text">{{ row.message.text || row.message.caption }}</span><div>消息 {{ row.message_id }} · {{ time(row.created_at) }}</div></template></el-table-column>
+            <el-table-column label="消息" min-width="240"><template #default="{ row }"><span class="ad-text">{{ row.message.text || row.message.caption }}</span><div>{{ row.message._profile_event ? '入群资料检查' : `消息 ${row.message_id}` }} · {{ time(row.created_at) }}</div></template></el-table-column>
+            <el-table-column label="当时的用户简介" min-width="240"><template #default="{ row }"><span class="ad-text">{{ row.message._sender_profile?.status === 'available' ? row.message._sender_profile.bio : row.message._sender_profile?.status === 'empty' ? 'Telegram未返回简介内容' : '未能读取简介' }}</span><div v-if="row.message._sender_profile?.checked_at">{{ time(row.message._sender_profile.checked_at) }}</div><details v-if="row.message._ad_context?.length"><summary>该账号近期发言</summary><p v-for="item in row.message._ad_context" :key="item.id" class="ad-text">{{ item.text }}</p></details></template></el-table-column>
             <el-table-column label="判定" min-width="230"><template #default="{ row }">{{ stateLabels[row.state] || row.state }}<div>{{ row.result.reason || row.error }}</div><div v-if="row.result.sample_id">样本 {{ row.result.sample_id }} · {{ row.result.score }}</div></template></el-table-column>
             <el-table-column label="操作" width="80"><template #default="{ row }"><el-button v-if="['failed', 'pending'].includes(row.state)" text @click="retry(row)">重试</el-button></template></el-table-column>
           </el-table>
@@ -108,6 +110,8 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
             <el-form-item label="至少保留原样本的比例"><el-input-number v-model="data.settings.minimum_sample_coverage" :min="0.4" :max="1" :step="0.05" :precision="2"/></el-form-item>
             <el-form-item label="样本命中处置"><el-select v-model="data.settings.sample_action"><el-option label="删除消息" value="delete"/><el-option label="删除并永久禁言" value="permanent_mute"/></el-select></el-form-item>
             <el-form-item label="每次最多审核消息数"><el-input-number v-model="data.settings.batch_size" :min="1" :max="24"/></el-form-item>
+            <el-form-item label="同一账号参考发言数"><el-input-number v-model="data.settings.context_messages" :min="0" :max="10" aria-label="同一账号参考发言数"/></el-form-item>
+            <el-form-item label="参考发言时间范围（秒）"><el-input-number v-model="data.settings.context_window_seconds" :min="30" :max="3600" aria-label="参考发言时间范围（秒）"/></el-form-item>
             <p>有消息立即审核；仅在模型忙时合并积压消息。聊天间隔不限制审核，共用现有 AI 总额度。</p>
             <el-button type="primary" @click="saveSettings">保存审核设置</el-button>
           </el-form>
@@ -118,9 +122,9 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
   <el-dialog v-model="editor" :title="editing ? '编辑广告样本' : '添加已确认广告'" width="min(650px, 95vw)">
     <el-alert v-if="error" :title="error" type="error" :closable="false"/>
     <el-form label-position="top">
-      <el-form-item label="广告正文"><el-input v-model="form.text" type="textarea" :rows="5" :maxlength="4096" aria-label="广告正文"/></el-form-item>
+      <el-form-item label="广告内容"><el-input v-model="form.text" type="textarea" :rows="5" :maxlength="4096" aria-label="广告内容"/></el-form-item>
       <el-form-item label="发送者昵称（可选）"><el-input v-model="form.sender_name" :maxlength="500"/></el-form-item>
-      <el-form-item label="判定依据"><el-select v-model="form.scope"><el-option label="正文自身就是广告，可用于跨账号匹配" value="text"/><el-option label="依赖昵称或上下文，仅保留判定" value="context"/></el-select></el-form-item>
+      <el-form-item label="判定依据"><el-select v-model="form.scope" aria-label="样本判定依据"><el-option label="正文自身就是广告，可用于正文匹配" value="text"/><el-option label="简介自身就是广告，可用于简介匹配" value="bio"/><el-option label="依赖资料或上下文，仅保留判定" value="context"/></el-select></el-form-item>
       <el-form-item label="确认或修改原因"><el-input v-model="form.reason" :maxlength="500" aria-label="确认或修改原因"/></el-form-item>
       <el-form-item label="启用"><el-switch v-model="form.enabled" aria-label="启用广告样本"/></el-form-item>
     </el-form>

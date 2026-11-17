@@ -131,7 +131,7 @@ class RecordPanels:
             actions = row["actions"]
             permanent_ban = row["permanent_ban"]
             scope = "踢出并禁止重新加入 " if permanent_ban else (
-                ("昵称或状态表情禁言 " if row['profile_violation'] else "")
+                ("昵称、简介或状态表情禁言 " if row['profile_violation'] else "")
                 + ("正文广告永久禁言 " if row['rule_mute'] else "")
             )
             text = f"用户 {row['user_id']} · {clock(row['created_at'])}\n昵称：{row['sender_name']}\n{row['excerpt'][:600]}\n原因：{'；'.join(row['reasons'])}\n处置范围：{scope}{'删除消息' if row['message_violation'] else ''}\n已删除的 Telegram 消息无法原地恢复。"

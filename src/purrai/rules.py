@@ -43,6 +43,7 @@ def assess(
     source_titles: list[str] | None = None,
     inline_buttons: bool = False,
     message_emoji_packs: list[str] | tuple = (),
+    sender_bio: str = "",
 ) -> dict:
     reasons, names, mute_reasons, hit_ids = [], [], [], []
     engine = BusinessEngine(rules)
@@ -184,28 +185,37 @@ def assess(
     ):
         reasons.append("发送加密货币或代币合约地址")
     reasons.extend(activity_reasons(settings, repeats, similar, burst))
-    return {"reasons": unique_reasons(reasons), "name_reasons": unique_reasons(names),
+    bio_reasons = []
+    if sender_bio and settings.get("bio_advertising_enabled", True):
+        from purrai.bio_rules import assess_biography
+        bio_reasons, bio_ids = assess_biography(sender_bio, rules, settings)
+        hit_ids.extend(bio_ids)
+        names.extend(reason for reason in bio_reasons if reason.action == "mute")
+        reasons.extend(reason for reason in bio_reasons if reason.action != "mute")
+        ban_reasons.extend(reason for reason in bio_reasons if reason.action == "ban")
+    return {"reasons": unique_reasons(reasons), "name_reasons": unique_reasons(names), "bio_reasons": bio_reasons,
             "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
             "rule_ids": list(dict.fromkeys(hit_ids)), "message_emoji_hit": emoji_hit}
 
 
-def ai_keyword_rules(text, rules, sender_name=""):
+def ai_keyword_rules(text, rules, sender_name="", sender_bio=""):
     """Candidates only: a keyword never supplies the model's advertising verdict."""
     return [rule for rule in rules if rule.get("enabled", True) and rule["kind"] == "keyword"
             and rule.get("penalty") == "ai_confirmed_mute"
             and ((rule.get("scope", "message") in ("message", "either")
                   and matches(text, rule["value"], rule.get("mode", "contains")))
                  or (rule.get("scope") in ("name", "either")
-                     and matches(sender_name, rule["value"], rule.get("mode", "contains"))))]
+                     and matches(sender_name, rule["value"], rule.get("mode", "contains")))
+                 or (rule.get("scope") == "bio" and matches(sender_bio, rule["value"], rule.get("mode", "contains"))))]
 
 
-def ai_keyword_hints(text, rules, sender_name=""):
+def ai_keyword_hints(text, rules, sender_name="", sender_bio=""):
     """Explain only matches belonging to the target sender, using editable data."""
     hints = []
-    for rule in ai_keyword_rules(text, rules, sender_name):
+    for rule in ai_keyword_rules(text, rules, sender_name, sender_bio):
         fields = []
-        for field, value in (("name", sender_name), ("message", text)):
-            if rule.get("scope", "message") in (field, "either") and matches(
+        for field, value in (("name", sender_name), ("message", text), ("bio", sender_bio)):
+            if (rule.get("scope", "message") == field or field != "bio" and rule.get("scope") == "either") and matches(
                 value, rule["value"], rule.get("mode", "contains")
             ):
                 fields.append(field)

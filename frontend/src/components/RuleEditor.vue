@@ -34,7 +34,7 @@ watch(() => props.open, async open => {
   samplesOpen.value = false
   Object.assign(form, { id: undefined, version: undefined, kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', meaning: '', penalty: 'delete', name_penalty: 'permanent_mute', enabled: true }, props.rule || {})
   original.value = JSON.stringify(form)
-  invalidate(); previewInput.text = ''; previewInput.sender_name = ''; previewPack.value = ''; error.value = ''
+  invalidate(); previewInput.text = ''; previewInput.sender_name = ''; previewInput.sender_bio = ''; previewPack.value = ''; error.value = ''
   if (me.value?.root) {
     try {
       const baseline = await api<SharedPolicy>('/api/settings/defaults')
@@ -106,11 +106,12 @@ async function inheritRule() {
 <el-select v-model="form.scope">
 <el-option value="message" label="正文（按所选处置处理）"/>
 <el-option value="name" label="昵称及用户名"/>
+<el-option value="bio" label="用户简介"/>
 <el-option value="either" :label="form.penalty === 'ai_confirmed_mute' ? '昵称或正文，任一处命中' : '昵称或正文，各自处置'"/>
 <el-option value="name_and_message" label="昵称＋正文必须同时命中"/>
 </el-select>
 </el-form-item>
-<el-form-item v-if="['keyword', 'block_emoji_pack', 'block_target'].includes(form.kind)" :label="form.penalty === 'ai_confirmed_mute' ? '关键词命中处理' : '正文命中处理'">
+<el-form-item v-if="['keyword', 'block_emoji_pack', 'block_target'].includes(form.kind)" :label="form.penalty === 'ai_confirmed_mute' ? '关键词命中处理' : form.scope === 'bio' ? '简介命中处理' : '正文命中处理'">
 <el-select v-model="form.penalty" aria-label="关键词命中处理">
 <el-option value="delete" label="只删消息"/>
 <el-option value="permanent_mute" label="删消息并永久禁言"/>
@@ -118,7 +119,7 @@ async function inheritRule() {
 <el-option v-if="form.kind === 'keyword'" value="ai_confirmed_mute" label="AI确认广告后删消息并永久禁言" :disabled="form.scope === 'name_and_message'"/>
 </el-select>
 </el-form-item>
-<el-form-item v-if="form.penalty !== 'ai_confirmed_mute' && (form.kind === 'block_mention' || form.kind === 'keyword' && form.scope !== 'message')" label="昵称命中处理">
+<el-form-item v-if="form.penalty !== 'ai_confirmed_mute' && (form.kind === 'block_mention' || form.kind === 'keyword' && ['name', 'either', 'name_and_message'].includes(form.scope))" label="昵称命中处理">
 <el-select v-model="form.name_penalty" aria-label="昵称命中处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并永久封禁"/></el-select>
 </el-form-item>
 <el-form-item v-if="form.kind === 'keyword' && form.scope === 'name_and_message'" label="正文还需同时命中的关键词">
@@ -143,6 +144,7 @@ async function inheritRule() {
 <el-form-item label="保存前测试">
 <el-input v-model="previewInput.text" type="textarea" :rows="2" placeholder="输入消息，测试这次修改后的规则"/>
 </el-form-item>
+<el-form-item label="测试用户简介"><el-input v-model="previewInput.sender_bio" type="textarea" :rows="2" :maxlength="4096" aria-label="测试用户简介"/></el-form-item>
 <el-button :loading="busy" @click="previewDraft">预览当前草稿</el-button>
 <el-button @click="samplesOpen = true">用归档样本比较草稿</el-button>
 <el-alert v-if="previewReasons !== null" :type="previewReasons.length ? 'warning' : 'success'" :title="previewReasons.length ? previewReasons.join('；') : '未命中规则'" :closable="false" style="margin-top:12px"/>

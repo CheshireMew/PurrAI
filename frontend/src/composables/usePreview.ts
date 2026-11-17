@@ -8,7 +8,7 @@ export function previewMessages(result: PreviewResult) {
     ...(result.mute_member ? ['将禁言成员'] : []), ...(result.delete_message ? ['将删除消息'] : []), ...(result.notes || [])]
 }
 export function usePreview(groupId: () => number, context: () => unknown = () => null) {
-  const input = reactive<PreviewInput>({ text: '', sender_name: '', newcomer: false, contact: false, forwarded: false, repeats: 0, similar: 0, burst: 0 })
+  const input = reactive<PreviewInput>({ text: '', sender_name: '', sender_bio: '', newcomer: false, contact: false, forwarded: false, repeats: 0, similar: 0, burst: 0 })
   const { result, run, invalidate } = usePreviewResult<PreviewResult>(() => [groupId(), input, context()])
   const reasons = computed(() => result.value === null ? null : previewMessages(result.value))
   async function preview(rules?: Rule[], draft?: Rule) {

@@ -194,10 +194,13 @@ async def remember_targets(session, group, violation, evidence):
     from purrai.shared_policy import effective_rules, policy
 
     message = (evidence or {}).get("message")
+    if message and (evidence or {}).get("bio_dependent"):
+        from purrai.sender_profile import biography
+        message = {"text": biography(message), "from": message.get("from", {}), "chat": message.get("chat", {})}
     rules = await effective_rules(session, group.id)
     if not message or discussion(message.get("text") or message.get("caption") or "", rules):
         return []
-    independent_ad = violation.rule_mute or any(
+    independent_ad = (evidence or {}).get("confirmed_advertisement", False) or violation.rule_mute or any(
         matches(reason, "target_learning", rules)
         for reason in violation.reasons
     )
@@ -209,7 +212,8 @@ async def remember_targets(session, group, violation, evidence):
         session.add(current)
     existing = {normalize_target(rule["value"]): rule for rule in current.rules if rule["kind"] == "block_target"}
     observed = advertised_targets(message, rules,
-               settings=group.settings, evidence=evidence.get("links", []), exclude_sender=True)
+               settings=group.settings, evidence=() if evidence.get("bio_dependent") else evidence.get("links", []),
+               exclude_sender=True)
     # A local target's chosen disposition must not be replaced by a stronger
     # automatically learned global copy of that same target.
     local_targets = {normalize_target(rule["value"]) for rule in rules

@@ -169,6 +169,11 @@ class MemberRestrictions:
         active = await active_verifications(session, member)
         chat = await self.action_call(session, action, "get_chat", chat_id=group.id)
         recovered = already_muted and owned.get("source_action") == action.id
+        if not recovered and "advertisement_evidence" in action.payload and "ai_keyword_evidence" not in action.payload:
+            from purrai.advertisement_store import evidence_applies
+            if not await evidence_applies(session, action, group):
+                action.state, action.error = "cancelled", "广告证据或用户资料已变化，取消旧处罚"
+                return
         if kind == "ai_ad" and "ai_keyword_evidence" in action.payload and not recovered:
             from purrai.ai_advertising import keyword_penalty_applies
             if not await keyword_penalty_applies(session, action, group):
@@ -200,7 +205,7 @@ class MemberRestrictions:
         await schedule_moderation_expiry(session, group, member)
         ai_label = "AI确认广告且命中关键词" if "ai_keyword_evidence" in action.payload else action.reason or "AI累计广告处理"
         violation_label = ("已确认广告样本匹配" if kind == "sample_ad" else ai_label if kind == "ai_ad"
-                           else "正文广告规则违规" if kind == "rule" else "昵称或状态表情违规")
+                           else "正文广告规则违规" if kind == "rule" else "昵称、简介或状态表情违规")
         begin_penalty(active, violation_label, "permanent_mute")
         if not already_muted:
             await self.action_call(

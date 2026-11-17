@@ -104,8 +104,8 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "34d00d263e769e864af5495fbca6fc88a40013ff302d2fca0afc6e207d553e1a",
-      "line": 107,
+      "digest": "a2aa390791c112d85dd251d3456abf5191a89a42add70e3d3895dc39ea23a7c6",
+      "line": 118,
       "examples": [
         "临时应急保护持续时间（秒）",
         "前几条消息继续观察（0 关闭）",
@@ -145,13 +145,14 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "74b4a33fc2aec73a7513aa8c137d3d0298c0a7be61b612530bfca48b1a971f4e",
-      "line": 145,
+      "digest": "bd6fc9eb9f7a13d0a897d1207c415103e3ff818face964783fecd0e2a369a960",
+      "line": 158,
       "examples": [
         "昵称及用户名",
         "昵称或正文",
         "昵称＋正文组合",
-        "正文"
+        "正文",
+        "用户简介"
       ]
     },
     {
@@ -1027,16 +1028,15 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "f8a244beb390a3ec238090f7a14a90e077b1d90b6cab357a03bdf742f492b165",
-      "line": 92,
+      "digest": "89117acbb703bc05fc7ac92bb6c3cbb7cf06d03db621a46e4455b91021541c04",
+      "line": 95,
       "examples": [
         "入群验证",
         "全员拦截钱包及代币合约地址",
         "只拦截广告联系人名片",
         "外群链接、外部频道引用及转发永久封禁",
         "外部私密邀请统一封禁"
-      ],
-      "review": "2026-11-14: Explicitly requested verification methods. admin_labels.BOOLEANS: rename image verification switch to entry verification to cover three requested methods."
+      ]
     },
     {
       "path": "src/purrai/chat_input.py",
@@ -1139,7 +1139,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "cbb629e1be5823b537b029401f79e6438df77edade1969be4f61830d4f098977",
+      "digest": "4ff523aab03d4827c13cf02545781c9703d851b3385ec43f2980083be6427bff",
       "line": 25,
       "examples": [
         "AI广告永久禁言",
@@ -1147,8 +1147,7 @@
         "临时应急保护",
         "临时禁言",
         "人工核实发送结果"
-      ],
-      "review": "2026-11-17: Authorized configurable-policy fix. OPERATIONS and CHAT_FIELDS are display-only labels; removed fixed duration/user-count wording so the UI does not contradict saved settings. No matching vocabulary added."
+      ]
     },
     {
       "path": "src/purrai/points_bot.py",
@@ -1407,6 +1406,36 @@
       "line": 201,
       "examples": [
         "target_learning"
+      ]
+    },
+    {
+      "path": "src/purrai/advertisement_review.py",
+      "scope": "AdvertisementReviewer.local",
+      "kind": "comparison",
+      "digest": "05e27c00e388265d7fe8c7e307b5bfabe4bc74d1b51adeb0cda72458ac7b5442",
+      "line": 159,
+      "examples": [
+        "unavailable"
+      ]
+    },
+    {
+      "path": "src/purrai/sender_profile.py",
+      "scope": "biography",
+      "kind": "comparison",
+      "digest": "20fe5cee3a59d979feeca37c8c867f7b5db2f96dc7124b302abf5ed07dce4393",
+      "line": 19,
+      "examples": [
+        "available"
+      ]
+    },
+    {
+      "path": "src/purrai/sender_profile.py",
+      "scope": "SenderProfiles.fetch",
+      "kind": "comparison",
+      "digest": "866ea4695965e965bd96e80da32ae26483cdfe792e414998f3def935e69bcf1d",
+      "line": 57,
+      "examples": [
+        "private"
       ]
     }
   ],

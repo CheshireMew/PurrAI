@@ -160,6 +160,7 @@ class ActionRunner:
         from time import perf_counter
         started = perf_counter()
         async with ActionExecution(self.db) as session:
+            session.info["telegram"] = self.tg
             action = await session.get(Action, identifier)
             if not action or action.state != "pending" or action.available_at > now():
                 return False

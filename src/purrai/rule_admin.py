@@ -136,8 +136,9 @@ class RuleAdministration:
             forwarded=body.forwarded,
             inline_buttons=body.inline_buttons,
             message_emoji_packs=body.message_emoji_packs,
+            sender_bio=body.sender_bio,
         )
-        conditional = ai_keyword_rules(text, rules, body.sender_name)
+        conditional = ai_keyword_rules(text, rules, body.sender_name, body.sender_bio)
         return {
             "reasons": list(dict.fromkeys(result["reasons"] + result["name_reasons"])),
             "name_reasons": result["name_reasons"],

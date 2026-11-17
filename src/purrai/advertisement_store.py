@@ -6,6 +6,7 @@ from sqlalchemy import exists, select
 
 from purrai.advertisement_schemas import AdvertisementSettings
 from purrai.models import AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Meta, now
+from purrai.sender_profile import biography
 
 
 def criteria_version(rules):
@@ -54,7 +55,7 @@ async def remember(session, review, *, scope, reason, violation_id=""):
         return existing
     from purrai.message_identity import profile_name
     message = review.message
-    row = AdvertisementSample(group_id=review.group_id, text=message.get("text") or message.get("caption") or "",
+    row = AdvertisementSample(group_id=review.group_id, text=biography(message) if scope == "bio" else message.get("text") or message.get("caption") or "",
         sender_name=profile_name(message.get("from") or {}), scope=scope, source="model", source_key=key,
         message_id=review.message_id, violation_id=violation_id, reason=reason)
     session.add(row)
@@ -63,6 +64,10 @@ async def remember(session, review, *, scope, reason, violation_id=""):
 
 
 async def current(session, review):
+    if review.message.get("_profile_event"):
+        from purrai.models import Member
+        member = await session.get(Member, (review.group_id, review.user_id))
+        return bool(member and member.present and member.generation == review.message["_profile_event"])
     if review.message_id <= 0:
         return False  # Group upgrades retain old messages under negative historical IDs.
     later = await session.scalar(select(AdvertisementReview.id).where(
@@ -86,6 +91,14 @@ async def current(session, review):
 
 async def evidence_applies(session, action, group):
     evidence = action.payload.get("advertisement_evidence") or {}
+    if not group or not group.approved or not group.enabled:
+        return False
+    if evidence.get("bio_digest"):
+        from purrai.sender_profile import evidence_current
+        if not await evidence_current(session, action, group, evidence["bio_digest"]):
+            return False
+    # The network recheck releases the writer; read all policy and review state
+    # afterwards so a configuration edit during that request takes effect.
     review = await session.get(AdvertisementReview, evidence.get("review_id", ""), populate_existing=True)
     if not group or not group.approved or not group.enabled or not review or review.state not in ("advertisement", "matched"):
         return False
@@ -98,9 +111,13 @@ async def evidence_applies(session, action, group):
             return False
     if await session.get(Meta, "violation-correction:" + action.payload.get("violation_id", "")):
         return False
+    for item in evidence.get("context", []):
+        previous = await session.get(AdvertisementReview, item["id"], populate_existing=True)
+        if not previous or previous.revision != item["revision"] or not await current(session, previous):
+            return False
     if review.state == "matched":
         sample = await session.get(AdvertisementSample, evidence.get("sample_id", ""), populate_existing=True)
-        if (not cfg.similarity_enabled or not sample or not sample.enabled or sample.scope != "text"
+        if (not cfg.similarity_enabled or not sample or not sample.enabled or sample.scope != evidence.get("sample_scope", "text")
                 or sample.version != evidence.get("sample_version")
                 or await session.get(Meta, "violation-correction:" + sample.violation_id)):
             return False

@@ -45,6 +45,11 @@ async def keyword_penalty_applies(session, action, group):
     independent = "advertisement_evidence" in action.payload
     if not group or not group.enabled or not independent and not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown:
         return False
+    if independent:
+        from purrai.advertisement_store import evidence_applies
+        if not await evidence_applies(session, action, group):
+            return False
+    # A biography recheck may release the writer. Read rules and counts afterwards.
     identifier, text = evidence.get("message_id"), evidence.get("text", "")
     verdicts = await session.get(Meta, f"ai_advertising:{group.id}:{action.user_id}")
     if not verdicts or not any(item["id"] == identifier and item["excerpt"] == text[:600]
@@ -54,12 +59,9 @@ async def keyword_penalty_applies(session, action, group):
     sender_name = evidence.get("sender_name", "")
     if not any(rule.get("id") in evidence.get("rule_ids", [])
                and ("rule_versions" not in evidence or evidence["rule_versions"].get(rule["id"]) == rule.get("version"))
-               for rule in ai_keyword_rules(text, rules, sender_name)):
+               for rule in ai_keyword_rules(text, rules, sender_name, evidence.get("bio", ""))):
         return False
-    if independent:
-        from purrai.advertisement_store import evidence_applies
-        return await evidence_applies(session, action, group)
-    return await unchanged_message(session, action, evidence)
+    return independent or await unchanged_message(session, action, evidence)
 
 
 async def deletion_applies(session, action, group):
@@ -94,7 +96,7 @@ async def unchanged_message(session, action, evidence):
     return recorded
 
 
-async def record_ai_advertisement(session, group, user_id, message_id, text, user_name, *, protected_ids=(), independent_evidence=None, criteria=None):
+async def record_ai_advertisement(session, group, user_id, message_id, text, user_name, *, protected_ids=(), independent_evidence=None, criteria=None, sender_bio="", profile_event=False):
     if (type(user_id) is not int or user_id <= 0 or user_id in protected_ids or not group.enabled
             or not independent_evidence and not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown):
         return
@@ -115,7 +117,7 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         row.value = json.dumps(data, ensure_ascii=False)
     else:
         session.add(Meta(key=key, value=json.dumps(data, ensure_ascii=False)))
-    matched = ai_keyword_rules(text, await effective_rules(session, group.id), user_name)
+    matched = ai_keyword_rules(text, await effective_rules(session, group.id), user_name, sender_bio)
     mute = bool(matched or cfg.ai_ad_penalty == "permanent_mute" and len(data["messages"]) >= cfg.ai_ad_limit)
     member = await session.get(Member, (group.id, user_id))
     if member is None:
@@ -123,15 +125,16 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         session.add(member)
         await session.flush()
     reasons = ([f"AI确认广告且命中关键词：{rule['value']}" for rule in matched]
-               if matched else [f"AI确认广告：最近{cfg.ai_ad_window_hours}小时累计{cfg.ai_ad_limit}次，永久禁言"] if mute else ["AI确认广告，删除消息"])
+               if matched else [f"AI确认广告：最近{cfg.ai_ad_window_hours}小时累计{cfg.ai_ad_limit}次，永久禁言"] if mute else ["AI确认广告，" + ("已记录简介判定" if profile_event else "删除消息")])
     violation, changed = await record_violation(session, group_id=group.id, user_id=user_id,
         message_id=message_id, reasons=reasons,
-        excerpt=text, sender_name=user_name, rule_mute=mute, message_violation=True)
+        excerpt=sender_bio if profile_event else text, sender_name=user_name, rule_mute=mute, message_violation=not profile_event)
     if not changed and not independent_evidence:
         return
     evidence = {}
     if matched:
         evidence = {"ai_keyword_evidence": {"message_id": message_id, "text": text, "sender_name": user_name,
+                                           "bio": sender_bio,
                                            "rule_ids": [rule["id"] for rule in matched],
                                            "rule_versions": {rule["id"]: rule.get("version") for rule in matched}}}
         await record_rule_hits(session, group.id, message_id, evidence["ai_keyword_evidence"]["rule_ids"])
@@ -144,9 +147,10 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
     if independent_evidence:
         delete_evidence = {"advertisement_evidence": independent_evidence}
         evidence.update(delete_evidence)
-    await enqueue(session, "delete", f"ai-ad-delete:{group.id}:{message_id}{suffix}", group.id, user_id,
-        {"message_id": message_id, "violation_id": violation.id, "generation": member.generation, **delete_evidence},
-        priority=0, reason="AI确认广告，删除消息")
+    if not profile_event:
+        await enqueue(session, "delete", f"ai-ad-delete:{group.id}:{message_id}{suffix}", group.id, user_id,
+            {"message_id": message_id, "violation_id": violation.id, "generation": member.generation, **delete_evidence},
+            priority=0, reason="AI确认广告，删除消息")
     if not mute:
         return
     await enqueue(session, "ai_ad_mute", f"ai-ad-mute:{group.id}:{user_id}:{member.generation}:{message_id}{suffix}",

@@ -1,5 +1,7 @@
 # 关键词和规则的修改边界
 
+2026-11-18 按用户“把用户的简介也纳入到我们整个防广告体系里面”的要求补充简介信息源。逐项核准七处扫描误报：`admin_labels.OPERATIONS`、`BOOLEANS`、`NUMBERS`、`SCOPES` 四项仅增加简介检查、刷新间隔、匹配范围和处罚显示名称；`sender_profile.biography` 的 `available`、`SenderProfiles.fetch` 的 `private`、`AdvertisementReviewer.local` 的 `unavailable` 三项分别核对内部资料可用状态、Telegram 私聊对象类型和读取失败状态，不匹配简介中的文字。仅调整这七项及基线摘要，未刷新其他记录或改变检查算法、三个适配入口与安装种子。具体简介关键词仍由 Rule 管理，通用广告条件仍读取 SharedPolicy；截图文字仅作为测试和只读诊断数据。
+
 2026-11-15 按用户要求补足运行日志和故障监控，逐项核准 `telegram_health.METHOD_LABELS` 的一条字典记录。它只把 Telegram API 方法名显示为“发送文字消息”“查询成员身份和权限”等操作名称，不读取或匹配群消息、用户资料或广告关键词，不改变业务判定和处罚。仅增加这一项界面文字记录并同步基线摘要，扫描算法、其他冻结记录、适配入口和安装种子均未调整。
 
 2026-11-15 按用户要求把运行通知说清楚，逐项核准 `runtime_alerts.operation_summary` 的一条字典记录：把 `challenge`、`release`、`verify_mute` 三个操作类型显示为“发送入群验证码”“解除验证禁言”“入群验证前限制发言”。字典只读取 `Action.kind`，不读取或匹配群消息、昵称、关键词，不改变广告判定或处罚。仅增加这一项界面文字检查记录并更新对应基线摘要，未刷新其他记录，未修改扫描算法、三个适配入口或安装种子。

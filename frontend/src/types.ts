@@ -13,7 +13,7 @@ export interface Budget { group_calls: number; group_call_limit: number; group_t
 export interface WorkerStatus { name: string; state: string; error: string; restarts: number }
 export interface StickerStatus { ready: number; total: number; emoji_count: number; unavailable: string[]; error: string }
 export interface ChatStatus { configured: boolean; model: string; pending: number; error: string; budget?: Budget; stickers?: StickerStatus; commands?: { enabled: boolean; threshold: number; minimum_users: number; window_days: number; items: { text: string; count: number; users: number; ignored: boolean }[] } }
-export interface TelegramProblem { method: string; label: string; seconds: number; consecutive_failures: number; last_failure: number }
+export interface TelegramProblem { method: string; label: string; seconds: number; consecutive_failures: number; last_failure: number; purpose?: string }
 export interface SystemStatus { connected: boolean; bot_configured: boolean; login_configured: boolean; pending_actions: number; last_poll: number; last_backup: string | null; last_error: string; archive_status: string; failed_actions: Operation[]; failed_events: {id: number; error: string}[]; chat_budget?: Budget; poll_stalled?: boolean; telegram_health?: { degraded: boolean; problems: TelegramProblem[]; warnings?: TelegramProblem[] }; source_checks?: { delayed: number; next_retry_at: number } }
 export interface Page<T> { items: T[]; total: number; page: number; size: number }
 export interface ArchiveRecording { state: string; reason: string }
@@ -31,7 +31,7 @@ export interface ArchivedDetail extends ArchivedMessage {
     payload: Record<string, unknown> & { text?: string; caption?: string } }[]
 }
 export interface ArchivePage extends Page<ArchivedMessage> { recording: ArchiveRecording }
-export interface PreviewInput { text: string; sender_name: string; newcomer: boolean; contact: boolean; forwarded: boolean; repeats: number; similar: number; burst: number; message_emoji_packs?: string[] }
+export interface PreviewInput { text: string; sender_name: string; sender_bio?: string; newcomer: boolean; contact: boolean; forwarded: boolean; repeats: number; similar: number; burst: number; message_emoji_packs?: string[] }
 export interface PreviewResult { reasons: string[]; notes?: string[]; kick_member?: boolean; ban_member?: boolean; mute_member?: boolean; delete_message?: boolean }
 export interface FieldSchema { minimum?: number; maximum?: number; minLength?: number; maxLength?: number; type: string }
 export interface AdminCatalog { settings: {defaults: GroupSettings; fields: Record<keyof GroupSettings, FieldSchema>; numbers: Record<string, string>; booleans: Record<string, string>; labels?: Record<string, string>}; states: Record<string, string>; operations: Record<string, string>; failure_actions: Record<string, string>; active_verifications: string[]; rules?: {kinds: Record<string, string>; modes: Record<string, string>; scopes: Record<string, string>} }
