@@ -113,6 +113,8 @@ def create_app(settings: Settings | None = None, db=None, telegram=None, start_r
                 "login_configured": settings.login_ready,
                 "telegram_connected": gateway.connected,
                 "telegram_degraded": telegram_degraded,
+                "source_checks": transport["source_checks"],
+                "auxiliary_warning": bool(transport["source_checks"]["delayed"] or transport["telegram_health"].get("warnings")),
             },
             status_code=200 if operational else 503,
         )

@@ -32,6 +32,7 @@ class Runtime:
 
     async def restore_health(self):
         import json
+        await self.chat.source_checks.restore()
         health = getattr(self.tg, "health", None)
         if health:
             async with self.db.sessions() as session:
@@ -78,6 +79,7 @@ class Runtime:
     def status(self):
         health = getattr(self.tg, "health", None)
         return {**self.workers.status(self.receiver.last_error), "poll_error": self.receiver.last_error,
+                "source_checks": self.chat.source_checks.status(),
                 "telegram_health": health.status() if health else {"degraded": False, "problems": [], "methods": []},
                 "poll_stalled": now() - (self.receiver.last_poll or self.started_at) > 90}
 

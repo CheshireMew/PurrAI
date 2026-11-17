@@ -14,7 +14,7 @@ from purrai.runtime_notice_delivery import reconcile_notices
 logger = logging.getLogger(__name__)
 
 
-async def update_episode(session, key, message, owners, *, recovery="", heading="需要处理", details=None, notify_after=0):
+async def update_episode(session, key, message, owners, *, recovery="", heading="需要处理", details=None, notify_after=0, severity="error"):
     marker = await session.get(Meta, "runtime-alert:" + key)
     state = json.loads(marker.value) if marker else {"episode": 0, "active": False}
     changed = bool(message) != state["active"]
@@ -28,7 +28,7 @@ async def update_episode(session, key, message, owners, *, recovery="", heading=
         log = logger.warning if message else logger.info
         log("运行状态变化 name=%s episode=%s active=%s detail=%s", key, state["episode"], bool(message),
             (message or recovery or "提醒已解除").replace("\n", "；"))
-    state.update(message=message, details=details or {})
+    state.update(message=message, details=details or {}, severity=severity)
     if not message and changed:
         state["resolution"] = recovery
     elif message and owners and not state.get("notified") and now() - state.get("changed_at", now()) >= notify_after:
@@ -152,6 +152,14 @@ class RuntimeAlerts:
                         for item in other[:8]) + "\n请在管理网页的系统状态查看具体失败原因。" if other else "", owners if persistent and not error else [],
                     recovery="此前异常的 Telegram 操作已收到正常响应。",
                     details={"methods": [item["method"] for item in other]})
+                source = status.get("source_checks", {})
+                delayed = source.get("delayed", 0)
+                await update_episode(session, "原消息核对",
+                    f"有 {delayed} 条原消息尚未完成核对，正在逐条退避重试；原消息被删除后，机器人跟随撤回回复可能延迟。"
+                    if delayed else "", owners if source.get("repeated") and not error else [],
+                    heading="原消息核对持续延迟", severity="warning", details=source,
+                    notify_after=self.settings.alert_backlog_seconds,
+                    recovery="此前延迟的原消息核对已完成，或相关记录已不再需要核对。")
                 faults = [item["name"] for item in status.get("workers", []) if item["state"] not in ("running", "stopped")]
                 await update_episode(session, "后台任务", "机器人部分功能持续无法运行，请查看管理网页的系统状态。受影响功能：" + "、".join(faults) if faults else "", owners,
                     notify_after=self.settings.alert_backlog_seconds)

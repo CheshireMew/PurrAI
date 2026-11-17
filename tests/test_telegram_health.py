@@ -15,7 +15,7 @@ from purrai.app import create_app
 from purrai.models import Action, Meta, now
 from purrai.runtime import Runtime
 from purrai.telegram import TelegramGateway
-from purrai.telegram_health import TelegramHealth, TracedSession, request_identity, request_trace
+from purrai.telegram_health import TelegramHealth, TracedSession, request_identity, request_trace, request_purpose
 
 
 async def test_real_http_trace_reports_response_wait_without_leaking_request(caplog):
@@ -156,6 +156,92 @@ async def test_readiness_and_system_show_partial_telegram_failure(env):
         assert (await client.get("/health/live")).status_code == 200
         tg.health.record("send_photo", "ok", 0.3, {"phase": "decode"}, 30)
         assert (await client.get("/health/ready")).status_code == 200
+
+
+async def test_auxiliary_fault_warns_without_hiding_core_or_authentication_failures(env):
+    settings, db, tg, _ = env
+    settings.bot_token = "999:TEST_TOKEN_FOR_OFFLINE_TESTS_ONLY"
+    tg.health = TelegramHealth()
+    app = create_app(settings, db, tg, start_runtime=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        token = request_purpose.set("source_check")
+        try:
+            tg.health.record("get_chat_member", "network_error", 10, {"phase": "response_headers"}, 10)
+        finally:
+            request_purpose.reset(token)
+        response = await client.get("/health/ready")
+        assert response.status_code == 200 and response.json()["auxiliary_warning"]
+        tg.health.record("get_chat_member", "network_error", 10, {"phase": "response_headers"}, 10)
+        token = request_purpose.set("source_check")
+        try:
+            tg.health.record("get_chat_member", "ok", 0.1, {"phase": "decode"}, 10)
+        finally:
+            request_purpose.reset(token)
+        assert (await client.get("/health/ready")).status_code == 503
+        assert tg.health.status()["problems"][0]["purpose"] == "operations"
+        tg.health.record("get_chat_member", "ok", 0.1, {"phase": "decode"}, 10)
+        token = request_purpose.set("source_check")
+        try:
+            tg.health.record("get_chat_member", "unauthorized", 0.1, {"phase": "decode"}, 10)
+            saved = tg.health.status()
+            tg.health = TelegramHealth()
+            tg.health.restore(saved)
+            tg.health.record("get_chat_member", "network_error", 10, {"phase": "response_headers"}, 10)
+        finally:
+            request_purpose.reset(token)
+        assert (await client.get("/health/ready")).status_code == 503
+
+
+def test_restored_legacy_source_fault_keeps_evidence_at_warning_level():
+    health = TelegramHealth()
+    health.record("edit_message_reply_markup", "network_error", 3, {"phase": "response_headers"}, 3)
+    saved = health.status()
+    for row in saved["methods"]:
+        row.pop("purpose")
+    health = TelegramHealth()
+    health.restore(saved)
+    assert not health.status()["degraded"]
+    assert health.status()["warnings"][0]["failures"] == 1
+    token = request_purpose.set("source_check")
+    try:
+        health.record("edit_message_reply_markup", "rejected", 0.2, {"phase": "decode"}, 10)
+    finally:
+        request_purpose.reset(token)
+    assert not health.status()["warnings"]
+
+
+async def test_source_warning_persists_across_other_success_and_notifies_once_after_grace(env, monkeypatch):
+    from purrai import runtime_alerts
+    settings, db, tg, service = env
+    runtime = Runtime(db, tg, service)
+    tg.health = TelegramHealth()
+    instant = [now()]
+    monkeypatch.setattr(runtime_alerts, "now", lambda: instant[0])
+    item = {"failures": 1, "at": instant[0], "first_failure": instant[0], "next": instant[0] + 30}
+    runtime.chat.source_checks.state = {"items": {"1": item}}
+    await runtime.alerts.cycle()
+    instant[0] += settings.alert_backlog_seconds + 1
+    await runtime.alerts.cycle()  # No escalation from an old single failure.
+    async with db.sessions() as session:
+        assert not (await session.scalars(select(Action))).all()
+    item.update(failures=2, at=instant[0], next=instant[0] + 60)
+    token = request_purpose.set("source_check")
+    try:
+        tg.health.record("edit_message_reply_markup", "ok", 0.1, {"phase": "decode"}, 10)
+    finally:
+        request_purpose.reset(token)
+    await runtime.alerts.cycle()
+    await runtime.alerts.cycle()
+    async with db.sessions() as session:
+        marker = json.loads((await session.get(Meta, "runtime-alert:原消息核对")).value)
+        assert marker["active"] and marker["severity"] == "warning" and marker["episode"] == 1
+        notices = (await session.scalars(select(Action))).all()
+        assert len(notices) == 1 and notices[0].payload["alert_key"] == "原消息核对"
+    runtime.chat.source_checks.state = {"items": {}}
+    await runtime.alerts.cycle()
+    async with db.sessions() as session:
+        marker = json.loads((await session.get(Meta, "runtime-alert:原消息核对")).value)
+        assert not marker["active"] and marker["episode"] == 1
 
 
 async def test_missing_poll_progress_is_not_reported_as_recovered(env):

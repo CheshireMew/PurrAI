@@ -403,6 +403,25 @@ test('初始状态表情名单说明读取配置目录而非群名单', async ({
   await expect(dialog.getByRole('button', { name: '移除 group_only_pack', exact: true })).toBeVisible()
 })
 
+test('原消息核对延迟单独提示并保留关键接口错误', async ({ page }) => {
+  await mock(page)
+  await page.clock.install()
+  let critical = false
+  await page.route('**/api/system', route => route.fulfill({json: {
+    connected: true, failed_events: [], failed_actions: [],
+    source_checks: {delayed: 2, next_retry_at: 1794922500},
+    telegram_health: {degraded: critical, problems: critical ? [{method: 'delete_message', label: '删除消息', seconds: 10, consecutive_failures: 2, last_failure: 1794922400}] : []},
+  }}))
+  await page.goto('/#/system?group=-1001')
+  await expect(page.locator('.system-grid')).toContainText('已连接')
+  await expect(page.getByRole('alert').filter({hasText: '原消息核对延迟：2 条记录等待重试'})).toBeVisible()
+  critical = true
+  await page.clock.fastForward(6000)
+  await expect(page.locator('.system-grid')).toContainText('部分操作异常')
+  await expect(page.locator('.status-error').filter({hasText: '删除消息：连续失败 2 次'})).toBeVisible()
+  await expect(page.getByRole('alert').filter({hasText: '原消息核对延迟'})).toBeVisible()
+})
+
 test('系统重试失败的原因在自动刷新后继续显示', async ({ page }) => {
   await mock(page)
   await page.clock.install()
