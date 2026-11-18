@@ -65,8 +65,9 @@ class Service:
     async def message(self, message, edited=False, update_id=0, archived_at_receipt=False):
         result = await self.moderation.message(message, edited, update_id, archived_at_receipt)
         await self.advertisement_review.observe(message, edited, update_id)
-        if message["chat"]["type"] in ("group", "supergroup") and not message.get("sender_chat"):
-            await self.identity_protection.queue(message["chat"]["id"], message.get("from"))
+        from purrai.message_identity import message_sender, sender_chat
+        if message["chat"]["type"] in ("group", "supergroup") and not sender_chat(message):
+            await self.identity_protection.queue(message["chat"]["id"], message_sender(message))
         return result
 
     async def join_request(self, event, event_id=0):

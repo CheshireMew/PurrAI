@@ -23,6 +23,8 @@ STATE = {
 
 
 OPERATIONS = {
+    "channel_ad_ban": "封禁广告频道在本群发言",
+    "channel_unban": "解除频道发言封禁",
     "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
     "points_message": "积分互动",

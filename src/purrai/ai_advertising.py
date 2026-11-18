@@ -5,7 +5,7 @@ import json
 from sqlalchemy import select
 
 from purrai.action_queue import enqueue
-from purrai.models import ArchivedMessage, ChatMessage, Group, Member, Meta, Whitelist, now
+from purrai.models import ArchivedMessage, ChatMessage, Group, Member, Meta, Violation, Whitelist, now
 from purrai.moderation_records import record_rule_hits, record_violation
 from purrai.message_identity import profile_name
 from purrai.rules import ai_keyword_rules
@@ -102,6 +102,10 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         return
     white = await session.get(Whitelist, (group.id, user_id))
     if white and white.moderation:
+        return
+    corrected = await session.scalar(select(Violation.id).join(Meta, Meta.key == "violation-correction:" + Violation.id)
+        .where(Violation.group_id == group.id, Violation.message_id == message_id))
+    if corrected:
         return
     key = f"ai_advertising:{group.id}:{user_id}"
     cfg = GroupSettings.model_validate(group.settings)

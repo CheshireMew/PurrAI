@@ -263,12 +263,12 @@ class MemberEvents:
             return
         if not privileged and (not white or not white.moderation):
             await self.emoji_status.queue(session, group, user)
-        if not privileged and await self.moderation.profile_on_join(session, group, member, user, profile):
-            return
+        profile_flagged = not privileged and await self.moderation.profile_on_join(session, group, member, user, profile)
         exempt = bool(privileged or (white and white.verification)
                       or not (group.settings["verification_enabled"] or emergency.get("active")))
         if exempt and not inherited_mute:
-            member.passed_at = now()
+            if not profile_flagged:
+                member.passed_at = now()
             return
         verification = Verification(
             id=uid(),
@@ -303,5 +303,5 @@ class MemberEvents:
             group.id,
             user["id"],
             {"verification_id": verification.id},
-            priority=0,
+            priority=2 if profile_flagged else 0,
         )

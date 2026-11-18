@@ -173,17 +173,21 @@ class MemberAdministration:
             row = await session.get(Violation, identifier)
             if not row or row.group_id != group_id:
                 raise ManagementError(404, "违规记录不存在")
-            if body.action not in ("unmute", "unban", "revoke_warning") or row.sender_chat:
+            if body.action not in ("unmute", "unban", "revoke_warning") or row.sender_chat and body.action != "unban":
                 raise ManagementError(422, "此记录不支持该纠正操作")
+            kind = "channel_unban" if row.sender_chat else body.action
             existing = await session.scalar(
                 select(Action).where(Action.dedupe_key == f"correction:{actor}:{body.request_id}")
             )
             if existing:
-                if existing.payload.get("violation_id") != identifier or existing.kind != body.action:
+                if existing.payload.get("violation_id") != identifier or existing.kind != kind:
                     raise ManagementError(409, "请求标识已用于其他操作")
                 return row_dict(existing)
             payload = {"violation_id": row.id}
-            if body.action in ("unmute", "unban"):
+            if row.sender_chat:
+                from purrai.channel_moderation import unban_payload
+                payload = await unban_payload(session, row)
+            elif body.action in ("unmute", "unban"):
                 member = await session.get(Member, (group_id, row.user_id))
                 owned = member.owned_restriction if member else None
                 source = (
@@ -196,7 +200,7 @@ class MemberAdministration:
                 payload.update(generation=member.generation, restriction=restriction_identity(member))
             action = await enqueue(
                 session,
-                body.action,
+                kind,
                 f"correction:{actor}:{body.request_id}",
                 group_id,
                 row.user_id,

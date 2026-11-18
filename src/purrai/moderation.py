@@ -12,15 +12,13 @@ from purrai.archive import capture, mark_reasons
 from purrai.group_link_identity import own_channel_id, remember_linked_channel
 from purrai.media_gate import remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.message_activity import observe_activity
-from purrai.message_identity import message_sender
+from purrai.message_identity import message_sender, sender_chat as chat_identity
 from purrai.models import (
     Group,
     Member,
     Verification,
-    Violation,
     Whitelist,
     now,
-    uid,
 )
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_rule_hits, record_violation
@@ -86,6 +84,9 @@ class Moderation:
         sender = message_sender(message)
         if not sender or sender.get("id") == self.tg.user_id or message.get("from", {}).get("id") == self.tg.user_id:
             return
+        if chat_identity(message):
+            from purrai.channel_moderation import refresh
+            await refresh(self.db, self.tg, message)
         needs_admin_check = await self.assess_message(message, edited, update_id)
         if not needs_admin_check:
             return
@@ -118,15 +119,22 @@ class Moderation:
 
     async def moderate_message(self, session, message, edited, update_id, *, admin_checked=False, assessment):
         group_id = message["chat"]["id"]
-        sender_chat = message.get("sender_chat")
+        sender_chat = chat_identity(message)
         sender = message_sender(message)
         group = await session.get(Group, group_id)
         if not group or not group.approved or not group.enabled:
             return
-        if sender_chat and (sender_chat["id"] == group_id or message.get("is_automatic_forward")):
-            return
+        if sender_chat:
+            from purrai.channel_moderation import trusted
+            if await trusted(session, group_id, message):
+                return
         user_id = sender["id"]
         member = await session.get(Member, (group_id, user_id))
+        if sender_chat:
+            white = await session.get(Whitelist, (group_id, user_id))
+            if white and white.moderation:
+                return
+            await self.advertising.queue(session, group, None, message, update_id, edited)
         if not sender_chat:
             white = await session.get(Whitelist, (group_id, user_id))
             if user_id in self.settings.superadmin_ids:
@@ -225,6 +233,17 @@ class Moderation:
         rules = await effective_rules(session, group_id)
         display_name = sender_name(sender, include_username=True)
         result = copy.deepcopy(assessment.newcomer if activity.newcomer else assessment.ordinary)
+        if sender_chat:
+            from purrai.promotion_targets import blacklist_reasons
+            targets = blacklist_reasons(message, rules, settings=group.settings)
+            if group.settings.get("external_group_ban", True):
+                sources = external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
+                                                  linked_channel_id=await own_channel_id(session, group_id))
+                result["reasons"] += sources
+                result["ban_reasons"] += sources
+            result["reasons"] += targets
+            result["mute_reasons"] += [item for item in targets if item.action == "mute"]
+            result["ban_reasons"] += [item for item in targets if item.action == "ban"]
         from purrai.coordinated_protection import coordinated_reason, emergency_state
         coordinated = await coordinated_reason(session, group, message, activity)
         if coordinated:

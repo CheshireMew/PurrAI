@@ -2,10 +2,10 @@
 import hashlib
 import json
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, select, update
 
 from purrai.advertisement_schemas import AdvertisementSettings
-from purrai.models import AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Meta, now
+from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Meta, now
 from purrai.sender_profile import biography
 
 
@@ -35,7 +35,8 @@ def revision(message):
     evidence = {key: message.get(key) for key in (
         "text", "caption", "from", "sender_chat", "entities", "caption_entities", "reply_to_message",
         "quote", "forward_origin", "forward_from", "forward_from_chat", "external_reply",
-        "edit_date", "date", "photo", "video", "document")}
+        "edit_date", "date", "photo", "video", "document", "reply_markup", "via_bot",
+        "guest_bot_caller_user", "guest_bot_caller_chat", "is_automatic_forward")}
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -46,6 +47,17 @@ async def samples(session, group_id):
     ).order_by(AdvertisementSample.created_at.desc()))).all()
 
 
+async def rescan_pending(session, group_id):
+    await session.execute(update(AdvertisementReview).where(AdvertisementReview.group_id == group_id,
+        AdvertisementReview.state == "pending", AdvertisementReview.local_after > 0).values(local_after=0))
+
+
+async def wake_chat_reward(session, review):
+    await session.execute(update(Action).where(
+        Action.dedupe_key == f"points:{review.group_id}:{review.message_id}", Action.state == "pending",
+        Action.payload["operation"].as_string() == "chat").values(available_at=now()))
+
+
 async def remember(session, review, *, scope, reason, violation_id=""):
     """Only a model's own verdict creates a sample; local matches never call this."""
     key = "review:" + review.id
@@ -53,13 +65,15 @@ async def remember(session, review, *, scope, reason, violation_id=""):
         AdvertisementSample.group_id == review.group_id, AdvertisementSample.source_key == key))
     if existing:
         return existing
-    from purrai.message_identity import profile_name
+    from purrai.message_identity import profile_name, message_sender
     message = review.message
     row = AdvertisementSample(group_id=review.group_id, text=biography(message) if scope == "bio" else message.get("text") or message.get("caption") or "",
-        sender_name=profile_name(message.get("from") or {}), scope=scope, source="model", source_key=key,
+        sender_name=profile_name(message_sender(message)), scope=scope, source="model", source_key=key,
         message_id=review.message_id, violation_id=violation_id, reason=reason)
     session.add(row)
     await session.flush()
+    if scope in ("text", "bio"):
+        await rescan_pending(session, review.group_id)
     return row
 
 
@@ -84,7 +98,9 @@ async def current(session, review):
             .order_by(MessageRevision.event_at.desc(), MessageRevision.is_edit.desc(),
                       MessageRevision.update_id.desc(), MessageRevision.id.desc()).limit(1))
         from purrai.archive import snapshot
-        if latest and revision(latest.payload) != revision(snapshot(review.message)):
+        review_version = (review.event_at, bool(review.message.get("edit_date")), review.update_id)
+        if (latest and (latest.event_at, latest.is_edit, latest.update_id) >= review_version
+                and revision(latest.payload) != revision(snapshot(review.message))):
             return False
     return True
 

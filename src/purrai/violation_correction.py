@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from purrai.action_queue import enqueue
 from purrai.deletion_effects import deletion_result
 from purrai.errors import ManagementError
-from purrai.models import Action, Group, Member, Meta, PromotionSource, Rule, Violation, now
+from purrai.models import Action, AdvertisementSample, Group, Member, Meta, PromotionSource, Rule, Violation, now
 from purrai.record_versions import check_version, record_version
 from purrai.restriction_state import restriction_identity
 from purrai.rule_presentation import describe_rule
@@ -89,13 +89,30 @@ class ViolationCorrection:
             for source in await session.scalars(select(PromotionSource).where(
                 PromotionSource.group_id == group_id, PromotionSource.message_id == violation.message_id)):
                 source.withdrawn_at = now()
+            counter = await session.get(Meta, f"ai_advertising:{group_id}:{violation.user_id}")
+            if counter:
+                data = json.loads(counter.value)
+                data["messages"] = [item for item in data.get("messages", []) if item["id"] != violation.message_id]
+                counter.value = json.dumps(data, ensure_ascii=False)
+            for sample in await session.scalars(select(AdvertisementSample).where(
+                AdvertisementSample.violation_id == identifier, AdvertisementSample.enabled.is_(True))):
+                sample.enabled, sample.version, sample.updated_at = False, sample.version + 1, now()
+                sample.review_state = "done"
             for action in await session.scalars(select(Action).where(
                 Action.group_id == group_id, Action.actor_id.is_(None), Action.state == "pending",
                 Action.payload["violation_id"].as_string() == identifier)):
                 action.state, action.error = "cancelled", "管理员已标记误判：" + body.reason
                 await deletion_result(session, action)
             action_ids = []
-            if body.action:
+            if body.action and violation.sender_chat:
+                if body.action != "unban":
+                    raise ManagementError(422, "频道身份只能解除频道封禁")
+                from purrai.channel_moderation import unban_payload
+                payload = await unban_payload(session, violation)
+                action = await enqueue(session, "channel_unban", f"correction:{actor}:{body.request_id}",
+                    group_id, violation.user_id, payload, 0, actor, body.reason)
+                action_ids.append(action.id)
+            elif body.action:
                 member = await session.get(Member, (group_id, violation.user_id))
                 owned = member.owned_restriction if member else None
                 source = await session.get(Action, owned["source_action"]) if owned and owned.get("source_action") else None

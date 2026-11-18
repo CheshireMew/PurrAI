@@ -1,24 +1,8 @@
 """Configurable verification prompts and channel access checks."""
-import re
 import secrets
-from urllib.parse import urlsplit
 
 from purrai import captcha
-
-
-def channel_username(value):
-    value = value.strip().rstrip("。")
-    if not value:
-        return ""
-    if value.startswith(("https://", "http://")):
-        parsed = urlsplit(value)
-        if parsed.hostname not in ("t.me", "telegram.me") or parsed.query or parsed.fragment:
-            raise ValueError("请填写公开频道的 @用户名或 t.me 链接")
-        value = parsed.path.strip("/")
-    value = value.removeprefix("@")
-    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", value):
-        raise ValueError("请填写公开频道的 @用户名或 t.me 链接")
-    return "@" + value
+from purrai.telegram_links import channel_username as channel_username
 
 
 async def resolve_channel(call, target, bot_id):

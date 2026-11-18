@@ -73,7 +73,8 @@ def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=
     allowed_domains = [rule["value"] for rule in active if rule["kind"] == "allow_domain"]
     allowed_accounts = {rule["value"].lower().lstrip("@") for rule in active
                         if rule["kind"] == "allow_mention"}
-    sender = message.get("from", {})
+    from purrai.message_identity import message_sender
+    sender = message_sender(message)
     sender_name = sender.get("username", "").lower()
     group_id = message.get("chat", {}).get("id")
     found = set()
@@ -196,7 +197,8 @@ async def remember_targets(session, group, violation, evidence):
     message = (evidence or {}).get("message")
     if message and (evidence or {}).get("bio_dependent"):
         from purrai.sender_profile import biography
-        message = {"text": biography(message), "from": message.get("from", {}), "chat": message.get("chat", {})}
+        from purrai.message_identity import message_sender
+        message = {"text": biography(message), "from": message_sender(message), "chat": message.get("chat", {})}
     rules = await effective_rules(session, group.id)
     if not message or discussion(message.get("text") or message.get("caption") or "", rules):
         return []

@@ -63,6 +63,17 @@ async def click(runtime, telegram, label, actor=1):
     return query
 
 
+async def click_paged(runtime, telegram, label, actor=1):
+    seen = set()
+    while True:
+        panel = markup(telegram)
+        assert panel["text"] not in seen, f"分页重复，未找到按钮：{label}"
+        seen.add(panel["text"])
+        if any(label in item["text"] for row in panel["reply_markup"]["inline_keyboard"] for item in row):
+            return await click(runtime, telegram, label, actor)
+        await click(runtime, telegram, "下一页", actor)
+
+
 def texts(telegram):
     return [data["text"] for method, data in telegram.calls if method == "send_message"]
 

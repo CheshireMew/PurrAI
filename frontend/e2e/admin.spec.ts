@@ -871,7 +871,7 @@ test('群聊天口令计数可查看并能修改门槛、例外和开关', async
   await expect(dialog.getByRole('cell', { name: '每日任务', exact: true })).toBeVisible()
   await expect(dialog.getByRole('cell', { name: '已忽略', exact: true })).toBeVisible()
   await expect(dialog.getByRole('cell', { name: '观察中', exact: true })).toBeVisible()
-  await dialog.locator('.el-form-item').filter({ hasText: '7 天内识别次数' }).getByRole('spinbutton').fill('8')
+  await dialog.getByRole('spinbutton', { name: catalog.settings.labels.chat_command_threshold, exact: true }).fill('8')
   await dialog.getByLabel('口令识别例外', { exact: true }).fill('每日任务')
   await dialog.locator('.el-form-item').filter({ hasText: '自动识别重复口令' }).locator('.el-switch').click()
   const saved = page.waitForRequest(r => r.url().endsWith('/settings') && r.method() === 'PATCH')
@@ -950,7 +950,9 @@ test('昵称谐音规则可预览并按昵称范围保存', async ({ page }) => 
   await page.getByPlaceholder('关键词，或 example.com 形式的域名').fill('同城')
   await dialog.getByText('谐音匹配', { exact: true }).click()
   await dialog.locator('.el-form-item').filter({ hasText: '检查范围' }).locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: '昵称及用户名（删消息并永久禁言）', exact: true }).click()
+  await page.getByRole('option', { name: '昵称及用户名', exact: true }).click()
+  await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: '昵称命中处理', exact: true }) }).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '删消息并永久禁言', exact: true }).click()
   await dialog.getByPlaceholder('例如：显示昵称 @username').fill('童城')
   await dialog.getByPlaceholder('输入消息，测试这次修改后的规则').fill('大家好')
   await dialog.getByRole('button', { name: '预览当前草稿' }).click()
@@ -959,7 +961,7 @@ test('昵称谐音规则可预览并按昵称范围保存', async ({ page }) => 
   const saved = page.waitForRequest(r => r.url().endsWith('/rules') && r.method() === 'POST')
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   const body = (await saved).postDataJSON()
-  expect(body.mode).toBe('pinyin'); expect(body.scope).toBe('name')
+  expect(body).toMatchObject({ mode: 'pinyin', scope: 'name', name_penalty: 'permanent_mute' })
 })
 
 test('消息归档可筛选、查看编辑版本并导出，窄屏无横向溢出', async ({ page }) => {

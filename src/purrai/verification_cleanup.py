@@ -9,7 +9,7 @@ from purrai.models import (
     Verification,
     now,
 )
-from purrai.verification_state import confirm_prompt
+from purrai.verification_state import confirm_prompt, queued_answer
 
 
 async def cleanup(session, verification):
@@ -93,8 +93,7 @@ class VerificationCleanup:
             ).all()
             processed = 0
             for verification in rows:
-                from purrai.verification import VerificationService
-                if verification.state in ("muting", "pending") and await VerificationService.queued_answer(session, verification):
+                if verification.state in ("muting", "pending") and await queued_answer(session, verification):
                     continue
                 await cleanup(session, verification)
                 processed += 1

@@ -8,6 +8,7 @@ from purrai.rules import assess
 from purrai.schemas import GroupSettings
 from purrai.chat_model import ChatReply
 from test_chat import configured, age_reply
+from test_recognition_policy import save
 
 AD_NAME = "有🫵码来赚🫵简介一天8OOO+"
 
@@ -75,13 +76,20 @@ async def test_disabling_profile_advertising_cancels_pending_permanent_mute(env)
 
 
 @pytest.mark.parametrize("archive_enabled", [False, True])
-async def test_model_receives_nickname_and_at_username_with_or_without_archive(env, archive_enabled):
+async def test_model_receives_nickname_and_at_username_with_or_without_archive(env, client, archive_enabled):
     chat, model = await configured(env, archive_enabled=archive_enabled)
-    await chat.observe(message(1, "柴郡喵，今天有什么好电影？",
+    policy = (await client.get("/api/settings/business-policy")).json()["document"]
+    criteria = "本群审核准则：结合本条发言、昵称和账号作判断。"
+    await save(client, {**policy, "ai_review_instructions": criteria})
+    body = "柴郡喵，今天有什么好电影？"
+    await chat.observe(message(1, body,
         **{"from": {"id": 42, "first_name": "电影爱好者", "username": "reviewer2026"}}))
     assert await chat.run_one()
-    assert model.calls[0][1]["messages"][-1]["name"] == "电影爱好者 @reviewer2026"
-    assert "结合目标发送者的昵称、@用户名和正文识别广告" in model.calls[0][0]
+    (system, request), = model.calls
+    target = next(row for row in request["messages"] if row["id"] == request["reply_to"])
+    assert (target["speaker_id"], target["name"], target["text"]) == (42, "电影爱好者 @reviewer2026", body)
+    assert criteria in system
+    await chat.close()
 
 
 async def test_numeric_profile_ad_is_excluded_before_model(env):

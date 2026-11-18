@@ -257,6 +257,8 @@ class RestrictionActions:
                 and all(not current.get(key, False) for key in SEND_PERMISSIONS)
                 and (not current.get("until_date") or current["until_date"] >= deadline)):
             action.payload = {**action.payload, "outcome": "already_restricted"}
+            if action.kind == "manual_mute":
+                action.state, action.error = "cancelled", "已有相同或更严格的禁言，保留当前成员权限"
             return
         reconciled = bool(
             owned.get("source_action") == action.id

@@ -61,13 +61,13 @@ async def test_slow_rule_work_holds_neither_event_loop_nor_writer_and_rechecks_s
     from purrai import rule_evaluation
     original = rule_evaluation.evaluate_message
     first = True
-    def slow(*args):
+    def slow(*args, **kwargs):
         nonlocal first
         if first:
             first = False
             entered.set()
             assert release.wait(5)
-        return original(*args)
+        return original(*args, **kwargs)
     monkeypatch.setattr(rule_evaluation, "evaluate_message", slow)
     task = asyncio.create_task(svc.message(message(22, "ordinary")))
     try:

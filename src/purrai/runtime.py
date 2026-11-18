@@ -8,7 +8,7 @@ from purrai.telegram_events import TelegramEvents
 from purrai.update_receiver import UpdateReceiver
 from purrai.worker_supervisor import WorkerSupervisor
 from purrai.runtime_alerts import RuntimeAlerts
-from purrai.models import Meta, now
+from purrai.models import now
 
 
 class Runtime:
@@ -31,14 +31,10 @@ class Runtime:
         return await self.inbox.process_one(lane)
 
     async def restore_health(self):
-        import json
         await self.chat.source_checks.restore()
         health = getattr(self.tg, "health", None)
         if health:
-            async with self.db.sessions() as session:
-                saved = await session.get(Meta, "telegram-health")
-                if saved:
-                    health.restore(json.loads(saved.value))
+            await self.alerts.restore_telegram_health(health)
 
     def start(self):
         if self.tg.bot:

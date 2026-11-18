@@ -4,7 +4,7 @@ import json
 from sqlalchemy import func, select
 
 from purrai.advertisement_similarity import rank
-from purrai.advertisement_store import policy, samples
+from purrai.advertisement_store import policy, rescan_pending, samples
 from purrai.errors import ManagementError
 from purrai.models import AdvertisementPolicy, AdvertisementReview, AdvertisementSample, ArchivedMessage, Meta, Violation, now, uid
 from purrai.serialization import row_dict
@@ -55,6 +55,7 @@ class AdvertisementAdministration:
                 row = AdvertisementPolicy(group_id=group_id)
                 session.add(row)
             row.config, row.version = body.model_dump(), version + 1
+            await rescan_pending(session, group_id)
             return await self.context.record(session, actor, group_id, "advertisement_settings", "修改广告审核设置",
                 {"settings": row.config, "version": row.version}, request_id, intent)
 
@@ -82,6 +83,8 @@ class AdvertisementAdministration:
             row.actor_id, row.source, row.updated_at = actor, "manual", now()
             row.review_state, row.review_error = "done", ""
             await session.flush()
+            if row.enabled:
+                await rescan_pending(session, group_id)
             return await self.context.record(session, actor, group_id, "advertisement_sample", body.reason,
                                               row_dict(row), request_id, intent)
 

@@ -98,7 +98,7 @@ async def test_slow_panel_edit_then_repeated_old_click_is_explained_and_fresh_cl
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "verification_enabled": False}
     await runtime.admin.settings_panel(1, -1001, "verification", 101)
-    old = panel_button(tg, "图片验证")["callback_data"]
+    old = panel_button(tg, "入群验证")["callback_data"]
     entered, finish = asyncio.Event(), asyncio.Event()
     original = tg.call
 
@@ -118,12 +118,12 @@ async def test_slow_panel_edit_then_repeated_old_click_is_explained_and_fresh_cl
     finally:
         finish.set()
         await first
-    fresh_before_duplicate = panel_button(tg, "图片验证")["callback_data"]
+    fresh_before_duplicate = panel_button(tg, "入群验证")["callback_data"]
     assert await runtime.process_one("control")
     assert (await configuration(db))["verification_enabled"]
     assert any("本次未重复执行" in data.get("text", "") for method, data in tg.calls
                if method == "answer_callback_query")
-    fresh = panel_button(tg, "图片验证")["callback_data"]
+    fresh = panel_button(tg, "入群验证")["callback_data"]
     assert fresh != old and fresh == fresh_before_duplicate
     await post(runtime, fresh, 50002)
     assert not (await configuration(db))["verification_enabled"]
@@ -177,7 +177,7 @@ async def test_failed_panel_update_keeps_previous_panel_until_successful_retry(e
     _, db, tg, service = env
     runtime = Runtime(db, tg, service)
     await runtime.admin.settings_panel(1, -1001, "verification", 101)
-    old = panel_button(tg, "图片验证")["callback_data"]
+    old = panel_button(tg, "入群验证")["callback_data"]
     previous = await runtime.admin.recall("bot_panel:1:101")
     tg.fail["edit_message_text"] = 1
     await runtime.persist([{"update_id": 52000, "callback_query": query(old, 52000)}])
@@ -198,7 +198,7 @@ async def test_panel_from_before_upgrade_refreshes_before_applying_a_setting(env
     _, db, tg, service = env
     runtime = Runtime(db, tg, service)
     await runtime.admin.settings_panel(1, -1001, "verification", 101)
-    old = panel_button(tg, "图片验证")["callback_data"]
+    old = panel_button(tg, "入群验证")["callback_data"]
     record = await runtime.admin.recall("bot_button:" + old[2:])
     record.pop("panel")
     await runtime.admin.remember("bot_button:" + old[2:], record)
@@ -207,7 +207,7 @@ async def test_panel_from_before_upgrade_refreshes_before_applying_a_setting(env
     assert (await configuration(db))["verification_enabled"]
     assert any("本次未重复执行" in data.get("text", "") for method, data in tg.calls
                if method == "answer_callback_query")
-    await post(runtime, panel_button(tg, "图片验证")["callback_data"], 52501)
+    await post(runtime, panel_button(tg, "入群验证")["callback_data"], 52501)
     assert not (await configuration(db))["verification_enabled"]
     await runtime.stop()
 
@@ -218,7 +218,7 @@ async def test_one_role_lookup_per_button_but_next_click_rechecks_current_role(e
     runtime = Runtime(db, tg, service)
     tg.members[(-1001, 2)] = {"status": "administrator"}
     await runtime.admin.settings_panel(2, -1001, section, 101)
-    label = "图片验证" if section == "verification" else "群聊天"
+    label = "入群验证" if section == "verification" else "群聊天"
     token = panel_button(tg, label)["callback_data"]
     tg.calls.clear()
     await post(runtime, token, 53000, 2)

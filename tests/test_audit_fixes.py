@@ -316,7 +316,7 @@ async def test_pa05_violation_api_shows_real_profile_mute_result(env, client, mo
     runtime = Runtime(db, tg, service)
     try:
         await runtime.admin.detail(1, -1001, "violation", item["id"])
-        assert any("昵称命中永久禁言：" + label in args.get("text", "") for _, args in tg.calls)
+        assert any("昵称或简介命中永久禁言：" + label in args.get("text", "") for _, args in tg.calls)
     finally:
         await runtime.stop()
 

@@ -89,6 +89,13 @@ async def test_buttons_keep_existing_exemptions(env, client, exemption):
         incoming['from']['id'] = tg.user_id
     else:
         incoming.update(sender_chat={'id': -2001, 'type': 'channel'}, is_automatic_forward=True)
+        original = tg.call
+        async def linked(method, **kwargs):
+            result = await original(method, **kwargs)
+            if method == 'get_chat' and kwargs.get('chat_id') == -1001:
+                result['linked_chat_id'] = -2001
+            return result
+        tg.call = linked
     await svc.message(incoming)
     await drain(svc)
     assert not any(method in ('ban_chat_member', 'delete_message', 'restrict_chat_member') for method, _ in tg.calls)

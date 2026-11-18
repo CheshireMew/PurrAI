@@ -2,7 +2,7 @@
 
 from purrai.verification_state import ACTIVE
 
-PERMANENT_BANS = ("contact_ban", "emoji_status_ban", "advertisement_ban")
+PERMANENT_BANS = ("contact_ban", "emoji_status_ban", "advertisement_ban", "channel_ad_ban")
 
 
 def retryable_verification(state, failure_action):
@@ -25,7 +25,8 @@ def permanently_banned(actions):
 
 def violation_operations(record, permanent_ban):
     if record["sender_chat"]:
-        return []
+        completed = {item["kind"] for item in record.get("actions", []) if item.get("state") == "succeeded"}
+        return ["unban"] if "channel_ad_ban" in completed and "channel_unban" not in completed else []
     result = ["revoke_warning"] if record["warning_active"] else []
     if permanent_ban:
         return result + ["unban"]

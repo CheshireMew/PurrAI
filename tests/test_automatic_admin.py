@@ -30,6 +30,11 @@ async def test_group_admin_can_activate_configure_and_use_bot_without_registrati
     await click(runtime, telegram, "图片验证", 2)
     async with database.sessions() as session:
         group = await session.get(Group, -1001)
+        assert group.settings["verification_enabled"]
+        assert group.settings["verification_method"] == "image"
+    await click(runtime, telegram, "入群验证", 2)
+    async with database.sessions() as session:
+        group = await session.get(Group, -1001)
         assert group.enabled and not group.settings["verification_enabled"]
         assert await session.scalar(select(func.count()).select_from(Admin)) == 0
         assert await session.scalar(select(func.count()).select_from(Grant)) == 0

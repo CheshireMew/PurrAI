@@ -35,6 +35,17 @@ class ActionTransport:
         execution = session.info["action_execution"]
         if not method.startswith("get_"):
             await self.authorize_actor(session, action)
+            if action.kind == "channel_unban":
+                from purrai.channel_moderation import latest_ban
+                source = await latest_ban(session, action.group_id, action.user_id)
+                if not source or source.id != action.payload.get("channel_ban_source"):
+                    raise ActionSuperseded(reason="原频道封禁已解除或被替换", before_request=True)
+            if "channel_evidence" in action.payload:
+                from purrai.channel_moderation import recheck
+                from purrai.models import Group
+                await recheck(session, action, await session.get(Group, action.group_id), self.tg)
+                if await self.policy.automatic_exemption(session, action):
+                    raise ActionSuperseded(reason="此发送者已获豁免，停止旧处理", before_request=True)
             if action.kind == "ai_ad_mute" and "ai_keyword_evidence" not in action.payload:
                 from purrai.ai_advertising import cumulative_penalty_applies
                 from purrai.models import Group

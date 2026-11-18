@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from purrai.action_delivery import deliver_once
 from purrai.action_queue import enqueue
+from purrai.advertisement_store import latest_reviews
 from purrai.chat_state import blocked_message
 from purrai.errors import ManagementError
 from purrai.models import Action, ArchivedMessage, Group, PointsAccount, PointsClaim, PointsPacket, now
@@ -138,8 +139,14 @@ async def process_message(call, session, action, group):
     message = action.payload["message"]
     policy = await get_policy(session, group.id)
     if "reply" not in action.payload:
-        if (not policy.enabled or now() > action.payload["expires_at"]
-                or await session.scalar(select(blocked_message(group.id, message["message_id"], action.user_id)))):
+        chat_reward = action.payload["operation"] == "chat"
+        if (not policy.enabled or await session.scalar(select(blocked_message(group.id, message["message_id"], action.user_id)))):
+            action.state = "cancelled"
+            return
+        review = (await latest_reviews(session, group.id, [message["message_id"]])).get(message["message_id"]) if chat_reward else None
+        # A reward accepted at receipt can settle after a slow review. Commands
+        # and messages without a review retain their original execution deadline.
+        if not review and now() > action.payload["expires_at"]:
             action.state = "cancelled"
             return
         check = await session.scalar(select(Action).where(Action.dedupe_key == f"advertising-check:{group.id}:{message['message_id']}"))
@@ -149,6 +156,18 @@ async def process_message(call, session, action, group):
         if check and check.state == "failed":
             action.state = "cancelled"
             return
+        if review:
+            if review.user_id != action.user_id or review.message.get("text") != message["text"]:
+                action.state, action.error = "cancelled", "原消息已变化"
+                return
+            if review.state in ("pending", "requesting"):
+                # The terminal verdict wakes this exact reward in the same transaction.
+                # The deadline also recovers older jobs without a wakeup receipt.
+                action.available_at = max(now() + 60, review.event_at + 47 * 3600)
+                return False
+            if review.state not in ("clean", "exempt", "ignored"):
+                action.state, action.error = "cancelled", "此消息未通过广告审核"
+                return
         source = await session.scalar(select(ArchivedMessage).where(
             ArchivedMessage.group_id == group.id, ArchivedMessage.message_id == message["message_id"]))
         if source and source.text != message["text"]:

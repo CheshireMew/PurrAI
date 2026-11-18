@@ -9,14 +9,15 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 
 from purrai.models import Meta, now
 from purrai.telegram_health import request_purpose
+from purrai.message_identity import message_sender, sender_chat
 
 KEY = "sender_profile:"
 
 
 def biography(message):
     profile = message.get("_sender_profile") or {}
-    sender = message.get("from") or {}
-    if message.get("sender_chat") or profile.get("user_id") != sender.get("id") or profile.get("status") != "available":
+    sender = message_sender(message)
+    if sender_chat(message) or profile.get("user_id") != sender.get("id") or profile.get("status") != "available":
         return ""
     return profile.get("bio", "")
 
@@ -97,9 +98,9 @@ def reader(db, telegram):
 
 
 async def attach(db, telegram, message, settings, *, fresh=False):
-    sender = message.get("from") or {}
+    sender = message_sender(message)
     message.pop("_sender_profile", None)
-    if (not telegram or not settings.get("bio_advertising_enabled", True) or message.get("sender_chat")
+    if (not telegram or not settings.get("bio_advertising_enabled", True) or sender_chat(message)
             or not sender.get("id") or sender["id"] <= 0 or sender.get("is_bot")):
         return
     message["_sender_profile"] = await reader(db, telegram).fetch(

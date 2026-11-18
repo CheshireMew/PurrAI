@@ -196,6 +196,7 @@ async function save() {
 <el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum" :aria-label="catalog!.settings.labels?.[key] || key"/>
 </el-form-item></div>
 <el-form-item label="AI广告累计处理"><el-select v-model="form.ai_ad_penalty" aria-label="AI广告累计处理"><el-option value="delete" label="只删除广告消息"/><el-option value="permanent_mute" label="达到累计次数后永久禁言"/></el-select></el-form-item>
+<el-form-item label="频道身份广告处理"><el-select v-model="form.channel_ad_penalty" aria-label="频道身份广告处理"><el-option value="delete" label="只删除广告消息"/><el-option value="ban" label="删除广告并封禁发言频道"/></el-select></el-form-item>
 <el-form-item label="新学习推广目标的处理"><el-select v-model="form.learned_target_penalty" aria-label="新学习推广目标的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并永久封禁"/></el-select></el-form-item>
 <el-form-item label="忽略纯数字独立开场"><el-switch v-model="form.chat_ignore_numeric_openings" aria-label="忽略纯数字独立开场"/></el-form-item>
 <p class="muted">系统提醒包括处罚通知和发到群里的操作结果。账号冷却和重复聊天时长设为 0 可关闭对应限制；历史已过期的记录不会恢复。</p>
@@ -316,7 +317,7 @@ async function save() {
 <el-switch v-model="form.chat_command_learning" aria-label="自动识别重复口令"/>
 </el-form-item>
 <el-form-item :label="`${form.chat_evidence_hours} 小时内识别次数（至少 ${form.chat_command_min_users} 位群友）`">
-<el-input-number v-model="form.chat_command_threshold" :min="bounds('chat_command_threshold').minimum" :max="bounds('chat_command_threshold').maximum"/>
+<el-input-number v-model="form.chat_command_threshold" :aria-label="catalog!.settings.labels?.chat_command_threshold" :min="bounds('chat_command_threshold').minimum" :max="bounds('chat_command_threshold').maximum"/>
 </el-form-item>
 <p class="muted">只统计短功能口令；广告、链接、普通问句、重复投递和编辑不计数。达到门槛后从 AI 输入和历史上下文中排除，不删除群消息。</p>
 <el-table v-if="chatStatus.commands?.items.length" :data="chatStatus.commands.items" size="small">

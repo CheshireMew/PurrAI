@@ -38,7 +38,7 @@ class FakeTelegram:
                 }
             return self.members.get(key, {"status": "member", "user": {"id": kwargs["user_id"]}})
         if method == "get_chat":
-            return {"permissions": self.defaults}
+            return {"id": kwargs["chat_id"], "permissions": self.defaults}
         if method == "restrict_chat_member":
             self.members[key] = {
                 "status": "restricted",

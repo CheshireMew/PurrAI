@@ -11,12 +11,12 @@ from purrai.shared_policy import effective_rules
 from purrai.action_queue import enqueue
 from purrai.archive import mark_reasons
 from purrai.advertising_patterns import GROUP_PREFIX, discussion
-from purrai.group_link_identity import own_link_keys, remember_group_link
+from purrai.group_link_identity import own_link_keys, remember_group_link, remember_linked_channel
 from purrai.diagnostics import failure
 from purrai.models import Action, Group, Member, Whitelist, now, uid
 from purrai.moderation_penalties import apply_penalty
 from purrai.moderation_records import record_violation
-from purrai.message_identity import message_sender
+from purrai.message_identity import message_sender, sender_chat
 from purrai.rules import message_content, normalize
 from purrai.sender_identity import sender_name
 from purrai.telegram import is_admin
@@ -33,6 +33,8 @@ def link_reasons(message, group, rules, own_keys, evidence):
     from purrai.promotion_targets import blacklist_reasons
     text = message_content(message)[0]
     reporting = discussion(normalize(text), rules)
+    current_keys = {link.key for link in message_links(message)}
+    evidence = [proof for proof in evidence if TelegramLink(**proof["link"]).key in current_keys]
     reasons = blacklist_reasons(message, rules, settings=group.settings, evidence=evidence)
     for proof in evidence:
         link = TelegramLink(**proof["link"])
@@ -59,7 +61,7 @@ class AdvertisingGuard:
         if not any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban")) or not message_links(message):
             return
         user_id = message_sender(message)["id"]
-        if member is None:
+        if member is None and not sender_chat(message):
             member = Member(group_id=group.id, user_id=user_id, joined_at=0)
             session.add(member)
             await session.flush()
@@ -67,7 +69,7 @@ class AdvertisingGuard:
         action = await session.scalar(select(Action).where(Action.dedupe_key == key))
         if action and (action.payload.get("update_id", 0) > update_id > 0 or action.payload.get("message") == message):
             return
-        payload = {"message": copy.deepcopy(message), "generation": member.generation, "edited": edited,
+        payload = {"message": copy.deepcopy(message), **({"generation": member.generation} if member else {}), "edited": edited,
                    "cycle": uid(), "update_id": update_id}
         if action:
             action.payload, action.state, action.attempts, action.error, action.available_at = payload, "pending", 0, "", now()
@@ -78,11 +80,16 @@ class AdvertisingGuard:
         group = await session.get(Group, action.group_id)
         member = await session.get(Member, (action.group_id, action.user_id))
         white = await session.get(Whitelist, (action.group_id, action.user_id))
+        channel = sender_chat(action.payload.get("message", {}))
         if (not group or not group.approved or not group.enabled
             or not any(group.settings.get(key, True) for key in ("external_group_ban", "external_invite_ban"))
-            or not member or not member.present or member.generation != action.payload["generation"]
+            or not channel and (not member or not member.present or member.generation != action.payload.get("generation"))
             or action.user_id in self.settings.superadmin_ids or white and white.moderation):
             return None
+        if channel:
+            from purrai.channel_moderation import trusted
+            if await trusted(session, action.group_id, action.payload["message"]):
+                return None
         return group
 
     async def run_one(self, identifier=None):
@@ -106,9 +113,11 @@ class AdvertisingGuard:
                 settings = copy.deepcopy(group.settings)
             evidence, unknown, error, administrator, own = [], [], None, False, {}
             try:
-                administrator = is_admin(await self.tg.call("get_chat_member", chat_id=group_id, user_id=user_id, request_timeout=3))
+                administrator = user_id > 0 and is_admin(await self.tg.call("get_chat_member", chat_id=group_id, user_id=user_id, request_timeout=3))
                 if not administrator:
                     own = await self.tg.call("get_chat", chat_id=group_id, request_timeout=3)
+                    if user_id < 0 and own.get("id") != group_id:
+                        raise ConnectionError("暂时无法核实本群关联频道")
                     if own.get("invite_link") and (link := parse_link(own["invite_link"])):
                         keys.append(link.key)
                     if own.get("username"):
@@ -140,6 +149,7 @@ class AdvertisingGuard:
                 action = await session.get(Action, identifier)
                 if action.state != "pending" or action.payload["cycle"] != cycle:
                     return True
+                await remember_linked_channel(session, group_id, own)
                 group = await self.eligible(session, action)
                 if not group:
                     action.state = "cancelled"
@@ -165,7 +175,8 @@ class AdvertisingGuard:
                         violation, changed = await record_violation(session, group_id=group_id, user_id=user_id,
                             message_id=incoming["message_id"], reasons=reasons,
                             excerpt=message_content(incoming)[0],
-                            sender_name=sender_name(message_sender(incoming), include_username=True), message_violation=True)
+                            sender_name=sender_name(message_sender(incoming), include_username=True),
+                            sender_chat=bool(sender_chat(incoming)), message_violation=True)
                         if changed:
                             await apply_penalty(session, group, violation, await session.get(Member, (group_id, user_id)),
                                                 evidence={"message": incoming, "links": evidence})

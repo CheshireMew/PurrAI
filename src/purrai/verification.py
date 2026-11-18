@@ -11,7 +11,6 @@ from purrai.action_queue import enqueue
 from purrai.diagnostics import failure
 from purrai.models import (
     Group,
-    Inbox,
     Member,
     Meta,
     Verification,
@@ -21,7 +20,7 @@ from purrai.models import (
 )
 from purrai.verification_cleanup import cleanup, observe_callback_prompt
 from purrai.verification_progress import queue_progress
-from purrai.verification_state import ACTIVE
+from purrai.verification_state import ACTIVE, queued_answer
 from purrai.subscription_verification import schedule_check
 
 logger = logging.getLogger(__name__)
@@ -212,14 +211,7 @@ class VerificationService:
                 answer = f"已输入 {len(verification.input_digits)} / 6 位"
         return answer
 
-    @staticmethod
-    async def queued_answer(session, verification):
-        return await session.scalar(select(Inbox.id).where(
-            Inbox.state.in_(("pending", "failed")), Inbox.received_at > 0,
-            Inbox.received_at < verification.deadline,
-            Inbox.payload["callback_query"]["from"]["id"].as_integer() == verification.user_id,
-            Inbox.payload["callback_query"]["data"].as_string().startswith(f"v:{verification.id}:{verification.nonce}:"),
-        ).limit(1)) is not None
+    queued_answer = staticmethod(queued_answer)
 
     async def acknowledge(self, identifier, answer):
         try:

@@ -53,6 +53,97 @@ async def add_sample(env, text, **changes):
     return await admin.save(1, -1001, AdvertisementSampleInput(text=text, reason="人工独立确认", **changes), "sample-" + str(time.time_ns()))
 
 
+async def test_corrected_verdict_cannot_contribute_to_later_mute(env):
+    from purrai.ai_advertising import advertisement_count
+    from purrai.schemas import ViolationCorrectionInput
+    settings, db, tg, service = env
+    worker, _ = await reviewer(env)
+    for i, body in enumerate(("春天院子里的树木开花了", "船只清晨准时靠岸", "同学准备出门上课", "明天去山上看日出"), 1):
+        await service.message(message(i, body))
+        await worker.run_one()
+        if i == 1:
+            violation, = await records(db, Violation)
+            await Management(db, tg, settings=settings).corrections.apply(1, -1001, violation.id,
+                ViolationCorrectionInput(reason="已独立核实误判", request_id="correct-first-verdict"))
+            sample, = await records(db, AdvertisementSample)
+            assert not sample.enabled
+        await drain(service)
+        async with db.sessions() as session:
+            assert await advertisement_count(session, -1001, 42) == i - 1
+        assert any(name == "restrict_chat_member" for name, _ in tg.calls) == (i == 4)
+
+
+async def test_older_archive_does_not_cancel_later_edit(env):
+    worker, model = await reviewer(env, lambda row: False)
+    _, db, _, service = env
+    original = message(35, "归档原文")
+    edit = {**original, "text": "编辑后文字", "edit_date": original["date"] + 1}
+    await service.message(original, update_id=4)
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "archive_enabled": False}
+    await service.message(edit, edited=True, update_id=5)
+    assert await worker.run_one()
+    assert [row["text"] for batch in model.calls for row in batch] == ["编辑后文字"]
+    assert {row.state for row in await records(db, AdvertisementReview)} == {"superseded", "clean"}
+
+
+async def test_correction_invalidates_a_pending_cumulative_mute(env):
+    from purrai.schemas import ViolationCorrectionInput
+    settings, db, tg, service = env
+    worker, _ = await reviewer(env)
+    for i, body in enumerate(("森林边有几株桂花", "远洋客轮今天进港", "大家明早去教室"), 1):
+        await service.message(message(i, body))
+        await worker.run_one()
+    mute, = [row for row in await records(db, Action) if row.kind == "ai_ad_mute"]
+    assert mute.state == "pending"
+    first = next(row for row in await records(db, Violation) if row.message_id == 1)
+    await Management(db, tg, settings=settings).corrections.apply(1, -1001, first.id,
+        ViolationCorrectionInput(reason="复核了第一条消息", request_id="correct-before-mute"))
+    await drain(service)
+    async with db.sessions() as session:
+        assert (await session.get(Action, mute.id)).state == "cancelled"
+    assert not any(name == "restrict_chat_member" for name, _ in tg.calls)
+
+
+async def test_a_busy_group_yields_the_next_batch_to_a_waiting_group(env):
+    _, db, _, service = env
+    worker, _ = await reviewer(env, lambda row: False)
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        session.add(Group(id=-2000, approved=True, enabled=True, settings=group.settings))
+    def busy(i):
+        return message(i, "另一群的消息", chat={"type": "supergroup", "id": -2000})
+    await service.message(busy(1))
+    assert await worker.run_one()
+    await service.message(busy(2))
+    await service.message(message(1, "等待审核"))
+    assert await worker.run_one()
+    states = {(r.group_id, r.message_id): r.state for r in await records(db, AdvertisementReview)}
+    assert states[-1001, 1] == "clean" and states[-2000, 2] == "pending"
+
+
+async def test_offline_rescan_reaches_messages_beyond_the_first_page(env):
+    _, db, _, service = env
+    worker = service.advertisement_review
+    original = "晚加入样本库的可替换长文本用于独立验证"
+    async with db.transaction() as session:
+        from purrai.advertisement_store import revision
+        for i in range(26):
+            msg = message(i + 1, original if i == 25 else f"普通对话{i}")
+            session.add(AdvertisementReview(group_id=-1001, user_id=42, message_id=i + 1,
+                message=msg, revision=revision(msg), event_at=msg["date"], created_at=msg["date"] + i))
+    assert await worker.run_one()
+    assert await worker.run_one()
+    assert not await worker.run_one()
+    await add_sample(env, original)
+    assert await worker.run_one()
+    assert await worker.run_one()
+    assert not await worker.run_one()
+    states = {row.message_id: row.state for row in await records(db, AdvertisementReview)}
+    assert states[26] == "matched" and states[1] == "pending"
+
+
 def test_shortened_real_template_and_numeric_variants():
     old = "上什么逼班，来我这一个月直接提奔驰，2026年想翻身找我就对了"
     new = "上\u200b什么逼班\ufeff，来我这一个月直接\u200c提奔驰"

@@ -187,7 +187,6 @@ def assess(
     reasons.extend(activity_reasons(settings, repeats, similar, burst))
     bio_reasons = []
     if sender_bio and settings.get("bio_advertising_enabled", True):
-        from purrai.bio_rules import assess_biography
         bio_reasons, bio_ids = assess_biography(sender_bio, rules, settings)
         hit_ids.extend(bio_ids)
         names.extend(reason for reason in bio_reasons if reason.action == "mute")
@@ -196,6 +195,20 @@ def assess(
     return {"reasons": unique_reasons(reasons), "name_reasons": unique_reasons(names), "bio_reasons": bio_reasons,
             "mute_reasons": list(dict.fromkeys(mute_reasons)), "ban_reasons": ban_reasons,
             "rule_ids": list(dict.fromkeys(hit_ids)), "message_emoji_hit": emoji_hit}
+
+
+def assess_biography(value, rules, settings):
+    # Only biography keywords participate. Domain and target policies apply to
+    # both sources. Evaluate the biography as text, without another biography.
+    selected = with_rules(rules, [{**rule, "scope": "message"} if rule["kind"] == "keyword" else rule
+                                  for rule in rules if rule["kind"] != "keyword" or rule.get("scope") == "bio"])
+    text, urls = message_content({"text": value})
+    result = assess(text, urls, selected, {**settings, "newcomer_wallets": False})
+    reasons = []
+    for reason in result["reasons"] + result["name_reasons"]:
+        reasons.append(BusinessReason("用户简介：" + str(reason), getattr(reason, "action", "") or "delete",
+                       getattr(reason, "rule_id", ""), getattr(reason, "advertiser_cooldown", False)))
+    return reasons, result["rule_ids"]
 
 
 def ai_keyword_rules(text, rules, sender_name="", sender_bio=""):

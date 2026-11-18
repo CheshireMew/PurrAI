@@ -83,7 +83,8 @@ class TelegramEvents:
             await self.service.message(
                 message, update_id=self.current_update_id.get(), archived_at_receipt=True
             )
-        await self.admin.message(message)
+        if await self.admin.message(message):
+            return
         if await self.points.observe(message):
             return
         if await self.auto_replies.observe(message):

@@ -1,11 +1,12 @@
 """Editable recognition data; runtime snapshots never merge installation defaults."""
 import copy
-import json
 import re
 from functools import lru_cache
-from importlib.resources import files
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from purrai.business_rules import RuleSet
+from purrai.installation_defaults import recognition_seed
 
 
 class Entry(BaseModel):
@@ -59,20 +60,13 @@ def compiled(pattern):
     return re.compile(pattern, re.I)
 
 
-@lru_cache(maxsize=1)
-def _seed():
-    return json.loads(files("purrai").joinpath("assets/recognition_policy.v1.json").read_text(encoding="utf-8"))
-
-
 def default_recognition():
-    return copy.deepcopy(_seed())
+    return copy.deepcopy(recognition_seed())
 
 
 def configuration(rules=None):
-    from purrai.business_rules import RuleSet
-
     # Live entry points pass their saved RuleSet, even when every list is empty.
-    return rules.business.get("recognition", {}) if isinstance(rules, RuleSet) else _seed()
+    return rules.business.get("recognition", {}) if isinstance(rules, RuleSet) else recognition_seed()
 
 
 def matches(rules, collection, text, *, search=False):

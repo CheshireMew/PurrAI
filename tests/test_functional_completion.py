@@ -184,14 +184,14 @@ async def test_setting_inheritance_supports_individual_reset_and_rejects_stale_r
 
 async def test_bot_common_setting_and_target_rule_work_without_web(env):
     from purrai.runtime import Runtime
-    from test_bot_admin import click, deliver, private, texts
+    from test_bot_admin import click, click_paged, deliver, private, texts
 
     _, db, tg, service = env
     runtime = Runtime(db, tg, service)
     await deliver(runtime, {"message": private('/admin')})
     await click(runtime, tg, '通用设置与规则')
     await click(runtime, tg, '通用群设置')
-    await click(runtime, tg, '聊天昵称')
+    await click_paged(runtime, tg, '聊天昵称')
     await click(runtime, tg, '修改此项')
     await deliver(runtime, {"message": private('小橘')})
     async with db.sessions() as session:

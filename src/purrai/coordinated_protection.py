@@ -50,7 +50,8 @@ async def activate(session, group, reason, actor, recipients):
 async def coordinated_reason(session, group, message, activity):
     if not group.settings.get("coordinated_enabled", False):
         return None
-    sender = message.get("sender_chat") or message.get("from", {})
+    from purrai.message_identity import message_sender
+    sender = message_sender(message)
     row = await session.get(Fingerprint, (group.id, sender.get("id"), message["message_id"]))
     if not row or not row.digest or row.similarity_length < group.settings.get("coordinated_min_length", 12):
         return None

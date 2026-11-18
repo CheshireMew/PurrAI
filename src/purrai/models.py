@@ -440,6 +440,7 @@ class AdvertisementReview(Base):
     __table_args__ = (
         UniqueConstraint("group_id", "message_id", "revision"),
         Index("ix_ad_review_queue", "state", "available_at"),
+        Index("ix_ad_review_local", "state", "local_after"),
         Index("ix_ad_review_message", "group_id", "message_id"),
     )
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
@@ -454,6 +455,7 @@ class AdvertisementReview(Base):
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[float] = mapped_column(Float, default=now)
+    local_after: Mapped[float] = mapped_column(Float, default=0, server_default="0")
     created_at: Mapped[float] = mapped_column(Float, default=now)
     updated_at: Mapped[float] = mapped_column(Float, default=now)
     error: Mapped[str] = mapped_column(Text, default="")

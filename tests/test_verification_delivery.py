@@ -34,8 +34,9 @@ async def test_initial_mute_checks_member_once_before_restriction(env):
     _, _, telegram, service = env
     await service.member_event(join())
     await service.run_one_action(include_progress=False)
-    assert [method for method, _ in telegram.calls] == [
-        "get_chat_member", "get_chat", "restrict_chat_member",
+    assert [(method, args["chat_id"]) for method, args in telegram.calls] == [
+        ("get_chat", 42),  # Public biography check on join, not a group-permission lookup.
+        ("get_chat_member", -1001), ("get_chat", -1001), ("restrict_chat_member", -1001),
     ]
 
 
@@ -47,7 +48,9 @@ async def test_restricted_join_uses_current_permissions_without_group_lookup(env
     }
     await service.member_event(join())
     await service.run_one_action(include_progress=False)
-    assert [method for method, _ in telegram.calls] == ["get_chat_member", "restrict_chat_member"]
+    assert [(method, args["chat_id"]) for method, args in telegram.calls] == [
+        ("get_chat", 42), ("get_chat_member", -1001), ("restrict_chat_member", -1001),
+    ]
     async with database.sessions() as session:
         verification = await session.scalar(select(Verification))
         assert verification.previous_permissions["can_send_messages"] is True

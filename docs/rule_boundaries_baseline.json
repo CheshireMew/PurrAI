@@ -13,8 +13,8 @@
       "path": "src/purrai/telegram_health.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "dc47c02bbf2b6af86b9ff69b2057ebc968f3d1973f1492a8adcc86d489f2d97f",
-      "line": 15,
+      "digest": "a89e9134edcb57bf0a7bf39a2daa5a3d2625a74bc5c7a6036aa1c542e3f96534",
+      "line": 16,
       "examples": [
         "修改成员发言权限",
         "删除消息",
@@ -22,7 +22,8 @@
         "发送文字消息",
         "封禁成员"
       ],
-      "review": "2026-11-15: Requested logging and alert repair. METHOD_LABELS maps Telegram API method names to display-only operation labels; never matches messages, profiles or advertisement keywords."
+      "review": "2026-11-15: Requested logging and alert repair. METHOD_LABELS maps Telegram API method names to display-only operation labels; never matches messages, profiles or advertisement keywords.",
+      "review_note": "Only Telegram API method display labels; no advertising vocabulary."
     },
     {
       "path": "src/purrai/runtime_alerts.py",
@@ -905,11 +906,12 @@
       "path": "src/purrai/text_matching.py",
       "scope": "message_content",
       "kind": "matching-call",
-      "digest": "c0c8a54ba10a95cecfe7a8231f5a48912e6a2fc22533e47142dc94461a9973cf",
-      "line": 111,
+      "digest": "da0126daa41033d78223f528c68bd9379298a02746a202712108222a522b6a2e",
+      "line": 115,
       "examples": [
         "(?:https?://|tg://|www\\.)[^\\s<>]+|(?<![A-Za-z0-9_.])(?:t\\.me|telegram\\.me|telegram\\.dog)/[^\\s<>]+"
-      ]
+      ],
+      "review_note": "The URL regex is unchanged. Its input now removes Unicode format controls and normalizes full-width characters; no new domain or business rule."
     },
     {
       "path": "src/purrai/verification_penalties.py",
@@ -1139,7 +1141,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "4ff523aab03d4827c13cf02545781c9703d851b3385ec43f2980083be6427bff",
+      "digest": "5ed95130ad29bb016d3a49dc918337a1bd182c5bf2b52a570e24acddc3845f7e",
       "line": 25,
       "examples": [
         "AI广告永久禁言",
@@ -1147,7 +1149,8 @@
         "临时应急保护",
         "临时禁言",
         "人工核实发送结果"
-      ]
+      ],
+      "review_note": "Only action display labels for channel ban and unban; no matching policy."
     },
     {
       "path": "src/purrai/points_bot.py",
@@ -1437,6 +1440,28 @@
       "examples": [
         "private"
       ]
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.violation_action",
+      "kind": "comparison",
+      "digest": "fbce63fc196a85967a18a40a9207d4bd152db1e77a5ea15991cafb310107532a",
+      "line": 176,
+      "examples": [
+        "unban"
+      ],
+      "review_note": "API action enum validation for channel correction, not message or advertising matching."
+    },
+    {
+      "path": "src/purrai/violation_correction.py",
+      "scope": "ViolationCorrection.apply",
+      "kind": "comparison",
+      "digest": "fbce63fc196a85967a18a40a9207d4bd152db1e77a5ea15991cafb310107532a",
+      "line": 108,
+      "examples": [
+        "unban"
+      ],
+      "review_note": "API action enum validation for channel correction, not message or advertising matching."
     }
   ],
   "additional_seed_sha256": {

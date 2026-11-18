@@ -12,6 +12,7 @@ from purrai.action_preparation import ActionHandler, ActionPreparation
 from purrai.action_transport import ActionTransport
 from purrai.deletion_effects import deletion_result
 from purrai.automatic_actions import AutomaticActions
+from purrai.channel_moderation import ChannelActions
 from purrai.diagnostics import failure
 from purrai.member_restrictions import MemberRestrictions
 from purrai.models import (
@@ -41,6 +42,7 @@ class ActionRunner:
         administration = RestrictionActions(transport, trust)
         verification_actions = VerificationActions(transport, verification, restrictions, administration)
         automatic = AutomaticActions(restrictions)
+        channels = ChannelActions(transport)
         async def identity_check(session, action, group, verification, member):
             return await identity_protection.execute(session, action, group, verification, member, restrictions)
         self.notifications = NotificationActions(db, transport)
@@ -48,6 +50,8 @@ class ActionRunner:
         self.report_error = verification_actions.record_error
         self.preserve_restriction = verification_actions.preserve_restriction
         self.handlers = {
+            "channel_ad_ban": ActionHandler(channels.ban, channels.prepare, False),
+            "channel_unban": ActionHandler(channels.unban, channels.prepare, False),
             "identity_check": ActionHandler(identity_check, automatic.prepare, False),
             "verify_mute": ActionHandler(verification_actions.mute, verification_actions.prepare, verification_actions.requires_member_check),
             "challenge": ActionHandler(verification_actions.challenge, verification_actions.prepare, verification_actions.requires_member_check),

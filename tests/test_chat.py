@@ -143,7 +143,7 @@ async def test_proactive_disabled_does_not_infer_a_conversation_from_elapsed_tim
 
 
 async def test_runtime_filters_pending_members_ads_commands_bots_and_edits(env):
-    chat, model = await configured(env)
+    chat, model = await configured(env, chat_ignored_texts=["/othercommand"])
     settings, db, tg, service = env
     runtime = Runtime(db, tg, service)
     await runtime.chat.close()

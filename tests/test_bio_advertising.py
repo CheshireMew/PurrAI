@@ -8,9 +8,7 @@ from sqlalchemy import select
 
 from conftest import drain, join, message
 from purrai import sender_profile
-from purrai.advertisement_review import AdvertisementReviewer
-from purrai.management import Management
-from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Group, Member, Meta, Rule, SharedPolicy, now
+from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Group, Member, Rule, SharedPolicy, Verification, now
 from purrai.rules import assess
 from purrai.shared_policy import effective_rules
 from test_advertisement_review import records
@@ -29,6 +27,47 @@ def profiles(tg, values):
         return result
 
     tg.call = call
+
+
+@pytest.mark.parametrize("still_matches", [False, True])
+async def test_join_profile_recheck_and_verification_share_the_same_join(env, still_matches):
+    _, db, tg, service = env
+    values = {42: "可替换的资料词"}
+    profiles(tg, values)
+    async with db.transaction() as session:
+        session.add(Rule(group_id=-1001, kind="keyword", value=values[42], scope="bio", penalty="permanent_mute"))
+    await service.member_event(join())
+    if not still_matches:
+        values[42] = ""
+    await drain(service)
+    verification, = await records(db, Verification)
+    actions = {row.kind: row.state for row in await records(db, Action)}
+    if still_matches:
+        assert actions["profile_mute"] == "succeeded"
+        assert verification.state == "failed"
+    else:
+        assert actions["profile_mute"] == "cancelled"
+        assert verification.state == "pending" and verification.message_id
+        assert actions["verify_mute"] == "succeeded"
+
+
+@pytest.mark.parametrize("still_matches", [False, True])
+async def test_edit_retains_only_revalidated_biography_evidence(env, still_matches):
+    _, db, tg, service = env
+    values = {42: "任意简介词"}
+    profiles(tg, values)
+    async with db.transaction() as session:
+        session.add(Rule(group_id=-1001, kind="keyword", value=values[42], scope="bio", penalty="permanent_mute"))
+        session.add(Member(group_id=-1001, user_id=42, joined_at=now() - 86400, present=True))
+    original = message(18, "普通正文")
+    edit = {**original, "text": "新的普通正文", "edit_date": original["date"] + 1}
+    await service.message(original, update_id=1)
+    await service.message(edit, edited=True, update_id=2)
+    if not still_matches:
+        values[42] = ""
+    await drain(service)
+    actions = {row.kind: row.state for row in await records(db, Action)}
+    assert actions["delete"] == actions["profile_mute"] == ("succeeded" if still_matches else "cancelled")
 
 
 class BioModel:

@@ -19,7 +19,7 @@ from purrai.schemas import ArchiveFilter
 from purrai.serialization import row_dict as values
 from purrai.sender_identity import sender_name
 from purrai.archive_capacity import group_bytes, increment, limits
-from purrai.message_identity import message_sender
+from purrai.message_identity import message_sender, sender_chat
 
 ARCHIVE_BYTES = "archive:stored-bytes"
 
@@ -68,7 +68,7 @@ def snapshot(message):
     data = {
         key: value
         for key, value in message.items()
-        if key not in ("reply_to_message", "pinned_message")
+        if key not in ("reply_to_message", "pinned_message") and not key.startswith("_")
     }
     for key in ("reply_to_message", "pinned_message"):
         if message.get(key):
@@ -184,7 +184,7 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
     if row.revision_count == 1 or incoming >= latest or row.source == "violation_excerpt":
         sender = message_sender(message)
         row.sender_id = sender.get("id")
-        row.sender_type = "chat" if message.get("sender_chat") else "bot" if sender.get("is_bot") else "user"
+        row.sender_type = "chat" if sender_chat(message) else "bot" if sender.get("is_bot") else "user"
         row.sender_name = sender_name(sender)
         row.username = sender.get("username", "")
         row.message_type = next(

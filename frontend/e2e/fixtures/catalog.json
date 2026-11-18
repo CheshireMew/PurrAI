@@ -8,6 +8,7 @@
       "ai_ad_window_hours": 72,
       "ai_ad_limit": 3,
       "ai_ad_penalty": "permanent_mute",
+      "channel_ad_penalty": "ban",
       "spam_mute_seconds": 1800,
       "media_newcomer_days": 15,
       "learned_target_penalty": "ban",
@@ -174,6 +175,15 @@
           "permanent_mute"
         ],
         "title": "AI广告累计处理",
+        "type": "string"
+      },
+      "channel_ad_penalty": {
+        "default": "ban",
+        "enum": [
+          "delete",
+          "ban"
+        ],
+        "title": "频道身份广告处理",
         "type": "string"
       },
       "spam_mute_seconds": {
@@ -785,6 +795,7 @@
       "ai_ad_window_hours": "AI广告累计窗口（小时）",
       "ai_ad_limit": "AI广告累计次数",
       "ai_ad_penalty": "AI广告累计处理",
+      "channel_ad_penalty": "频道身份广告处理",
       "spam_mute_seconds": "刷屏禁言秒数",
       "media_newcomer_days": "发图门槛适用天数",
       "learned_target_penalty": "新学习推广目标的处理",
@@ -893,6 +904,8 @@
     "superseded": "已换新验证"
   },
   "operations": {
+    "channel_ad_ban": "封禁广告频道在本群发言",
+    "channel_unban": "解除频道发言封禁",
     "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
     "points_message": "积分互动",

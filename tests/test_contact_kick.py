@@ -162,7 +162,9 @@ async def test_contact_ban_does_not_clear_another_administrators_ban(env):
     await drain(svc)
     assert not any(name in ("ban_chat_member", "unban_chat_member") for name, _ in tg.calls)
     async with db.sessions() as session:
-        assert (await session.scalar(select(Action).where(Action.kind == "contact_ban"))).state == "failed"
+        action = await session.scalar(select(Action).where(Action.kind == "contact_ban"))
+        assert action.state == "cancelled"
+        assert action.error == "成员已有其他封禁，保留当前封禁"
 
 
 async def test_only_explicit_admin_unban_allows_rejoining_after_contact_ban(env):

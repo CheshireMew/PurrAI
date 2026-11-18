@@ -112,7 +112,9 @@ async def message_penalty_applies(session, action, group):
         # archive is then older than the pending action's refreshed evidence.
         # Archives intentionally trim quoted messages. For the same revision,
         # retain the full evidence captured by the moderation path.
-        return row[0] if row is not None and tuple(row[1:]) > version else current
+        if row is not None and tuple(row[1:]) > version:
+            return edited_evidence(current, row[0])
+        return current
 
     execution = session.info["action_execution"]
     for _ in range(3):
@@ -132,17 +134,39 @@ async def message_penalty_applies(session, action, group):
             continue
         ordinary = result.ordinary
         target_reasons = blacklist_reasons(message, independent, settings=settings)
+        if action.user_id and action.user_id < 0:
+            from purrai.advertising_guard import link_reasons
+            from purrai.group_link_identity import own_link_keys, own_channel_id
+            from purrai.telegram_sources import channel_sources, external_channel_reasons
+            target_reasons += link_reasons(message, group, independent, await own_link_keys(session, group.id),
+                                          action.payload["message_evidence"].get("links", []))
+            if settings.get("external_group_ban", True):
+                target_reasons += external_channel_reasons(channel_sources(message), group.id, settings, independent,
+                                                          linked_channel_id=await own_channel_id(session, group.id))
         ordinary["reasons"] += target_reasons
-        ordinary["mute_reasons"] += [reason for reason in target_reasons if reason.action == "mute"]
-        ordinary["ban_reasons"] += [reason for reason in target_reasons if reason.action == "ban"]
+        ordinary["mute_reasons"] += [reason for reason in target_reasons if getattr(reason, "action", "") == "mute"]
+        ordinary["ban_reasons"] += [reason for reason in target_reasons if classifies(reason, "ban", independent)]
         if action.kind == "delete":
             return bool(ordinary["reasons"] or ordinary["name_reasons"])
         if action.kind == "rule_mute":
             return bool(ordinary["mute_reasons"])
         if action.kind == "profile_mute":
             return bool(ordinary["name_reasons"])
+        if action.kind == "channel_ad_ban":
+            return bool(ordinary["ban_reasons"] or ordinary["mute_reasons"] or ordinary["name_reasons"]
+                        or any(classifies(reason, "contact", independent) for reason in ordinary["reasons"]))
         return bool(ordinary["ban_reasons"] or any(classifies(reason, "contact", independent) for reason in ordinary["reasons"]))
     raise ConnectionError("消息或规则正在变化，稍后重新核实处罚")
+
+
+def edited_evidence(previous, incoming):
+    updated = copy.deepcopy(incoming)
+    # Telegram edits contain message fields only. A biography is independently
+    # revalidated before enforcement and belongs exclusively to its sender.
+    if ("_sender_profile" in previous and "_sender_profile" not in updated
+            and message_sender(previous).get("id") == message_sender(updated).get("id")):
+        updated["_sender_profile"] = previous["_sender_profile"]
+    return updated
 
 
 async def refresh_message_evidence(session, message, update_id):
@@ -158,5 +182,5 @@ async def refresh_message_evidence(session, message, update_id):
         previous = tuple(evidence.get("version", (old.get("edit_date", old["date"]), bool(old.get("edit_date")), 0)))
         if version >= previous:
             action.payload = {**action.payload, "message_evidence": {
-                **evidence, "message": copy.deepcopy(message), "version": list(version),
+                **evidence, "message": edited_evidence(old, message), "version": list(version),
             }}

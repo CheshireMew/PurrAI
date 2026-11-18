@@ -1,28 +1,11 @@
 """Data-driven text policy evaluation shared by moderation and chat exclusion."""
 
-import copy
-import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib.resources import files
 
+from purrai.installation_defaults import default_business_rules, seed_document
 from purrai.text_matching import normalize
-
-
-@lru_cache(maxsize=1)
-def seed_document():
-    # An installation seed, never merged over a saved policy or used as a fallback
-    # for a disabled/deleted rule. Database copies are independently editable.
-    return json.loads(files("purrai").joinpath("assets/business_rules.v2.json").read_text(encoding="utf-8"))
-
-
-def default_business_rules():
-    from purrai.recognition_policy import default_recognition
-
-    from purrai.reason_policy import default_reason_policy
-
-    return {**copy.deepcopy(seed_document()), "recognition": default_recognition(), "reason_policy": default_reason_policy()}
 
 
 class RuleSet(list):

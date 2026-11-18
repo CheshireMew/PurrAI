@@ -17,6 +17,7 @@ class ActionPolicySpec:
 VERIFICATION = ActionPolicySpec(True, True, exemption="verification")
 MODERATION = ActionPolicySpec(True, True, True, "moderation")
 ACTION_POLICIES = {
+    "channel_ad_ban": MODERATION,
     "identity_check": MODERATION,
     "verify_mute": VERIFICATION,
     "challenge": VERIFICATION,

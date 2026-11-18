@@ -86,7 +86,8 @@ async def test_anonymous_image_request_keeps_unavailable_image_behavior(env):
 
 @pytest.mark.parametrize("text", ["@purrai_bot 来个跑分兼职，私聊我", "@other_bot /start 123", "/help"])
 async def test_anonymous_messages_still_follow_advertising_and_command_filters(env, text):
-    chat, model = await configured(env)
+    # Command exclusions come from saved configuration, not a hidden slash rule.
+    chat, model = await configured(env, chat_ignored_texts=["/help"])
     await chat.observe(anonymous(1, text))
     assert not await chat.run_one() and model.calls == []
     await chat.close()

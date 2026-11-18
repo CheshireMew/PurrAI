@@ -7,6 +7,7 @@ export interface GroupSettings {
   ai_ad_window_hours: number
   ai_ad_limit: number
   ai_ad_penalty: "delete" | "permanent_mute"
+  channel_ad_penalty: "delete" | "ban"
   spam_mute_seconds: number
   media_newcomer_days: number
   learned_target_penalty: "delete" | "permanent_mute" | "ban"

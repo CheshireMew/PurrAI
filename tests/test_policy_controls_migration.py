@@ -10,6 +10,44 @@ from sqlalchemy import MetaData, create_engine, insert
 from purrai.models import Action, Group, Meta, Rule
 
 
+def test_review_upgrade_repairs_existing_corrections_and_preserves_points_receipts(tmp_path):
+    from purrai.models import AdvertisementSample, PointsAccount, PointsEntry, Violation
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "review-consistency.sqlite3"
+    env = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
+
+    def upgrade(target):
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], cwd=root, env=env, check=True)
+
+    upgrade("0035")
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as conn:
+        conn.execute(insert(Group).values(id=-2002))
+        conn.execute(insert(Violation).values(id="corrected", group_id=-2002, user_id=43, message_id=11))
+        conn.execute(insert(AdvertisementSample).values(id="s", group_id=-2002, text="独立样本",
+            source="model", source_key="review:s", violation_id="corrected", enabled=True, version=3))
+        conn.execute(insert(Meta), [
+            {"key": "violation-correction:corrected", "value": "{}"},
+            {"key": "ai_advertising:-2002:43", "value": json.dumps({"messages": [{"id": 11}, {"id": 12}]})}])
+        conn.execute(insert(PointsAccount).values(id="account", group_id=-2002, source_key="legacy", display_name="用户", balance=4))
+        for key, kind, origin, intent in [
+            ("chat:15", "chat", -1001, {}), ("admin-adjust:16", "adjustment", -2002, {"delta": 1}),
+            ("admin-adjust:17", "adjustment", -2002, {"kind": "adjustment"})]:
+            conn.execute(insert(PointsEntry).values(group_id=-2002, account_id="account", kind=kind, delta=1,
+                balance_after=4, reason="测试", actor_id=1, request_id=key, result={"group_id": origin}, intent=intent))
+    engine.dispose()
+    upgrade("head")
+    with sqlite3.connect(database) as conn:
+        assert conn.execute("SELECT enabled, version FROM advertisement_samples").fetchone() == (0, 4)
+        assert json.loads(conn.execute("SELECT value FROM meta WHERE key='ai_advertising:-2002:43'").fetchone()[0]) == {
+            "messages": [{"id": 12}]}
+        assert {r[0] for r in conn.execute("SELECT request_id FROM points_entries")} == {
+            "chat:-1001:15", "admin-adjust:-2002:16", "admin-adjust:17"}
+        assert conn.execute("SELECT balance FROM points_accounts").fetchone() == (4,)
+        assert "local_after" in {r[1] for r in conn.execute("PRAGMA table_info(advertisement_reviews)")}
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_policy_upgrade_preserves_edits_and_exposes_previous_implicit_actions(tmp_path):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "policy.sqlite3"

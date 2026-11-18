@@ -62,11 +62,10 @@ def test_keyword_auto_reply_migration_keeps_existing_data(tmp_path):
     upgrade("0026")
     with sqlite3.connect(database) as connection:
         before = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
-    upgrade("head")
+    upgrade("0027")
     with sqlite3.connect(database) as connection:
         after = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
-        assert after[1:] == before[1:]
-        assert json.loads(after[0]) == {**json.loads(before[0]), "verification_method": "image", "verification_channel": ""}
+        assert after == before
         assert connection.execute("SELECT count(*) FROM auto_replies").fetchone()[0] == 0
         columns = {row[1] for row in connection.execute("PRAGMA table_info(auto_replies)")}
         assert columns == {"id", "group_id", "keyword", "reply", "mode", "enabled", "priority", "cooldown_seconds",
@@ -75,7 +74,6 @@ def test_keyword_auto_reply_migration_keeps_existing_data(tmp_path):
 
 
 def test_business_policy_migration_preserves_existing_rules_and_does_not_reseed_edits(tmp_path):
-    from purrai.business_rules import default_business_rules
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "business-policy.sqlite3"
     environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{database}"}
@@ -90,19 +88,26 @@ def test_business_policy_migration_preserves_existing_rules_and_does_not_reseed_
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE shared_policy SET rules=? WHERE id=1", (json.dumps(original_rules),))
         original_settings = connection.execute("SELECT settings FROM shared_policy WHERE id=1").fetchone()[0]
-    upgrade("head")
+    upgrade("0026")
     with sqlite3.connect(database) as connection:
         settings, rules, business = connection.execute("SELECT settings,rules,business_rules FROM shared_policy WHERE id=1").fetchone()
-        assert json.loads(settings) == {**json.loads(original_settings), "verification_method": "image", "verification_channel": ""}
+        assert settings == original_settings
         assert json.loads(rules) == original_rules
-        assert json.loads(business) == default_business_rules()
+        assert json.loads(business) == json.loads((root / "src/purrai/assets/business_rules.v1.json").read_text(encoding="utf-8"))
         document = json.loads(business)
         for stage in document["stages"]:
             stage["rules"] = []
         connection.execute("UPDATE shared_policy SET business_rules=? WHERE id=1", (json.dumps(document),))
     upgrade("head")
     with sqlite3.connect(database) as connection:
-        assert json.loads(connection.execute("SELECT business_rules FROM shared_policy WHERE id=1").fetchone()[0]) == document
+        upgraded = json.loads(connection.execute("SELECT business_rules FROM shared_policy WHERE id=1").fetchone()[0])
+        assert upgraded["stages"] == document["stages"]
+        assert upgraded["views"] == document["views"]
+        rules = json.loads(connection.execute("SELECT rules FROM shared_policy WHERE id=1").fetchone()[0])
+        assert rules == [{**original_rules[0], "name_penalty": "permanent_mute"}]
+    upgrade("head")
+    with sqlite3.connect(database) as connection:
+        assert json.loads(connection.execute("SELECT business_rules FROM shared_policy WHERE id=1").fetchone()[0]) == upgraded
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 

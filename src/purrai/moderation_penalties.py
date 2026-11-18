@@ -33,6 +33,10 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
     rule_evidence = {"text": text, "urls": urls, "sender_name": violation.sender_name, "bio": biography(message or {})}
     message_evidence = {"message_evidence": evidence} if evidence and (
         BUTTON_REASON in violation.reasons or evidence.get("check_message_rules") or evidence.get("bio_dependent")) else {}
+    if violation.sender_chat and evidence:
+        message_evidence["channel_evidence"] = {"sender_chat_id": violation.user_id}
+        if evidence.get("links"):
+            message_evidence["message_evidence"] = evidence
     identifiers = []
     if violation.message_violation:
         action = await enqueue(
@@ -52,6 +56,12 @@ async def apply_penalty(session, group, violation, member, actor_id=None, reason
         identifiers.append(action.id)
     contact = any(classifies(item, "contact", rules, violation.reason_details) for item in violation.reasons)
     advertising = any(classifies(item, "ban", rules, violation.reason_details) for item in violation.reasons)
+    if violation.sender_chat and evidence and (contact or advertising or violation.rule_mute or violation.profile_violation):
+        from purrai.channel_moderation import queue_ban
+        action = await queue_ban(session, group, violation.user_id, f"channel-ban:{violation.id}",
+            {"message_id": violation.message_id, "violation_id": violation.id, "message_evidence": evidence})
+        if action:
+            identifiers.append(action.id)
     if (contact or advertising) and not violation.sender_chat:
         if member is None:
             member = Member(group_id=group.id, user_id=violation.user_id, joined_at=0)

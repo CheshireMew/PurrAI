@@ -110,7 +110,9 @@ def domain_matches(host: str, configured: str) -> bool:
 def message_content(message: dict) -> tuple[str, list[str]]:
     text = message.get("text") or message.get("caption") or ""
     entities = message.get("entities") or message.get("caption_entities") or []
-    urls = re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", text, re.I)
+    # Keep the original text for UTF-16 entity offsets and case-sensitive paths.
+    visible = "".join(c for c in unicodedata.normalize("NFKC", text) if unicodedata.category(c) != "Cf")
+    urls = re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", visible, re.I)
     for entity in entities:
         if entity["type"] == "text_link":
             urls.append(entity.get("url", ""))
@@ -118,4 +120,6 @@ def message_content(message: dict) -> tuple[str, list[str]]:
             encoded = text.encode("utf-16-le")
             start = entity["offset"] * 2
             urls.append(encoded[start : start + entity["length"] * 2].decode("utf-16-le", errors="ignore"))
-    return text, [u.rstrip(".,，。!?！？)") for u in urls if u]
+    from purrai.message_buttons import inline_buttons
+    urls.extend(button["url"] for button in inline_buttons(message) if isinstance(button["url"], str))
+    return text, list(dict.fromkeys(u.rstrip(".,，。!?！？)") for u in urls if u))

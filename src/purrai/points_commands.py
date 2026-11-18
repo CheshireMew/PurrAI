@@ -49,7 +49,7 @@ async def adjust_from_reply(call, session, action, group, policy, kind, argument
     if account is None:
         account = await user_account(session, group.id, target)
     message = action.payload["message"]
-    result = await credit(session, account, amount, f"admin-adjust:{message['message_id']}", "adjustment",
+    result = await credit(session, account, amount, f"admin-adjust:{group.id}:{message['message_id']}", "adjustment",
         f"管理员回复调整积分；指令消息 {message['message_id']}；目标消息 {message['reply_to_message']['message_id']}",
         action.user_id)
     return f"{sender_name(target)}：{amount:+d} 积分，当前 {result['balance']} 积分。"

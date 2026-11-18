@@ -22,6 +22,21 @@ class TelegramLink:
         return f"{self.kind}:{self.target}" + (f"/{self.post}" if self.post else "")
 
 
+def channel_username(value):
+    value = value.strip().rstrip("。")
+    if not value:
+        return ""
+    if value.startswith(("https://", "http://")):
+        parsed = urlsplit(value)
+        if parsed.hostname not in ("t.me", "telegram.me") or parsed.query or parsed.fragment:
+            raise ValueError("请填写公开频道的 @用户名或 t.me 链接")
+        value = parsed.path.strip("/")
+    value = value.removeprefix("@")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", value):
+        raise ValueError("请填写公开频道的 @用户名或 t.me 链接")
+    return "@" + value
+
+
 def parse_link(value):
     value = "".join(char for char in unicodedata.normalize("NFKC", value) if unicodedata.category(char) != "Cf")
     try:

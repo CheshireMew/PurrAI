@@ -38,7 +38,7 @@ class BotCommands:
             "/release",
             "/reissue",
         }
-        if not private and (command not in commands or command == "/start"):
+        if not private and command not in commands:
             return False
         addressed = text.split(maxsplit=1)[0] if text else ""
         if (
@@ -46,6 +46,8 @@ class BotCommands:
             and addressed.split("@", 1)[1].lower() != getattr(self.tg, "username", "").lower()
         ):
             return False
+        if not private and command == "/start":
+            return True
         chat_id = message["chat"]["id"]
         request_id = f"tg-message:{chat_id}:{message['message_id']}"
         try:

@@ -49,7 +49,7 @@ async def daily_record(session, group_id, user_id, timestamp):
 async def earn(session, account, policy, message, kind):
     timestamp = message["date"]
     daily = await daily_record(session, account.group_id, account.user_id, timestamp)
-    key = f"{kind}:{account.user_id}:{daily.day}" if kind == "signin" else f"chat:{message['message_id']}"
+    key = f"{kind}:{account.user_id}:{daily.day}" if kind == "signin" else f"chat:{account.group_id}:{message['message_id']}"
     if kind == "signin":
         if daily.signed:
             return f"今天已经签到啦，当前 {account.balance} 积分。"

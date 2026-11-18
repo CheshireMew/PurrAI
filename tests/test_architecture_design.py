@@ -58,9 +58,10 @@ def test_domain_modules_do_not_depend_on_application_facades():
     allowed = {"service": {"app"}, "management": {"runtime", "cli"}, "bot_admin": {"runtime"}}
     for facade, callers in allowed.items():
         assert {name for name, imports in graph.items() if facade in imports} <= callers
-    assert graph["schemas"] == {"pack_names", "telegram_links"}
+    assert graph["schemas"] == {"installation_defaults", "pack_names", "telegram_links"}
     assert graph["telegram_links"] == set()  # Pure URL validation, independent of storage and services.
-    assert graph["pack_names"] == set()
+    assert graph["pack_names"] == {"installation_defaults"}
+    assert graph["installation_defaults"] == set()  # Pack and group defaults only read packaged data.
     assert graph["serialization"] == set()
 
 

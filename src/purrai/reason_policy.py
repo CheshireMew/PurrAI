@@ -1,13 +1,12 @@
 """Editable recognition of stored verdict labels, separate from explicit actions."""
 import copy
-import json
-from functools import lru_cache
-from importlib.resources import files
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import false, or_
 
+from purrai.business_rules import RuleSet
+from purrai.installation_defaults import reason_policy_seed
 from purrai.recognition_policy import Entry
 
 
@@ -36,20 +35,12 @@ class ReasonPolicy(BaseModel):
         return self
 
 
-
-@lru_cache(maxsize=1)
-def _seed():
-    return json.loads(files("purrai").joinpath("assets/reason_policy.v1.json").read_text(encoding="utf-8"))
-
-
 def default_reason_policy():
-    return copy.deepcopy(_seed())
+    return copy.deepcopy(reason_policy_seed())
 
 
 def configuration(rules=None):
-    from purrai.business_rules import RuleSet
-
-    return rules.business.get("reason_policy", {}) if isinstance(rules, RuleSet) else _seed()
+    return rules.business.get("reason_policy", {}) if isinstance(rules, RuleSet) else reason_policy_seed()
 
 
 def matches(reason, category, rules=None):

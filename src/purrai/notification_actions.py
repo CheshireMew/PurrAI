@@ -64,10 +64,13 @@ class NotificationActions:
         for source in sources[:20]:
             if source:
                 target = f" · 用户 {source.user_id}" if source.user_id is not None else ""
+                reason = source.error
+                if not reason and source.payload.get("outcome") == "already_restricted":
+                    reason = "已有相同或更严格的禁言，保留当前成员权限"
                 lines.append(
                     f"{OPERATIONS.get(source.kind, source.kind)}{target}："
                     f"{STATE.get(source.state, source.state)}"
-                    + (f"\n原因：{source.error}" if source.error else "")
+                    + (f"\n原因：{reason}" if reason else "")
                 )
                 if source.kind == "join_link" and source.state == "succeeded":
                     lines.append(source.payload.get("invite_link", ""))

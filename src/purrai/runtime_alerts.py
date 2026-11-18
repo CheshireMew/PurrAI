@@ -58,6 +58,12 @@ class RuntimeAlerts:
     def __init__(self, db, settings, runtime_status=None):
         self.db, self.settings, self.runtime_status = db, settings, runtime_status
 
+    async def restore_telegram_health(self, health):
+        async with self.db.sessions() as session:
+            saved = await session.get(Meta, "telegram-health")
+            if saved:
+                health.restore(json.loads(saved.value))
+
     async def cycle(self):
         from purrai.archive import archive_bytes
         async with self.db.transaction() as session:

@@ -431,14 +431,14 @@ async def test_bot_emergency_and_backup_plan_only_commit_after_confirmation(env)
 
 
 async def test_bot_common_settings_and_rule_edits_use_shared_policy(env):
-    from test_bot_admin import click, deliver, private
+    from test_bot_admin import click, click_paged, deliver, private
     _, db, tg, service = env
     runtime = Runtime(db, tg, service)
     try:
         await deliver(runtime, {'message': private('/admin')})
         await click(runtime, tg, '通用设置与规则')
         await click(runtime, tg, '通用群设置')
-        await click(runtime, tg, '群聊天：')
+        await click_paged(runtime, tg, '群聊天：')
         await click(runtime, tg, '改为开启')
         async with db.sessions() as session:
             assert (await session.get(Group, -1001)).settings['chat_enabled']

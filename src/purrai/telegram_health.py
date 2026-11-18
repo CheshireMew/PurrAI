@@ -18,6 +18,7 @@ METHOD_LABELS = {
     "get_chat_member": "查询成员身份和权限", "send_message": "发送文字消息", "send_photo": "发送图片",
     "delete_message": "删除消息", "restrict_chat_member": "修改成员发言权限",
     "ban_chat_member": "封禁成员", "unban_chat_member": "解除成员封禁",
+    "ban_chat_sender_chat": "封禁频道发言", "unban_chat_sender_chat": "解除频道发言封禁",
     "edit_message_reply_markup": "更新消息按钮或核对原消息", "edit_message_text": "更新消息文字",
 }
 

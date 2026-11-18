@@ -38,6 +38,66 @@ async def balance(db, user_id=42):
         return await session.scalar(select(PointsAccount.balance).where(PointsAccount.user_id == user_id))
 
 
+@pytest.mark.parametrize("advertisement", [True, False])
+async def test_chat_reward_waits_for_independent_ad_review(client, env, advertisement):
+    from test_advertisement_review import reviewer
+    _, db, tg, service = env
+    await configure(client)
+    worker, _ = await reviewer(env, lambda _: advertisement)
+    runtime = Runtime(db, tg, service)
+    await runtime.events.message(Message.model_validate(user_message(81, "一起看海边日落")))
+    await flush(service, db)
+    assert not await balance(db)
+    async with db.transaction() as session:
+        reward = await session.scalar(select(Action).where(Action.kind == "points_message"))
+        reward.payload = {**reward.payload, "expires_at": now() - 1}
+    assert await worker.run_one()
+    await drain(service)
+    assert (await balance(db) or 0) == (0 if advertisement else 1)
+    assert any(method == "delete_message" for method, _ in tg.calls) == advertisement
+    await runtime.stop()
+
+
+@pytest.mark.parametrize("learned_late", [False, True])
+async def test_local_only_review_settles_reward_once_window_closes(client, env, monkeypatch, learned_late):
+    from purrai import advertisement_review
+    from test_advertisement_review import add_sample
+    _, db, tg, service = env
+    await configure(client)
+    runtime = Runtime(db, tg, service)
+    msg = user_message(82, "这是一条可独立核对来源的测试发言内容")
+    await runtime.events.message(Message.model_validate(msg))
+    await flush(service, db)
+    assert not await balance(db)
+    if learned_late:
+        await add_sample(env, msg["text"])
+    monkeypatch.setattr(advertisement_review, "now", lambda: msg["date"] + 47 * 3600 + 1)
+    assert await service.advertisement_review.run_one()
+    await drain(service)
+    assert (await balance(db) or 0) == (0 if learned_late else 1)
+    assert not any(method == "delete_message" for method, _ in tg.calls)
+    await runtime.stop()
+
+
+async def test_supergroup_reused_message_number_earns_separately(client, env):
+    from purrai.group_migration import receive_migration
+    _, db, tg, service = env
+    await configure(client)
+    bot = PointsBot(db, tg)
+    await bot.observe(user_message(15, "第一次合格发言"))
+    await flush(service, db)
+    async with db.transaction() as session:
+        assert await receive_migration(session, {"message": {"chat": {"id": -1001}, "migrate_to_chat_id": -2002}})
+    new = user_message(15, "新群合格发言", user_id=43, chat={"id": -2002, "type": "supergroup"})
+    for _ in range(2):
+        await bot.observe(new)
+        await flush(service, db)
+    assert await balance(db, 42) == await balance(db, 43) == 1
+    async with db.sessions() as session:
+        keys = set(await session.scalars(select(PointsEntry.request_id).where(PointsEntry.group_id == -2002)))
+        assert keys == {"chat:-1001:15", "chat:-2002:15"}
+
+
 async def test_real_events_signin_alias_query_rank_and_replay(client, env):
     _, db, tg, service = env
     await configure(client)

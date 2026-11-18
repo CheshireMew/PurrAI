@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_va
 from purrai.pack_names import DEFAULT_BLOCKED_PACKS, emoji_pack_name as pack_name
 from purrai.pack_names import DEFAULT_ANTIFRAUD_PACKS, DEFAULT_CHAT_PACKS, sticker_pack_name
 from purrai.installation_defaults import initial_list
+from purrai.telegram_links import channel_username
 
 
 class GroupSettings(BaseModel):
@@ -14,6 +15,7 @@ class GroupSettings(BaseModel):
     ai_ad_window_hours: int = Field(default=72, ge=1, le=720, title="AI广告累计窗口（小时）")
     ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")
     ai_ad_penalty: Literal["delete", "permanent_mute"] = Field(default="permanent_mute", title="AI广告累计处理")
+    channel_ad_penalty: Literal["delete", "ban"] = Field(default="ban", title="频道身份广告处理")
     spam_mute_seconds: int = Field(default=1800, ge=30, le=2592000, title="刷屏禁言秒数")
     media_newcomer_days: int = Field(default=15, ge=0, le=365, title="发图门槛适用天数")
     learned_target_penalty: Literal["delete", "permanent_mute", "ban"] = Field(default="ban", title="新学习推广目标的处理")
@@ -95,7 +97,6 @@ class GroupSettings(BaseModel):
     @field_validator("verification_channel")
     @classmethod
     def normalize_verification_channel(cls, value):
-        from purrai.verification_prompts import channel_username
         return channel_username(value)
     # Legacy key retained for explicit manual bans and join-request retry intervals.
     failure_ban_seconds: int = Field(default=600, ge=30, le=86400)
