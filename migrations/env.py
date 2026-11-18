@@ -1,6 +1,7 @@
 import asyncio
 
 from alembic import context
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from purrai.config import Settings
@@ -10,6 +11,18 @@ config = context.config
 
 
 def run(connection):
+    fresh = not inspect(connection).get_table_names() and context.get_revision_argument() == context.get_head_revision()
+    connection.commit()
+    if fresh:
+        from purrai.public_policy import install
+
+        # SQLite otherwise defers BEGIN past DDL. Keep a failed first installation retryable.
+        with connection.begin():
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            context.configure(connection=connection, target_metadata=Base.metadata, render_as_batch=True)
+            context.run_migrations()
+            install(connection)
+        return
     context.configure(connection=connection, target_metadata=Base.metadata, render_as_batch=True)
     with context.begin_transaction():
         context.run_migrations()

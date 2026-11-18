@@ -12,6 +12,7 @@ def main():
     from purrai.points_cli import add_points_parser, run_points
     add_points_parser(sub)
     sub.add_parser("init-db", help="执行数据库迁移")
+    sub.add_parser("export-public-policy", help="以 UTF-8 JSON 导出可分发的通用防广告配置")
     run = sub.add_parser("run", help="以单 worker 启动后台和机器人")
     run.add_argument("--host")
     run.add_argument("--port", type=int)
@@ -27,6 +28,14 @@ def main():
     settings = Settings()
     if args.command == "points":
         run_points(args, settings)
+    elif args.command == "export-public-policy":
+        import json
+        import sys
+        from sqlalchemy.engine import make_url
+        from purrai.public_policy import export_public
+
+        profile = export_public(make_url(settings.database_url).database)
+        sys.stdout.buffer.write((json.dumps(profile, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     elif args.command == "init-db":
         from alembic import command
         from alembic.config import Config

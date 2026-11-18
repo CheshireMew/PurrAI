@@ -12,7 +12,7 @@ const editing = ref<any>(null), editor = ref(false), preview = ref<any>(null), p
 const previewScope = ref('text')
 const form = reactive({ text: '', sender_name: '', scope: 'text', enabled: true, reason: '' })
 const stateLabels: Record<string, string> = { pending: '等待审核', requesting: '正在审核', clean: '非广告', advertisement: 'AI确认广告', matched: '本地样本命中', handled: '规则已处理', ignored: '功能口令或空正文', failed: '审核失败', cancelled: '已取消', superseded: '消息已编辑', exempt: '已豁免' }
-const scopeLabels: Record<string, string> = { text: '正文可独立判断', bio: '简介可独立判断', context: '需结合资料或上下文' }
+const scopeLabels: Record<string, string> = { text: '正文可独立判断', bio: '简介参考', context: '需结合资料或上下文' }
 const sourceLabels: Record<string, string> = { model: 'AI确认', manual: '管理员确认', history: '历史判定' }
 const base = () => `/api/groups/${props.groupId}`
 async function safe(work: () => Promise<void>) {
@@ -124,7 +124,7 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
     <el-form label-position="top">
       <el-form-item label="广告内容"><el-input v-model="form.text" type="textarea" :rows="5" :maxlength="4096" aria-label="广告内容"/></el-form-item>
       <el-form-item label="发送者昵称（可选）"><el-input v-model="form.sender_name" :maxlength="500"/></el-form-item>
-      <el-form-item label="判定依据"><el-select v-model="form.scope" aria-label="样本判定依据"><el-option label="正文自身就是广告，可用于正文匹配" value="text"/><el-option label="简介自身就是广告，可用于简介匹配" value="bio"/><el-option label="依赖资料或上下文，仅保留判定" value="context"/></el-select></el-form-item>
+      <el-form-item label="判定依据"><el-select v-model="form.scope" aria-label="样本判定依据"><el-option label="正文自身就是广告，可用于正文匹配" value="text"/><el-option label="简介参考，不能单独处罚" value="bio"/><el-option label="依赖资料或上下文，仅保留判定" value="context"/></el-select></el-form-item>
       <el-form-item label="确认或修改原因"><el-input v-model="form.reason" :maxlength="500" aria-label="确认或修改原因"/></el-form-item>
       <el-form-item label="启用"><el-switch v-model="form.enabled" aria-label="启用广告样本"/></el-form-item>
     </el-form>

@@ -108,7 +108,7 @@ Management access follows the current Telegram administrator identity. Group own
 | Join verification | 180 seconds and up to 3 wrong answers; a wrong answer creates a new challenge without extending the deadline; saved choices survive restarts |
 | Failed verification | Permanent mute while remaining in the group; configurable to removal with rejoining allowed. Failed join requests are declined with a 10-minute retry interval |
 | Name or username violation | Permanent mute on joining; a violating message is also deleted when the member speaks |
-| Text, link, or flooding violation | Deletes the message by default; individual keyword rules can also permanently mute the sender; rule lists start empty |
+| Text, link, or flooding violation | Fresh installations load the public moderation policy, including keywords, message emoji packs, domain rules and their actions. Administrators can edit, disable or clear them |
 | Clear solicitations and external group links | Deletes and permanently bans confirmed group links, external private invites and explicit trading solicitations; excludes known own-group and allowed links, with separate report handling |
 | Sharing a contact card | Deletes the message and permanently bans ordinary members regardless of membership age; rejoining is prohibited |
 | New-member observation | Three days and the first three messages; links, @accounts or groups, user/channel forwards are deleted; wallet and token-contract addresses are blocked independently for all ordinary members |

@@ -11,6 +11,9 @@ from functools import lru_cache
 from purrai.text_matching import normalize
 
 
+BODY_SAMPLE = "text"
+
+
 @lru_cache(maxsize=4096)
 def features(value):
     value = normalize(value)
@@ -44,7 +47,7 @@ def compare(value, sample, minimum_length=14, minimum_sample_coverage=0.55):
             "direct": not additions and sample_coverage >= minimum_sample_coverage and not quoted(value)}
 
 
-def rank(value, samples, settings, *, context_sensitive=False, scope="text"):
+def rank(value, samples, settings, *, context_sensitive=False, scope=BODY_SAMPLE):
     if not settings.similarity_enabled:
         return None
     best = None
@@ -53,7 +56,8 @@ def rank(value, samples, settings, *, context_sensitive=False, scope="text"):
             continue
         result = compare(value, sample.text, settings.minimum_length, settings.minimum_sample_coverage)
         result.update(sample_id=sample.id, sample_version=sample.version,
-                      matched=result["direct"] and not context_sensitive and result["score"] >= settings.threshold)
+                      matched=scope == BODY_SAMPLE and result["direct"] and not context_sensitive
+                      and result["score"] >= settings.threshold)
         if best is None or (result["matched"], result["score"]) > (best["matched"], best["score"]):
             best = result
     return best

@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from conftest import drain, join, message
 from purrai import sender_profile
-from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Group, Member, Rule, SharedPolicy, Verification, now
+from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Group, Member, Rule, Verification, now
 from purrai.rules import assess
 from purrai.shared_policy import effective_rules
 from test_advertisement_review import records
@@ -29,26 +29,17 @@ def profiles(tg, values):
     tg.call = call
 
 
-@pytest.mark.parametrize("still_matches", [False, True])
-async def test_join_profile_recheck_and_verification_share_the_same_join(env, still_matches):
+async def test_join_does_not_read_biography_or_interfere_with_verification(env):
     _, db, tg, service = env
-    values = {42: "可替换的资料词"}
-    profiles(tg, values)
+    profiles(tg, {42: "可替换的资料词"})
     async with db.transaction() as session:
-        session.add(Rule(group_id=-1001, kind="keyword", value=values[42], scope="bio", penalty="permanent_mute"))
+        session.add(Rule(group_id=-1001, kind="keyword", value="可替换的资料词", scope="bio", penalty="permanent_mute"))
     await service.member_event(join())
-    if not still_matches:
-        values[42] = ""
     await drain(service)
     verification, = await records(db, Verification)
-    actions = {row.kind: row.state for row in await records(db, Action)}
-    if still_matches:
-        assert actions["profile_mute"] == "succeeded"
-        assert verification.state == "failed"
-    else:
-        assert actions["profile_mute"] == "cancelled"
-        assert verification.state == "pending" and verification.message_id
-        assert actions["verify_mute"] == "succeeded"
+    assert verification.state == "pending" and verification.message_id
+    assert not any(method == "get_chat" and data.get("chat_id") == 42 for method, data in tg.calls)
+    assert not [row for row in await records(db, Action) if row.kind == "profile_mute"]
 
 
 @pytest.mark.parametrize("still_matches", [False, True])
@@ -77,8 +68,11 @@ class BioModel:
     async def completion(self, system, payload, **kwargs):
         rows = json.loads(payload)["messages"]
         self.calls.append(rows)
+        if all("bio" not in row for row in rows):
+            return {"decisions": [{"id": row["id"], "quote": row["text"] if row["text"].startswith("来我主页") else ""}
+                                  for row in rows]}, 50
         return {"decisions": [{"id": row["id"], "advertisement": bool(row.get("bio")),
-                               "scope": "bio" if row.get("bio") else "text", "reason": "测试独立资料判定"}
+                               "scope": "context" if row.get("bio") else "text", "reason": "测试独立资料判定"}
                               for row in rows]}, 100
 
     async def close(self):
@@ -192,46 +186,47 @@ async def test_bio_samples_are_managed_separately_from_body_samples(client):
     assert response.status_code == 200, response.text
     row = response.json()
     assert (await client.post(path + '/preview', json={'text': text, 'scope': 'text'})).json()['action'] == 'review'
-    assert (await client.post(path + '/preview', json={'text': text, 'scope': 'bio'})).json()['action'] == 'delete'
+    assert (await client.post(path + '/preview', json={'text': text, 'scope': 'bio'})).json()['action'] == 'review'
     changed = '另一份完全不同的用户简介文字也能参与匹配'
     response = await client.put(path + '/' + row['id'], json={**data, 'text': changed},
         headers={'Idempotency-Key': 'bio-sample-change', 'If-Match': str(row['version'])})
     assert response.status_code == 200, response.text
     row = response.json()
     assert (await client.post(path + '/preview', json={'text': text, 'scope': 'bio'})).json()['action'] == 'review'
-    assert (await client.post(path + '/preview', json={'text': changed, 'scope': 'bio'})).json()['action'] == 'delete'
+    assert (await client.post(path + '/preview', json={'text': changed, 'scope': 'bio'})).json()['action'] == 'review'
     response = await client.put(path + '/' + row['id'], json={**data, 'text': changed, 'enabled': False},
         headers={'Idempotency-Key': 'bio-sample-disable', 'If-Match': str(row['version'])})
     assert response.status_code == 200, response.text
     assert (await client.post(path + '/preview', json={'text': changed, 'scope': 'bio'})).json()['action'] == 'review'
 
 
-async def test_model_sees_normalized_bio_and_same_sender_history_and_only_learns_bio(env):
+async def test_bio_needs_current_message_evidence_and_cannot_become_a_standalone_sample(env):
     bio = "今年\u200c最新风口/一个月买车/三个月买房/加入我们一起参与"
     values = {42: bio, 43: bio}
     worker, model = await setup(env, values)
     service = env[3]
     await service.message(message(1, "今天才搞90\u20600，兄弟们今天多少"))
     await service.message(message(2, "其他人的普通消息", user_id=44))
-    await service.message(message(3, "干一\u200c天\u200b买苹果18"))
+    await service.message(message(3, "来我主页领取活动资格"))
     assert await worker.run_one()
-    request = next(row for row in model.calls[0] if row['text'] == '干一天买苹果18')
+    request = next(row for row in model.calls[0] if row['text'] == '来我主页领取活动资格')
     assert request['bio'] == '今年最新风口/一个月买车/三个月买房/加入我们一起参与'
     assert [item['message_id'] for item in request['recent_messages']] == [1]
     samples = await records(env[1], AdvertisementSample)
-    assert samples and all(sample.scope == 'bio' and sample.text == bio for sample in samples)
+    assert len(samples) == 1 and samples[0].scope == 'context'
+    assert all('bio' not in item and 'name' not in item for item in model.calls[1])
     await service.message(message(4, "换一个短句", user_id=43))
     reviews = await records(env[1], AdvertisementReview)
-    assert next(row for row in reviews if row.message_id == 4).state == 'matched'
-    assert len(model.calls) == 1
+    assert next(row for row in reviews if row.message_id == 4).state == 'pending'
+    assert await worker.run_one()
     await drain(service)
-    assert {kw['message_id'] for method, kw in env[2].calls if method == 'delete_message'} == {1, 3, 4}
+    assert {kw['message_id'] for method, kw in env[2].calls if method == 'delete_message'} == {3}
 
 
 async def test_changed_bio_cancels_queued_model_penalty(env):
     values = {42: "琥珀星河活动招募欢迎加入我们领取资格 https://example.test/a"}
     worker, _ = await setup(env, values)
-    await env[3].message(message(1, "今天收入不错"))
+    await env[3].message(message(1, "来我主页领取活动资格"))
     assert await worker.run_one()
     values[42] = "现在只记录日常生活"
     await drain(env[3])
@@ -239,27 +234,13 @@ async def test_changed_bio_cancels_queued_model_penalty(env):
     assert all(row.state == 'cancelled' for row in await records(env[1], Action) if row.kind == 'delete')
 
 
-async def test_join_bio_review_uses_real_generation_and_never_deletes_fake_message(env):
-    worker, model = await setup(env, {42: "琥珀星河活动招募欢迎加入我们领取资格"})
-    async with env[1].transaction() as session:
-        group = await session.get(Group, -1001)
-        group.settings = {**group.settings, 'ai_ad_limit': 1, 'enabled': False}
+@pytest.mark.parametrize("bio", ["我的开源项目和交流群 https://example.test", ConnectionError("offline")])
+async def test_join_and_telegram_membership_notice_never_queue_bio_reviews(env, bio):
+    worker, model = await setup(env, {42: bio})
     await env[3].member_event(join(42))
-    assert await worker.run_one()
-    rows = await records(env[1], AdvertisementReview)
-    assert len(rows) == 1 and rows[0].message['_profile_event'] and rows[0].state == 'advertisement'
-    actions = await records(env[1], Action)
-    assert not any(row.kind == 'delete' and row.payload.get('message_id', 0) < 0 for row in actions)
-    assert any(row.kind == 'ai_ad_mute' for row in actions)
-    assert model.calls[0][0]['bio']
-
-
-async def test_unavailable_join_bio_stays_pending_without_spending_model_tokens(env):
-    worker, model = await setup(env, {42: ConnectionError('offline')})
-    await env[3].member_event(join(42))
+    await env[3].message(message(120, "", new_chat_members=[{"id": 42, "first_name": "成员"}]))
     await worker.run_one()
-    rows = await records(env[1], AdvertisementReview)
-    assert rows[0].state == 'pending' and rows[0].available_at > now()
+    assert not await records(env[1], AdvertisementReview)
     assert not model.calls
 
 
@@ -274,34 +255,21 @@ async def test_disabling_bio_stops_fetching_and_does_not_skip_body_review(env):
     assert not any(method == 'get_chat' and kwargs.get('chat_id') == 42 for method, kwargs in env[2].calls)
 
 
-async def test_confirmed_bio_and_local_sample_learn_only_their_own_targets(env):
-    base = '琥珀星河资料活动面向所有成员开放，欢迎加入一起领取参与资格 '
-    values = {42: base + 'https://t.me/+synthetic_invite_A https://allowed.test @self_account',
-              43: base + 'https://t.me/+synthetic_invite_B https://allowed.test @self_account'}
-    worker, model = await setup(env, values)
+async def test_matching_bio_sample_and_personal_invite_cannot_punish_normal_chat(env):
+    bio = "我维护的开源项目和交流群 https://t.me/+synthetic_invite"
+    worker, _ = await setup(env, {42: bio})
     async with env[1].transaction() as session:
+        session.add(AdvertisementSample(group_id=-1001, source_key="old-bio", text=bio, scope="bio",
+                                        reason="历史简介样本", source="manual"))
         group = await session.get(Group, -1001)
-        group.settings = {**group.settings, 'learned_target_penalty': 'delete'}
-        session.add(Rule(group_id=-1001, kind='allow_domain', value='allowed.test'))
-    first = message(1, '我分享的文档 https://unrelated.test/manual')
-    first['from']['username'] = 'self_account'
-    await env[3].message(first)
+        group.settings = {**group.settings, "block_invites": True}
+    await env[3].message(message(1, "谢谢，我已经修好这个问题了"))
     assert await worker.run_one()
-    second = message(2, '另外一条普通正文', user_id=43)
-    second['from']['username'] = 'self_account'
-    await env[3].message(second)
-    reviews = await records(env[1], AdvertisementReview)
-    assert next(row for row in reviews if row.message_id == 2).state == 'matched'
-    assert len(model.calls) == 1
+    await drain(env[3])
+    assert (await records(env[1], AdvertisementReview))[0].state == "clean"
+    assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in env[2].calls)
     async with env[1].sessions() as session:
-        rules = (await session.get(SharedPolicy, 1)).rules
-        targets = [rule for rule in rules if rule['kind'] == 'block_target']
-        assert {rule['value'] for rule in targets} == {'invite:synthetic_invite_A', 'invite:synthetic_invite_B'}
-        assert all(rule['penalty'] == 'delete' for rule in targets)
-        other_rules = await effective_rules(session, -1002)
-        from purrai.promotion_targets import blacklist_reasons
-        assert blacklist_reasons({'text': 'https://t.me/+synthetic_invite_B'}, other_rules)
-        assert assess('正常正文', [], other_rules, group.settings, sender_bio=values[43])['bio_reasons']
+        assert not [r for r in await effective_rules(session, -1001) if r["kind"] == "block_target"]
 
 
 async def test_clean_bio_with_personal_link_does_not_create_a_sample_or_blacklist(env):
@@ -326,7 +294,7 @@ async def test_bio_penalties_recheck_profile_and_settings_after_network_wait(env
     async with env[1].transaction() as session:
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, 'ai_ad_limit': 1}
-    await env[3].message(message(1, '普通正文'))
+    await env[3].message(message(1, '来我主页领取活动资格'))
     assert await worker.run_one()
     assert any(row.kind == 'ai_ad_mute' for row in await records(env[1], Action))
     original = env[2].call
@@ -358,7 +326,7 @@ async def test_bio_ai_keyword_reads_latest_rule_after_profile_lookup(env):
     worker, model = await setup(env, {42: '琥珀星河资料活动欢迎加入一起领取参与资格'})
     async with env[1].transaction() as session:
         session.add(Rule(id='bio-keyword', group_id=-1001, kind='keyword', value='琥珀星河', scope='bio', penalty='ai_confirmed_mute'))
-    await env[3].message(message(1, '普通正文'))
+    await env[3].message(message(1, '来我主页领取活动资格'))
     assert await worker.run_one()
     assert model.calls[0][0]['keyword_hints'][0]['matched_fields'] == ['bio']
     original = env[2].call

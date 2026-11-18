@@ -198,12 +198,12 @@ def assess(
 
 
 def assess_biography(value, rules, settings):
-    # Only biography keywords participate. Domain and target policies apply to
-    # both sources. Evaluate the biography as text, without another biography.
-    selected = with_rules(rules, [{**rule, "scope": "message"} if rule["kind"] == "keyword" else rule
-                                  for rule in rules if rule["kind"] != "keyword" or rule.get("scope") == "bio"])
-    text, urls = message_content({"text": value})
-    result = assess(text, urls, selected, {**settings, "newcomer_wallets": False})
+    # Only a rule deliberately configured for biographies can directly penalize one.
+    selected = with_rules(rules, [{**rule, "scope": "message"} for rule in rules
+                                  if rule["kind"] == "keyword" and rule.get("scope") == "bio"])
+    if not selected:
+        return [], []
+    result = assess(value, [], selected, {**settings, "advertising_ban": False, "newcomer_wallets": False})
     reasons = []
     for reason in result["reasons"] + result["name_reasons"]:
         reasons.append(BusinessReason("用户简介：" + str(reason), getattr(reason, "action", "") or "delete",

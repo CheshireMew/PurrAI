@@ -57,9 +57,6 @@ class Service:
         from purrai.telegram import is_present
         if not bot_event and is_present(event.get("new_chat_member", {})):
             await self.identity_protection.queue(event["chat"]["id"], event["new_chat_member"].get("user"))
-            from purrai.telegram import is_admin
-            if not is_admin(event["new_chat_member"]):
-                await self.advertisement_review.observe_profile(event["chat"]["id"], event["new_chat_member"].get("user"))
         return result
 
     async def message(self, message, edited=False, update_id=0, archived_at_receipt=False):

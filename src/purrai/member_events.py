@@ -64,7 +64,7 @@ class MemberEvents:
             )
         profile = None
         if not bot_event and not is_present(old) and is_present(new) and not is_admin(new):
-            profile = await prepare_message(self.db, {"chat": chat, "from": new["user"], "text": ""}, self.tg)
+            profile = await prepare_message(self.db, {"chat": chat, "from": new["user"], "text": ""})
         async with self.db.transaction() as session:
             group = await session.get(Group, chat["id"])
             if not group:

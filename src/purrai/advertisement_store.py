@@ -78,11 +78,7 @@ async def remember(session, review, *, scope, reason, violation_id=""):
 
 
 async def current(session, review):
-    if review.message.get("_profile_event"):
-        from purrai.models import Member
-        member = await session.get(Member, (review.group_id, review.user_id))
-        return bool(member and member.present and member.generation == review.message["_profile_event"])
-    if review.message_id <= 0:
+    if review.message.get("_profile_event") or review.message_id <= 0:
         return False  # Group upgrades retain old messages under negative historical IDs.
     later = await session.scalar(select(AdvertisementReview.id).where(
         AdvertisementReview.group_id == review.group_id, AdvertisementReview.message_id == review.message_id,
@@ -110,6 +106,8 @@ async def evidence_applies(session, action, group):
     if not group or not group.approved or not group.enabled:
         return False
     if evidence.get("bio_digest"):
+        if not evidence.get("message_evidence"):
+            return False
         from purrai.sender_profile import evidence_current
         if not await evidence_current(session, action, group, evidence["bio_digest"]):
             return False

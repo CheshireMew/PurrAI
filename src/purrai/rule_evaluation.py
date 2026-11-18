@@ -94,6 +94,8 @@ async def message_penalty_applies(session, action, group):
     if not original or not group or not group.enabled:
         return False
     if action.payload["message_evidence"].get("bio_dependent"):
+        if original.get("message_id", 0) <= 0:
+            return False
         from purrai.sender_profile import digest, evidence_current
         if not await evidence_current(session, action, group, digest(original.get("_sender_profile") or {})):
             return False

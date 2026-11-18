@@ -12,6 +12,28 @@ from purrai.models import Action, ArchivedMessage, Fingerprint, Group, Member, M
 from purrai.db import schema_head
 
 
+def test_fresh_install_loads_public_policy_and_existing_install_keeps_edits(tmp_path):
+    from purrai.public_policy import export_public, published
+
+    path = tmp_path / "public.sqlite3"
+    environment = {**os.environ, "PURRAI_DATABASE_URL": f"sqlite+aiosqlite:///{path}", "PYTHONUTF8": "1"}
+
+    def initialize():
+        subprocess.run([sys.executable, "-m", "purrai.cli", "init-db"], env=environment, check=True,
+                       cwd=Path(__file__).resolve().parents[1], capture_output=True, timeout=40)
+
+    initialize()
+    assert export_public(path) == published()
+    with sqlite3.connect(path) as db:
+        rows = json.loads(db.execute("SELECT rules FROM shared_policy").fetchone()[0])
+        assert len({r["id"] for r in rows}) == len(rows)
+        assert any(r["kind"] == "block_emoji_pack" and r["enabled"] for r in rows)
+        db.execute("UPDATE shared_policy SET rules='[]', settings=json_set(settings, '$.repeat_enabled', json('false'))")
+    initialize()
+    saved = export_public(path)
+    assert saved["rules"] == [] and saved["settings"]["repeat_enabled"] is False
+
+
 def test_keyword_meanings_migration_preserves_existing_rules(tmp_path):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "keyword-meanings.sqlite3"

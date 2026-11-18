@@ -3,7 +3,7 @@ import json
 
 from sqlalchemy import func, select
 
-from purrai.advertisement_similarity import rank
+from purrai.advertisement_similarity import BODY_SAMPLE, rank
 from purrai.advertisement_store import policy, rescan_pending, samples
 from purrai.errors import ManagementError
 from purrai.models import AdvertisementPolicy, AdvertisementReview, AdvertisementSample, ArchivedMessage, Meta, Violation, now, uid
@@ -36,7 +36,7 @@ class AdvertisementAdministration:
             items = []
             for row in rows:
                 corrected = bool(row.violation_id and await session.get(Meta, "violation-correction:" + row.violation_id))
-                items.append({**row_dict(row), "corrected": corrected, "usable": row.enabled and row.scope in ("text", "bio") and not corrected})
+                items.append({**row_dict(row), "corrected": corrected, "usable": row.enabled and row.scope == BODY_SAMPLE and not corrected})
             return {"settings": cfg.model_dump(), "version": version, "items": items,
                     "total": await session.scalar(select(func.count()).select_from(AdvertisementSample).where(*conditions)),
                     "reviews": dict(counts), "model_ready": self.context.settings.chat_ready}
