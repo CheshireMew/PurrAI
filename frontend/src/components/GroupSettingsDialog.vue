@@ -197,6 +197,7 @@ async function save() {
 </el-form-item></div>
 <el-form-item label="AI广告累计处理"><el-select v-model="form.ai_ad_penalty" aria-label="AI广告累计处理"><el-option value="delete" label="只删除广告消息"/><el-option value="permanent_mute" label="达到累计次数后永久禁言"/></el-select></el-form-item>
 <el-form-item label="频道身份广告处理"><el-select v-model="form.channel_ad_penalty" aria-label="频道身份广告处理"><el-option value="delete" label="只删除广告消息"/><el-option value="ban" label="删除广告并封禁发言频道"/></el-select></el-form-item>
+<el-form-item label="转发或引用外部频道的处理"><el-select v-model="form.external_channel_penalty" aria-label="转发或引用外部频道的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并踢出封禁"/></el-select></el-form-item>
 <el-form-item label="新学习推广目标的处理"><el-select v-model="form.learned_target_penalty" aria-label="新学习推广目标的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并永久封禁"/></el-select></el-form-item>
 <el-form-item label="忽略纯数字独立开场"><el-switch v-model="form.chat_ignore_numeric_openings" aria-label="忽略纯数字独立开场"/></el-form-item>
 <p class="muted">系统提醒包括处罚通知和发到群里的操作结果。账号冷却和重复聊天时长设为 0 可关闭对应限制；历史已过期的记录不会恢复。</p>

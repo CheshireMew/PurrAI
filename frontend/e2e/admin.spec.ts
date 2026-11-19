@@ -44,6 +44,8 @@ for (const width of [1440, 390]) {
     await input.fill('45'); await input.press('Tab')
     await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: 'AI广告累计处理', exact: true }) }).locator('.el-select__wrapper').click()
     await page.getByRole('option', { name: '只删除广告消息', exact: true }).click()
+    await dialog.locator('.el-select').filter({ has: page.getByRole('combobox', { name: '转发或引用外部频道的处理', exact: true }) }).locator('.el-select__wrapper').click()
+    await page.getByRole('option', { name: '删消息并永久禁言', exact: true }).click()
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy()
     await dialog.getByRole('tab', { name: '群聊天', exact: true }).click()
     for (const [key, value] of Object.entries({ chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })) {
@@ -52,7 +54,7 @@ for (const width of [1440, 390]) {
     }
     const request = page.waitForRequest(r => r.method() === 'PATCH' && r.url().endsWith('/settings'))
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
-    expect((await request).postDataJSON().settings).toMatchObject({ ai_ad_mute_notice: true, notice_seconds: 45, ai_ad_penalty: 'delete', chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })
+    expect((await request).postDataJSON().settings).toMatchObject({ ai_ad_mute_notice: true, notice_seconds: 45, ai_ad_penalty: 'delete', external_channel_penalty: 'permanent_mute', chat_message_max_age_seconds: 300, chat_context_hours: 12, chat_dialogue_seconds: 60, chat_burst_seconds: 20 })
     await expect(dialog).not.toBeVisible()
   })
 

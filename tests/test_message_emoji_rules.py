@@ -22,6 +22,16 @@ async def save(client, pack, previous=None, **changes):
     return response.json()
 
 
+async def test_configured_pack_ban_also_deletes_the_message(env, client, monkeypatch):
+    _, _, tg, service = env
+    await save(client, "arbitrary_banned_pack", penalty="ban")
+    resolve_with(tg, monkeypatch, {"100": "arbitrary_banned_pack"})
+    await service.message(emoji_message())
+    await drain(service)
+    assert any(method == "delete_message" and args["message_id"] == 10 for method, args in tg.calls)
+    assert tg.members[(-1001, 42)] == {"status": "kicked", "until_date": 0}
+
+
 def emoji_message(identifier=10, emoji="100", **kwargs):
     return message(identifier, "🙂", entities=[{"type": "custom_emoji", "offset": 0, "length": 2,
                                               "custom_emoji_id": emoji}], **kwargs)

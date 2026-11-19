@@ -62,7 +62,7 @@ def normalize_target(value):
     return "domain:" + host if "." in host and re.fullmatch(r"[a-z0-9.-]+", host) else ""
 
 
-def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=(), exclude_sender=False):
+def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=(), exclude_sender=False, include_sources=True):
     from purrai.advertising_patterns import authored_text
     from purrai.text_matching import domain, domain_matches, mentions, message_content
     from purrai.telegram_sources import channel_sources
@@ -120,7 +120,7 @@ def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=
                     add(("phone:" if link.target.isdigit() and 7 <= len(link.target) <= 15 else "invite:") + link.target)
         elif host:
             add("url:" + url if host in values(rules, "shortener_domains") else url if host == "wa.me" else "domain:" + host)
-    for source in channel_sources(message):
+    for source in channel_sources(message) if include_sources else ():
         post = str(source.get("post") or "")
         if allowed_link(TelegramLink("private_post", str(source["id"]), post), settings, rules,
                         group_id=group_id) or (source.get("username") and allowed_link(
@@ -160,14 +160,25 @@ def blacklist_reasons(message, rules, *, settings=None, urls=None, evidence=()):
     if not blocked:
         return []
     targets = set(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence))
+    source_only = targets - set(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence, include_sources=False))
     text = message.get("text") or message.get("caption") or ""
     reporting = discussion(text, rules)
     prefix = "举报中引用广告黑名单，仅删除：" if reporting else PREFIX
     from purrai.business_rules import BusinessReason
     return [BusinessReason(prefix + normalize_target(rule["value"]),
-            "delete" if reporting else {"delete": "delete", "permanent_mute": "mute", "ban": "ban"}[rule.get("penalty", "ban")],
+            "delete" if reporting else {"delete": "delete", "permanent_mute": "mute", "ban": "ban"}[
+                source_penalty(rule.get("penalty", "ban"), settings) if normalize_target(rule["value"]) in source_only else rule.get("penalty", "ban")],
             rule.get("id", ""))
             for rule in blocked if normalize_target(rule["value"]) in targets]
+
+
+def source_penalty(penalty, settings):
+    """A source identity alone cannot upgrade the configured forwarding disposition."""
+    from purrai.schemas import GroupSettings
+
+    cfg = GroupSettings.model_validate(settings or {})
+    rank = {"delete": 0, "permanent_mute": 1, "ban": 2}
+    return min((penalty, cfg.external_channel_penalty), key=rank.get) if cfg.external_group_ban else penalty
 
 
 async def independent_target_rules(session, rules, group_id, message_id):
@@ -216,6 +227,9 @@ async def remember_targets(session, group, violation, evidence):
     observed = advertised_targets(message, rules,
                settings=group.settings, evidence=() if evidence.get("bio_dependent") else evidence.get("links", []),
                exclude_sender=True)
+    direct = set(advertised_targets(message, rules, settings=group.settings,
+                 evidence=() if evidence.get("bio_dependent") else evidence.get("links", []),
+                 exclude_sender=True, include_sources=False))
     # A local target's chosen disposition must not be replaced by a stronger
     # automatically learned global copy of that same target.
     local_targets = {normalize_target(rule["value"]) for rule in rules
@@ -226,7 +240,8 @@ async def remember_targets(session, group, violation, evidence):
     targets = [target for target in observed if target not in existing]
     from purrai.schemas import GroupSettings
     new_rules = [{"id": uid(), "kind": "block_target", "value": target, "mode": "exact",
-                  "scope": "message", "context_value": "", "penalty": GroupSettings.model_validate(group.settings).learned_target_penalty, "enabled": True,
+                  "scope": "message", "context_value": "", "penalty": (GroupSettings.model_validate(group.settings).learned_target_penalty
+                      if target in direct else source_penalty(GroupSettings.model_validate(group.settings).learned_target_penalty, group.settings)), "enabled": True,
                   "origin": "learned", "learned_at": now()}
                  for target in targets]
     if targets:

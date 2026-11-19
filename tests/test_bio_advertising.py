@@ -68,10 +68,8 @@ class BioModel:
     async def completion(self, system, payload, **kwargs):
         rows = json.loads(payload)["messages"]
         self.calls.append(rows)
-        if all("bio" not in row for row in rows):
-            return {"decisions": [{"id": row["id"], "quote": row["text"] if row["text"].startswith("来我主页") else ""}
-                                  for row in rows]}, 50
         return {"decisions": [{"id": row["id"], "advertisement": bool(row.get("bio")),
+                               "message_evidence": row["text"] if row["text"].startswith("来我主页") else "",
                                "scope": "context" if row.get("bio") else "text", "reason": "测试独立资料判定"}
                               for row in rows]}, 100
 
@@ -214,7 +212,7 @@ async def test_bio_needs_current_message_evidence_and_cannot_become_a_standalone
     assert [item['message_id'] for item in request['recent_messages']] == [1]
     samples = await records(env[1], AdvertisementSample)
     assert len(samples) == 1 and samples[0].scope == 'context'
-    assert all('bio' not in item and 'name' not in item for item in model.calls[1])
+    assert len(model.calls) == 1
     await service.message(message(4, "换一个短句", user_id=43))
     reviews = await records(env[1], AdvertisementReview)
     assert next(row for row in reviews if row.message_id == 4).state == 'pending'
@@ -234,7 +232,32 @@ async def test_changed_bio_cancels_queued_model_penalty(env):
     assert all(row.state == 'cancelled' for row in await records(env[1], Action) if row.kind == 'delete')
 
 
-async def test_message_recheck_uses_current_body_keyword_meanings_without_profile_hints(env, client):
+@pytest.mark.parametrize("quote", [None, "", 42, "虚构的引流句子", "只在简介中出现的内容", "只在引用中出现的内容"])
+async def test_single_ad_verdict_without_own_message_quote_cannot_punish_or_learn(env, quote):
+    worker, model = await setup(env, {42: "只在简介中出现的内容"})
+    original = model.completion
+
+    async def unsupported(*args, **kwargs):
+        result, tokens = await original(*args, **kwargs)
+        decision = result["decisions"][0]
+        if quote is None:
+            decision.pop("message_evidence")
+        else:
+            decision["message_evidence"] = quote
+        return result, tokens
+
+    model.completion = unsupported
+    await env[3].message(message(551, "我已经解决了问题，谢谢大家", reply_to_message={
+        "message_id": 550, "from": {"id": 99, "first_name": "其他人"}, "text": "只在引用中出现的内容"}))
+    assert await worker.run_one()
+    assert len(model.calls) == 1
+    review, = await records(env[1], AdvertisementReview)
+    assert review.state == "clean" and not review.result["advertisement"]
+    assert not await records(env[1], AdvertisementSample)
+    assert not await records(env[1], Action)
+
+
+async def test_single_review_receives_current_keyword_meanings_and_profile_but_requires_message_evidence(env, client):
     worker, model = await setup(env, {42: "简介特有词与个人资料"})
     path = "/api/groups/-1001/rules"
     body = {"kind": "keyword", "value": "琥珀星河", "mode": "pinyin", "scope": "either",
@@ -253,12 +276,12 @@ async def test_message_recheck_uses_current_body_keyword_meanings_without_profil
         await env[3].message(incoming)
         before = len(model.calls)
         assert await worker.run_one()
-        first, recheck = model.calls[before:]
-        assert len(first[0]["keyword_hints"]) >= 2
-        assert set(recheck[0]) == {"id", "text", "links", "buttons", "keyword_hints"}
-        assert all(item["matched_fields"] == ["message"] for item in recheck[0]["keyword_hints"])
+        batch, = model.calls[before:]
+        assert batch[0]["name"] == "昵称特有词"
+        assert batch[0]["bio"] == "简介特有词与个人资料"
+        assert len(batch[0]["keyword_hints"]) >= 2
         assert next(row for row in await records(env[1], AdvertisementReview) if row.message_id == identifier).state == "clean"
-        return recheck[0]["keyword_hints"]
+        return [item for item in batch[0]["keyword_hints"] if item["matched_fields"] == ["message"]]
 
     hints = await check(501)
     assert [(item["keyword"], item["meaning"]) for item in hints] == [(body["value"], body["meaning"])]

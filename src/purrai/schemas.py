@@ -16,6 +16,7 @@ class GroupSettings(BaseModel):
     ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")
     ai_ad_penalty: Literal["delete", "permanent_mute"] = Field(default="permanent_mute", title="AI广告累计处理")
     channel_ad_penalty: Literal["delete", "ban"] = Field(default="ban", title="频道身份广告处理")
+    external_channel_penalty: Literal["delete", "permanent_mute", "ban"] = Field(default="ban", title="转发或引用外部频道的处理")
     spam_mute_seconds: int = Field(default=1800, ge=30, le=2592000, title="刷屏禁言秒数")
     media_newcomer_days: int = Field(default=15, ge=0, le=365, title="发图门槛适用天数")
     learned_target_penalty: Literal["delete", "permanent_mute", "ban"] = Field(default="ban", title="新学习推广目标的处理")

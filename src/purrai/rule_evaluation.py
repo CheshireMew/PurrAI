@@ -136,15 +136,16 @@ async def message_penalty_applies(session, action, group):
             continue
         ordinary = result.ordinary
         target_reasons = blacklist_reasons(message, independent, settings=settings)
+        from purrai.group_link_identity import own_channel_id
+        from purrai.telegram_sources import channel_sources, external_channel_reasons
+        if settings.get("external_group_ban", True):
+            target_reasons += external_channel_reasons(channel_sources(message), group.id, settings, independent,
+                                                      linked_channel_id=await own_channel_id(session, group.id))
         if action.user_id and action.user_id < 0:
             from purrai.advertising_guard import link_reasons
-            from purrai.group_link_identity import own_link_keys, own_channel_id
-            from purrai.telegram_sources import channel_sources, external_channel_reasons
+            from purrai.group_link_identity import own_link_keys
             target_reasons += link_reasons(message, group, independent, await own_link_keys(session, group.id),
                                           action.payload["message_evidence"].get("links", []))
-            if settings.get("external_group_ban", True):
-                target_reasons += external_channel_reasons(channel_sources(message), group.id, settings, independent,
-                                                          linked_channel_id=await own_channel_id(session, group.id))
         ordinary["reasons"] += target_reasons
         ordinary["mute_reasons"] += [reason for reason in target_reasons if getattr(reason, "action", "") == "mute"]
         ordinary["ban_reasons"] += [reason for reason in target_reasons if classifies(reason, "ban", independent)]

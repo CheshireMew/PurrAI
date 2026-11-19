@@ -28,6 +28,8 @@ class ReviewModel:
         if self.wait:
             await self.release.wait()
         return {"decisions": [{"id": row["id"], "advertisement": self.decide(row), "scope": "text",
+                               "message_evidence": row["text"] or next(iter(row.get("links", [])), "")
+                               or next((value for button in row.get("buttons", []) for value in button.values()), ""),
                                "reason": "独立审核正文"} for row in rows if row["text"] not in self.omit]}, 100
 
     async def close(self):
@@ -478,6 +480,8 @@ async def test_optional_sample_mute_uses_configured_action(env):
     await service.message(message(1, text))
     await drain(service)
     assert any(method == "restrict_chat_member" and args["until_date"] == 0 for method, args in tg.calls)
+    assert any(method == "delete_message" and args["message_id"] == 1 for method, args in tg.calls)
+    assert not any(method == "ban_chat_member" for method, _ in tg.calls)
     assert len(await records(db, AdvertisementSample)) == 1
 
 

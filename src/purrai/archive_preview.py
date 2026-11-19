@@ -33,7 +33,8 @@ def evaluate_saved(message, settings, rules, newcomer, own_keys, linked, proofs,
     return {"reasons": list(dict.fromkeys(reasons)), "delete_message": bool(reasons),
             "ai_confirmation_required": bool(ai_keyword_rules(message_content(message)[0], rules, profile_name(message_sender(message)))),
             "ban_member": ban and not sender_chat,
-            "mute_member": not sender_chat and not ban and bool(assessment["name_reasons"] or assessment["mute_reasons"])}
+            "mute_member": not sender_chat and not ban and bool(assessment["name_reasons"] or assessment["mute_reasons"]
+                                or any(getattr(reason, "action", "") == "mute" for reason in reasons))}
 
 
 class ArchivePreview:

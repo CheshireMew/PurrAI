@@ -45,6 +45,10 @@ def channel_sources(message):
 
 
 def external_channel_reasons(sources, group_id, settings, rules=(), *, linked_channel_id=0):
+    from purrai.business_rules import BusinessReason
+    from purrai.schemas import GroupSettings
+
+    action = {"delete": "delete", "permanent_mute": "mute", "ban": "ban"}[GroupSettings.model_validate(settings).external_channel_penalty]
     reasons = []
     for source in sources:
         identifier = source.get("id")
@@ -59,5 +63,5 @@ def external_channel_reasons(sources, group_id, settings, rules=(), *, linked_ch
         ):
             continue
         kind = "引用" if source.get("kind") == "reference" else "转发"
-        reasons.append(f"{CHANNEL_PREFIX}{kind}频道 {identifier}" + (f" (@{username})" if username else ""))
+        reasons.append(BusinessReason(f"{CHANNEL_PREFIX}{kind}频道 {identifier}" + (f" (@{username})" if username else ""), action))
     return list(dict.fromkeys(reasons))

@@ -183,7 +183,8 @@ class Moderation:
                     linked_channel_id=await own_channel_id(session, group_id),
                 )
                 profile["reasons"] += channel_reasons
-                profile["ban_reasons"] += channel_reasons
+                profile["mute_reasons"] += [item for item in channel_reasons if item.action == "mute"]
+                profile["ban_reasons"] += [item for item in channel_reasons if item.action == "ban"]
             if contact_should_block(message, group.settings, rules) or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
                 if not admin_checked:
                     return True
@@ -240,7 +241,8 @@ class Moderation:
                 sources = external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
                                                   linked_channel_id=await own_channel_id(session, group_id))
                 result["reasons"] += sources
-                result["ban_reasons"] += sources
+                result["mute_reasons"] += [item for item in sources if item.action == "mute"]
+                result["ban_reasons"] += [item for item in sources if item.action == "ban"]
             result["reasons"] += targets
             result["mute_reasons"] += [item for item in targets if item.action == "mute"]
             result["ban_reasons"] += [item for item in targets if item.action == "ban"]
@@ -252,6 +254,11 @@ class Moderation:
             result["reasons"].append("临时应急保护：新人链接消息暂时拦截")
         result["reasons"].extend(activity_reasons(group.settings, activity.repeats, activity.similar, activity.burst))
         reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
+        if not sender_chat and group.settings.get("external_group_ban", True):
+            sources = external_channel_reasons(channel_sources(message), group.id, group.settings, rules,
+                                               linked_channel_id=await own_channel_id(session, group.id))
+            result["reasons"] += sources
+            reasons = list(dict.fromkeys(reasons + sources))
         if sender_chat and result["name_reasons"]:
             result["reasons"] += ["频道身份昵称命中，删除该消息"]
             reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
@@ -279,7 +286,7 @@ class Moderation:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
                 "bio_dependent": bool(result.get("bio_reasons")),
                 "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
-                "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
+                "check_message_rules": bool(channel_sources(message)) or result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def record_member_message(
@@ -303,7 +310,7 @@ class Moderation:
             await apply_penalty(session, group, violation, member, evidence={"message": message, "links": [],
                 "bio_dependent": bool(result.get("bio_reasons")),
                 "version": [message.get("edit_date", message["date"]), bool(edited), update_id],
-                "check_message_rules": result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
+                "check_message_rules": bool(channel_sources(message)) or result.get("message_emoji_hit", False) or all(isinstance(item, BusinessReason) for item in reasons)})
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):

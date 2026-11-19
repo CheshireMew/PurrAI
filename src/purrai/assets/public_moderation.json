@@ -6,7 +6,7 @@
     "notice_seconds": 30,
     "ai_ad_mute_notice": false,
     "ai_ad_window_hours": 72,
-    "ai_ad_limit": 3,
+    "ai_ad_limit": 1,
     "ai_ad_penalty": "permanent_mute",
     "channel_ad_penalty": "ban",
     "spam_mute_seconds": 1800,
@@ -115,10 +115,11 @@
     "mute_seconds": 259200,
     "block_invites": false,
     "advertising_ban": true,
-    "inline_buttons_ban": false,
+    "inline_buttons_ban": true,
     "contact_ads_only": false,
     "external_group_ban": true,
-    "external_invite_ban": true
+    "external_invite_ban": true,
+    "external_channel_penalty": "permanent_mute"
   },
   "rules": [
     {
@@ -939,13 +940,13 @@
       "kind": "block_emoji_pack",
       "value": "zk7162629_1794146550_1_by_c777zt_bot",
       "mode": "exact",
-      "penalty": "permanent_mute"
+      "penalty": "ban"
     },
     {
       "kind": "block_emoji_pack",
       "value": "t7162629_1793891465_by_c777zt_bot",
       "mode": "exact",
-      "penalty": "permanent_mute"
+      "penalty": "ban"
     },
     {
       "kind": "allow_domain",

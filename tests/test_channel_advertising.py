@@ -21,6 +21,68 @@ async def settings(db, **changes):
         group.settings = {**group.settings, **changes}
 
 
+def forwarded_message(identifier=1, user_id=42, kind="forward"):
+    source = {"id": -1007001, "type": "channel", "username": "arbitrary_source"}
+    fields = ({"external_reply": {"origin": {"type": "channel", "chat": source, "message_id": 10}}}
+              if kind == "reference" else {"forward_origin": {"type": "channel", "chat": source, "message_id": 10}})
+    return message(identifier, "任意来源的普通内容", user_id=user_id, **fields)
+
+
+@pytest.mark.parametrize("kind", ["forward", "reference"])
+@pytest.mark.parametrize("known_target", [False, True])
+async def test_forwarded_channel_configured_mute_deletes_without_learning_a_stronger_ban(env, kind, known_target):
+    from purrai.management import Management
+    from purrai.schemas import SettingsPatch, RuleInput
+    from purrai.shared_policy import effective_rules
+
+    config, db, tg, service = env
+    admin = Management(db, tg, service, config)
+    await admin.settings_patch(1, -1001, SettingsPatch(settings={"external_channel_penalty": "permanent_mute"}))
+    if known_target:
+        await admin.rule(1, -1001, RuleInput(kind="block_target", value="channel:-1007001", penalty="ban"))
+    for identifier, user_id in [(10, 42), (11, 43)]:
+        await service.message(forwarded_message(identifier, user_id, kind))
+        await drain(service)
+        assert tg.members[(-1001, user_id)]["until_date"] == 0
+        assert not tg.members[(-1001, user_id)]["can_send_messages"]
+    assert {args["message_id"] for method, args in tg.calls if method == "delete_message"} == {10, 11}
+    assert not any(method == "ban_chat_member" for method, _ in tg.calls)
+    async with db.sessions() as session:
+        rules = await effective_rules(session, -1001)
+        assert all(rule["penalty"] == "permanent_mute" for rule in rules if rule.get("origin") == "learned")
+
+
+@pytest.mark.parametrize("change", ["delete", "off", "edit"])
+async def test_forwarded_channel_mute_rechecks_policy_and_message(env, change):
+    from purrai.management import Management
+    from purrai.schemas import SettingsPatch
+
+    config, db, tg, service = env
+    admin = Management(db, tg, service, config)
+    await admin.settings_patch(1, -1001, SettingsPatch(settings={"external_channel_penalty": "permanent_mute"}))
+    incoming = forwarded_message()
+    await service.message(incoming, update_id=1)
+    if change == "edit":
+        await service.message(message(1, "已改为普通内容", edit_date=incoming["date"] + 1), edited=True, update_id=2)
+    else:
+        patch = {"external_channel_penalty": "delete"} if change == "delete" else {"external_group_ban": False}
+        await admin.settings_patch(1, -1001, SettingsPatch(settings=patch))
+    await drain(service)
+    assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in tg.calls)
+    assert any(method == "delete_message" for method, _ in tg.calls) == (change == "delete")
+
+
+def test_forwarding_policy_does_not_downgrade_a_separate_blacklisted_body_link():
+    from purrai.promotion_targets import blacklist_reasons
+
+    incoming = forwarded_message()
+    rules = [{"id": "sample", "kind": "block_target", "value": "account:arbitrary_source", "penalty": "ban"}]
+    cfg = {"external_channel_penalty": "permanent_mute"}
+    assert blacklist_reasons(incoming, rules, settings=cfg)[0].action == "mute"
+    incoming["text"] += " https://t.me/arbitrary_source"
+    assert blacklist_reasons(incoming, rules, settings=cfg)[0].action == "ban"
+
+
 def link_channel(tg, channel_id):
     original = tg.call
     async def call(method, **kwargs):
