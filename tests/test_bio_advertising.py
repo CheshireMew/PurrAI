@@ -234,6 +234,49 @@ async def test_changed_bio_cancels_queued_model_penalty(env):
     assert all(row.state == 'cancelled' for row in await records(env[1], Action) if row.kind == 'delete')
 
 
+async def test_message_recheck_uses_current_body_keyword_meanings_without_profile_hints(env, client):
+    worker, model = await setup(env, {42: "简介特有词与个人资料"})
+    path = "/api/groups/-1001/rules"
+    body = {"kind": "keyword", "value": "琥珀星河", "mode": "pinyin", "scope": "either",
+            "meaning": "任意替换词的语义说明，命中仍需判断主动招揽", "penalty": "ai_confirmed_mute"}
+    response = await client.post(path, json=body, headers={"Idempotency-Key": "recheck-hint-create"})
+    assert response.status_code == 200, response.text
+    rule = response.json()
+    for scope, value in (("name", "昵称特有词"), ("bio", "简介特有词")):
+        saved = await client.post(path, json={**body, "value": value, "scope": scope},
+                                  headers={"Idempotency-Key": "recheck-hint-" + scope})
+        assert saved.status_code == 200, saved.text
+
+    async def check(identifier):
+        incoming = message(identifier, "琥.珀\u200b星河与珊瑚远航都是今天讨论的词")
+        incoming["from"]["first_name"] = "昵称特有词"
+        await env[3].message(incoming)
+        before = len(model.calls)
+        assert await worker.run_one()
+        first, recheck = model.calls[before:]
+        assert len(first[0]["keyword_hints"]) >= 2
+        assert set(recheck[0]) == {"id", "text", "links", "buttons", "keyword_hints"}
+        assert all(item["matched_fields"] == ["message"] for item in recheck[0]["keyword_hints"])
+        assert next(row for row in await records(env[1], AdvertisementReview) if row.message_id == identifier).state == "clean"
+        return recheck[0]["keyword_hints"]
+
+    hints = await check(501)
+    assert [(item["keyword"], item["meaning"]) for item in hints] == [(body["value"], body["meaning"])]
+    body.update(value="珊瑚远航", meaning="管理员修改后的新含义")
+    response = await client.put(path + "/" + rule["id"], json=body,
+        headers={"Idempotency-Key": "recheck-hint-edit", "If-Match": str(rule["version"])})
+    assert response.status_code == 200, response.text
+    rule = response.json()
+    hints = await check(502)
+    assert [(item["keyword"], item["meaning"]) for item in hints] == [(body["value"], body["meaning"])]
+    response = await client.put(path + "/" + rule["id"], json={**body, "enabled": False},
+        headers={"Idempotency-Key": "recheck-hint-disable", "If-Match": str(rule["version"])})
+    assert response.status_code == 200, response.text
+    assert await check(503) == []
+    await drain(env[3])
+    assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in env[2].calls)
+
+
 @pytest.mark.parametrize("bio", ["我的开源项目和交流群 https://example.test", ConnectionError("offline")])
 async def test_join_and_telegram_membership_notice_never_queue_bio_reviews(env, bio):
     worker, model = await setup(env, {42: bio})

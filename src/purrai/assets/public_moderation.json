@@ -676,6 +676,14 @@
     },
     {
       "kind": "keyword",
+      "value": "吃肉",
+      "mode": "pinyin",
+      "scope": "either",
+      "meaning": "可指跟随交易或博彩获利。广告会伪装成路人夸耀某人的战绩，再自述要去获利，并用箭头指向头像或主页，让读者跟去查看、联系；这种隐晦引流不一定直说私聊或加群。需从本条发言找到这种招揽意图；正常吃饭、个人盈亏交流、提问、引用或反诈提醒不算广告，不能仅凭此词、箭头或个人简介处罚。",
+      "penalty": "ai_confirmed_mute"
+    },
+    {
+      "kind": "keyword",
       "value": "代刷",
       "mode": "pinyin",
       "scope": "either",

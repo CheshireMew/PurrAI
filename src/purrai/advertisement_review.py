@@ -446,7 +446,8 @@ class AdvertisementReviewer:
                 if decision["scope"] == "bio":
                     decision.update(advertisement=False, scope="context", reason="只有简介证据")
                 elif item["bio"] and decision["advertisement"]:
-                    checks.append({key: item[key] for key in ("id", "text", "links", "buttons")})
+                    checks.append({**{key: item[key] for key in ("id", "text", "links", "buttons")},
+                                   "keyword_hints": ai_keyword_hints(item["text"], rules)})
             confirmed = await self.confirm_message_evidence(gid, checks, rules) if checks else {}
             for decision in decisions:
                 decision = {**decision, "reason": decision["reason"][:500]}
@@ -475,6 +476,7 @@ class AdvertisementReviewer:
         # A separate request cannot see the biography, the first verdict, or other senders' history.
         system = (document_for(rules).get("ai_review_instructions", "") + "\n"
                   "只从本人本条发言、链接和按钮中找主动招揽或引流依据。依据不足时返回空串。"
+                  "关键词释义帮助理解原文，不是广告结论，也不能替代本条发言的证据。"
                   '逐条返回 JSON {"decisions":[{"id":"原id","quote":"直接支持招揽的原文，无则为空串"}]}。')
         payload = json.dumps({"messages": messages}, ensure_ascii=False)
         limit = max(256, len(messages) * 120)
