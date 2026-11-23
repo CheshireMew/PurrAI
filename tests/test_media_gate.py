@@ -47,7 +47,10 @@ def assert_only_deletion(telegram):
         {"photo": [{"file_id": "p"}]},
         {"sticker": {"file_id": "s"}},
         {"animation": {"file_id": "a"}},
+        {"video": {"file_id": "v"}},
+        {"video_note": {"file_id": "n"}},
         {"document": {"file_id": "d", "mime_type": "image/png"}},
+        {"document": {"file_id": "v", "mime_type": "video/mp4"}},
         {"text": "😂👍"},
         {"text": "1️⃣"},
         {
@@ -73,15 +76,23 @@ async def test_unqualified_media_is_deleted_without_member_penalty(env, media):
         assert [row.kind for row in await session.scalars(select(Action))] == ["delete"]
 
 
-async def test_third_distinct_text_unlocks_media_and_caption_does_not_count(env):
+@pytest.mark.parametrize("media", [
+    {"photo": [{"file_id": "p"}]}, {"video": {"file_id": "v"}},
+    {"video_note": {"file_id": "n"}}, {"document": {"file_id": "v", "mime_type": "video/mp4"}},
+])
+async def test_third_distinct_text_unlocks_media_and_caption_does_not_count(env, media):
     _, database, telegram, service = env
+    def incoming(identifier, caption=""):
+        payload = message(identifier, "")
+        payload.pop("text")
+        return {**payload, **media, **({"caption": caption} if caption else {})}
     await service.message(message(1, "第一句"))
-    await service.message(photo(2, "第二句图片说明"))
+    await service.message(incoming(2, "第二句媒体说明"))
     await service.message(message(3, "第二句"))
-    await service.message(photo(4))
+    await service.message(incoming(4))
     await drain(service)
     await service.message(message(5, "第三句"))
-    await service.message(photo(6, "这条图片可以发送"))
+    await service.message(incoming(6, "这条媒体可以发送"))
     await drain(service)
     assert deleted(telegram) == [2, 4]
     assert_only_deletion(telegram)

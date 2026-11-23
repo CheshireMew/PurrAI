@@ -13,7 +13,7 @@ KEYCAP = re.compile(r"[0-9#*]\ufe0f?\u20e3")
 EMOJI = re.compile(
     "[\U0001f000-\U0001faff\u2300-\u23ff\u2600-\u27bf\u2b00-\u2bff\u00a9\u00ae\u203c\u2049\u2122\u2139\u3030\u303d\u3297\u3299]"
 )
-MEDIA = ("photo", "sticker", "animation")
+MEDIA = ("photo", "sticker", "animation", "video", "video_note")
 MAX_TEXT_CREDIT = 100  # Largest configurable media_min_text_messages.
 
 
@@ -49,7 +49,7 @@ def visible_text(message):
 def visual_media(message):
     if any(message.get(kind) for kind in MEDIA):
         return True
-    if message.get("document", {}).get("mime_type", "").startswith("image/"):
+    if message.get("document", {}).get("mime_type", "").startswith(("image/", "video/")):
         return True
     text = message.get("text", "")
     has_custom = any(entity["type"] == "custom_emoji" for entity in message.get("entities", []))

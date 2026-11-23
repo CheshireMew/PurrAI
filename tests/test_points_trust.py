@@ -127,7 +127,11 @@ async def test_high_points_skip_advertising_model_and_sample_matching_before_dis
         await runtime.stop()
 
 
-async def test_low_stage_removes_newcomer_media_and_link_limits_but_still_uses_ad_review(env, client):
+@pytest.mark.parametrize("media", [
+    {"photo": [{"file_id": "photo"}]}, {"video": {"file_id": "video"}},
+    {"video_note": {"file_id": "note"}}, {"document": {"file_id": "video", "mime_type": "video/mp4"}},
+])
+async def test_low_stage_removes_newcomer_media_and_link_limits_but_still_uses_ad_review(env, client, media):
     await configure(client)
     await contribution(env, 50)
     worker, model = await reviewer(env, lambda _: False)
@@ -135,7 +139,7 @@ async def test_low_stage_removes_newcomer_media_and_link_limits_but_still_uses_a
         session.add(Member(group_id=-1001, user_id=42, joined_at=now(), present=True, join_observed=True))
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "external_group_ban": False, "external_invite_ban": False}
-    await env[3].message(message(72, "", photo=[{"file_id": "photo"}]))
+    await env[3].message(message(72, "", **media))
     await env[3].message(message(73, "本次合作说明 https://example.test", entities=[]))
     assert not await records(env[1], Violation)
     assert await worker.run_one()

@@ -316,7 +316,7 @@ class Moderation:
         await record_rule_hits(session, group.id, message["message_id"], result.get("rule_ids", []))
 
     async def delete_early_media(self, session, group, member, message, edited, update_id, count, minimum):
-        reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片或表情整条消息"
+        reason = f"独立文字发言不足 {minimum} 条（已记录 {count} 条），删除图片、视频或表情整条消息"
         await mark_reasons(session, message, edited, update_id, [reason])
         sender = message_sender(message)
         violation, _ = await record_violation(
