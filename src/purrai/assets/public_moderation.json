@@ -348,6 +348,26 @@
       "enabled": false
     },
     {
+      "kind": "allow_domain",
+      "value": "x.com",
+      "enabled": false
+    },
+    {
+      "kind": "allow_domain",
+      "value": "twitter.com",
+      "enabled": false
+    },
+    {
+      "kind": "allow_domain",
+      "value": "youtube.com",
+      "enabled": false
+    },
+    {
+      "kind": "allow_domain",
+      "value": "youtu.be",
+      "enabled": false
+    },
+    {
       "kind": "keyword",
       "value": "主页",
       "mode": "pinyin",
@@ -486,14 +506,6 @@
       "mode": "pinyin",
       "scope": "either",
       "meaning": "可能是收益招揽用语。结合本条发言是否在招人、邀请入群或引导联系，以及简介中的推广信息判断。普通收入讨论、求职交流和风险提醒不算广告。",
-      "penalty": "ai_confirmed_mute"
-    },
-    {
-      "kind": "keyword",
-      "value": "黄片",
-      "mode": "pinyin",
-      "scope": "either",
-      "meaning": "通常指色情影片。可能被用作挑衅话术或吸引注意；只有本条发言有推广、招揽或引流依据时才算广告。",
       "penalty": "ai_confirmed_mute"
     },
     {
@@ -683,14 +695,6 @@
       "value": "投资群",
       "mode": "pinyin",
       "scope": "either",
-      "penalty": "ai_confirmed_mute"
-    },
-    {
-      "kind": "keyword",
-      "value": "吃肉",
-      "mode": "pinyin",
-      "scope": "either",
-      "meaning": "可指跟随交易或博彩获利。广告会伪装成路人夸耀某人的战绩，再自述要去获利，并用箭头指向头像或主页，让读者跟去查看、联系；这种隐晦引流不一定直说私聊或加群。需从本条发言找到这种招揽意图；正常吃饭、个人盈亏交流、提问、引用或反诈提醒不算广告，不能仅凭此词、箭头或个人简介处罚。",
       "penalty": "ai_confirmed_mute"
     },
     {
@@ -959,24 +963,20 @@
       "penalty": "ban"
     },
     {
-      "kind": "allow_domain",
-      "value": "x.com",
-      "enabled": false
+      "kind": "keyword",
+      "value": "吃肉",
+      "mode": "pinyin",
+      "scope": "either",
+      "meaning": "可指跟随交易或博彩获利。广告会伪装成路人夸耀某人的战绩，再自述要去获利，并用箭头指向头像或主页，让读者跟去查看、联系；这种隐晦引流不一定直说私聊或加群。需从本条发言找到这种招揽意图；正常吃饭、个人盈亏交流、提问、引用或反诈提醒不算广告，不能仅凭此词、箭头或个人简介处罚。",
+      "penalty": "ai_confirmed_mute"
     },
     {
-      "kind": "allow_domain",
-      "value": "twitter.com",
-      "enabled": false
-    },
-    {
-      "kind": "allow_domain",
-      "value": "youtube.com",
-      "enabled": false
-    },
-    {
-      "kind": "allow_domain",
-      "value": "youtu.be",
-      "enabled": false
+      "kind": "keyword",
+      "value": "黄片",
+      "mode": "pinyin",
+      "scope": "either",
+      "meaning": "通常指色情影片。可能被用作挑衅话术或吸引注意；只有本条发言有推广、招揽或引流依据时才算广告。",
+      "penalty": "ai_confirmed_mute"
     }
   ],
   "business_rules": {
@@ -1606,32 +1606,6 @@
       }
     ],
     "stages": [
-      {
-        "id": "message_structure",
-        "title": "消息表情数量与占比",
-        "enabled": true,
-        "first_match": true,
-        "before": [],
-        "condition": {"op": "always"},
-        "rules": [
-          {
-            "id": "bulk_custom_emoji",
-            "title": "大量自定义表情拼接广告",
-            "enabled": true,
-            "action": "ban",
-            "reason": "大量自定义表情拼接广告",
-            "advertiser_cooldown": true,
-            "learn_emoji_packs": true,
-            "condition": {
-              "op": "all",
-              "items": [
-                {"op": "range", "input": "custom_emoji_count", "minimum": 20},
-                {"op": "range", "input": "custom_emoji_percent", "minimum": 80}
-              ]
-            }
-          }
-        ]
-      },
       {
         "id": "solicitation",
         "title": "明确业务招揽",
@@ -3333,9 +3307,44 @@
             "advertiser_cooldown": true
           }
         ]
+      },
+      {
+        "id": "message_structure",
+        "title": "消息表情数量与占比",
+        "enabled": true,
+        "first_match": true,
+        "before": [],
+        "condition": {
+          "op": "always"
+        },
+        "rules": [
+          {
+            "id": "bulk_custom_emoji",
+            "title": "大量自定义表情拼接广告",
+            "enabled": true,
+            "action": "ban",
+            "reason": "大量自定义表情拼接广告",
+            "advertiser_cooldown": true,
+            "learn_emoji_packs": true,
+            "condition": {
+              "op": "all",
+              "items": [
+                {
+                  "op": "range",
+                  "input": "custom_emoji_count",
+                  "minimum": 20
+                },
+                {
+                  "op": "range",
+                  "input": "custom_emoji_percent",
+                  "minimum": 80
+                }
+              ]
+            }
+          }
+        ]
       }
     ],
-    "ai_review_instructions": "审核每条消息是否为广告、推广、引流或招揽。结合当前发送者的昵称、简介和正文理解语义，以本条正文是否在宣传或引流作为判断依据。正文主动介绍产品功能、优势或服务属于推广，无需同时出现购买或联系口令。高收益招揽必须同时有本条发言的招揽意图和可核实的引流目标，例如正文或该作者资料中的具体项目、平台、群组、账号、联系方式或链接，或明确邀请读者联系当前作者；reason 必须说明目标和引导关系。仅叙述收入、收益金额、盈亏、过去经历或回答收益问题，没有引流目标时判非广告；不得因收益高而臆测存在项目、联系方式或招揽意图。简介中只有联系方式或项目介绍，而正文是正常聊天时也不算广告。逐条独立判断，不把别人的推广或引用对象当作当前发送者的引流目标。正常讨论、引用举报、求证或反诈提醒不算推广。keyword_hints 仅解释可能词义，不代表广告结论。图片不可见，不猜测图片。scope=text 仅用于正文自身成立的广告；依赖昵称、引用、附件或上下文理解时使用 scope=context。reason 用自己的话解释判定依据。",
     "recognition": {
       "utility_patterns": [
         {
@@ -3464,6 +3473,7 @@
         }
       ]
     },
+    "ai_review_instructions": "审核每条消息是否为广告、推广、引流或招揽。结合当前发送者的昵称、简介和正文理解语义，以本条正文是否在宣传或引流作为判断依据。正文主动介绍产品功能、优势或服务属于推广，无需同时出现购买或联系口令。高收益招揽必须同时有本条发言的招揽意图和可核实的引流目标，例如正文或该作者资料中的具体项目、平台、群组、账号、联系方式或链接，或明确邀请读者联系当前作者；reason 必须说明目标和引导关系。仅叙述收入、收益金额、盈亏、过去经历或回答收益问题，没有引流目标时判非广告；不得因收益高而臆测存在项目、联系方式或招揽意图。简介中只有联系方式或项目介绍，而正文是正常聊天时也不算广告。逐条独立判断，不把别人的推广或引用对象当作当前发送者的引流目标。正常讨论、引用举报、求证或反诈提醒不算推广。keyword_hints 仅解释可能词义，不代表广告结论。图片不可见，不猜测图片。scope=text 仅用于正文自身成立的广告；依赖昵称、引用、附件或上下文理解时使用 scope=context。reason 用自己的话解释判定依据。",
     "reason_policy": {
       "ban": [
         {
