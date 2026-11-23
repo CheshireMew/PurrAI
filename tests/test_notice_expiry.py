@@ -51,13 +51,14 @@ async def test_group_command_and_all_enabled_receipts_use_durable_cleanup(env, m
 
 
 @pytest.mark.parametrize("failure", ["network", "permissions", "bad_request"])
-async def test_cleanup_survives_more_than_eight_failures_and_recovers_after_restart(env, monkeypatch, failure):
+@pytest.mark.parametrize("cleanup", ["command", "notice"])
+async def test_cleanup_survives_more_than_eight_failures_and_recovers_after_restart(env, monkeypatch, failure, cleanup):
     from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
     from aiogram.methods import DeleteMessage
     from purrai.action_queue import enqueue
     _, db, tg, svc = env
     async with db.transaction() as session:
-        task = await enqueue(session, "delete", "cleanup:retry:test", -1001,
+        task = await enqueue(session, "delete", f"cleanup:{cleanup}:retry:test", -1001,
             payload={"chat_id": -1001, "message_id": 800})
     original = tg.call
     remaining = 9
