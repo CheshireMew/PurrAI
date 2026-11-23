@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { ElMessage, type TableInstance } from 'element-plus'
 import type { Verification, Operation, Page } from '../types'
 import { useRecords } from '../composables/useRecords'
 import { api, label, time } from '../api'
@@ -18,6 +19,14 @@ const operationNames = computed(() => catalog.value!.operations)
 const { rows, total, pagination, statusFilter, userFilter, dates, busy, error, safe, load: loadRecords, filters, appliedFilters } = useRecords<Verification>(() => props.groupId, 'verifications')
 const history = ref<Operation[]>([])
 const chosen = ref<Verification[]>([]), batchSelection = ref<Record<string, unknown> | null>(null)
+const table = ref<TableInstance>(), polling = ref(false)
+watch(rows, async current => {
+  await nextTick()
+  const available = new Set(current.filter(row => catalog.value!.active_verifications.includes(row.state)).map(row => row.id))
+  const removed = chosen.value.filter(row => !available.has(row.id))
+  for (const row of removed) table.value?.toggleRowSelection(row, false)
+  if (removed.length) ElMessage.info(`${removed.length} 位成员已结束验证或不在当前列表中，已从选择中移除`)
+})
 function previewBatch(mode: string) {
   if (mode === 'selected') batchSelection.value = { verification_ids: chosen.value.map(item => item.id) }
   else if (mode === 'filtered') {
@@ -41,12 +50,16 @@ async function confirmAction(row: Verification, action: string, title: string) {
   await submitAction(`/api/verifications/${row.id}/actions`, action, title, actionContext(group, action, row.user_id, row.user_name))
   await load()
 }
-useRefresh(load, () => props.refreshKey, () => !busy.value)
+async function backgroundLoad() {
+  polling.value = true
+  try { await load() } finally { polling.value = false }
+}
+useRefresh(load, () => props.refreshKey, () => !busy.value, backgroundLoad)
 </script>
 
 <template>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
-<section class="panel" v-loading="busy">
+<section class="panel" v-loading="busy && !polling">
 <div class="panel-title">
 <h2>验证记录</h2>
 <div class="panel-actions"><el-button @click="previewBatch('all')">批量放行</el-button>
@@ -61,8 +74,8 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <DateRangeFilter v-model="dates"/>
 <el-button type="primary" native-type="submit">查询</el-button>
 </form>
-<el-table :data="rows" empty-text="暂无验证记录" row-key="id" @selection-change="chosen = $event">
-<el-table-column type="selection" width="45" :selectable="(row: Verification) => catalog!.active_verifications.includes(row.state)"/>
+<el-table ref="table" :data="rows" empty-text="暂无验证记录" row-key="id" @selection-change="chosen = $event">
+<el-table-column type="selection" reserve-selection width="45" :selectable="(row: Verification) => catalog!.active_verifications.includes(row.state)"/>
 <el-table-column label="成员" min-width="160">
 <template #default="{ row }">{{ row.user_name }}<div class="cell-sub">{{ row.user_id }}</div>
 </template>

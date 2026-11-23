@@ -120,6 +120,73 @@ async def test_failed_manual_unmute_does_not_create_whitelist(env):
         assert await session.get(Whitelist, (-1001, 42)) is None
 
 
+async def test_unban_on_muted_member_restores_permissions_and_whitelists_through_api(env, client):
+    _, db, tg, svc = env
+    await name_rule(db)
+    await svc.message(named(1, "正文", "推广"))
+    await drain(svc)
+    body = {"action": "unban", "request_id": "unban-includes-mute", "reason": "管理员核实误判"}
+    first = await client.post("/api/groups/-1001/members/42/actions", json=body)
+    assert first.status_code == 200, first.text
+    await drain(svc)
+    replay = await client.post("/api/groups/-1001/members/42/actions", json=body)
+    assert replay.status_code == 200 and replay.json()["id"] == first.json()["id"]
+    assert tg.members[(-1001, 42)]["can_send_messages"]
+    assert not any(method == "unban_chat_member" for method, _ in tg.calls)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+
+
+async def test_manual_unban_of_banned_member_whitelists_after_success(env):
+    settings, db, tg, svc = env
+    admin = Management(db, tg, svc, settings)
+    await svc.message(message(1, "正常消息"))
+    await admin.member_action(1, -1001, 42, "ban", "first-ban", "测试封禁")
+    await drain(svc)
+    await admin.member_action(1, -1001, 42, "unban", "then-unban", "管理员核实")
+    await drain(svc)
+    assert tg.members[(-1001, 42)]["status"] == "left"
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+
+
+async def test_unban_on_pending_verification_releases_and_whitelists_idempotently(env, client, monkeypatch):
+    await fixed_challenge(env, monkeypatch)
+    _, db, tg, svc = env
+    body = {"action": "unban", "request_id": "unban-verification", "reason": "人工放行"}
+    first = await client.post("/api/groups/-1001/members/42/actions", json=body)
+    assert first.status_code == 200, first.text
+    await drain(svc)
+    replay = await client.post("/api/groups/-1001/members/42/actions", json=body)
+    assert replay.status_code == 200 and replay.json()["id"] == first.json()["id"]
+    assert tg.members[(-1001, 42)]["can_send_messages"]
+    assert (await latest(db)).state == "passed"
+    async with db.sessions() as session:
+        assert (await session.get(Whitelist, (-1001, 42))).moderation
+
+
+@pytest.mark.parametrize("old,new,present", [
+    ({"status": "kicked", "until_date": 0}, {"status": "left"}, False),
+    ({"status": "kicked", "until_date": 0}, {"status": "member"}, True),
+    ({"status": "restricted", "is_member": True, "can_send_messages": True, "can_send_photos": False},
+     {"status": "restricted", "is_member": True, "can_send_messages": True, "can_send_photos": True}, True),
+])
+async def test_telegram_human_release_including_unban_and_media_limits_whitelists(env, old, new, present):
+    _, db, tg, svc = env
+    tg.members[(-1001, 7)] = {"status": "administrator"}
+    event = unmute_event(tg, actor=7)
+    event["old_chat_member"] = {**old, "user": {"id": 42}}
+    event["new_chat_member"] = {**new, "user": {"id": 42}}
+    await svc.member_event(event, event_id=150)
+    await svc.member_event(event, event_id=150)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+        assert (await session.get(Member, (-1001, 42))).present is present
+
+
 def unmute_event(tg, *, actor=1, actor_bot=False):
     return {
         "chat": {"id": -1001, "type": "supergroup"},
@@ -163,6 +230,16 @@ async def test_auto_expiry_self_change_or_other_bot_never_grants_trust(env, acto
     _, db, tg, svc = env
     tg.members[(-1001, actor)] = {"status": status}
     await svc.member_event(unmute_event(tg, actor=actor, actor_bot=bot), event_id=60)
+    async with db.sessions() as session:
+        assert await session.get(Whitelist, (-1001, 42)) is None
+
+
+async def test_restriction_expiry_does_not_trust_even_if_original_human_admin_is_reported(env):
+    _, db, tg, svc = env
+    tg.members[(-1001, 7)] = {"status": "administrator"}
+    event = unmute_event(tg, actor=7)
+    event["old_chat_member"]["until_date"] = event["date"] - 1
+    await svc.member_event(event, event_id=151)
     async with db.sessions() as session:
         assert await session.get(Whitelist, (-1001, 42)) is None
 

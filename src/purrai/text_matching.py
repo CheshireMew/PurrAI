@@ -8,10 +8,46 @@ from functools import lru_cache
 from urllib.parse import urlsplit
 
 
+_NUMBER_CHAR = r"(?:\d(?:[\ufe0e\ufe0f]?\u20e3)?|(?ai:[ilozsb])|[〇○οΟоО🔟❶-❿➀-➉➊-➓⓵-⓾⓿])"
+_NUMBER_LIKE = re.compile(
+    rf"(?<![a-zA-Z0-9_@])(?:[丨│]|\|(?=[0oO〇○οΟоО]))?{_NUMBER_CHAR}+(?:[.,]{_NUMBER_CHAR}+)*(?![a-zA-Z0-9_])"
+)
+_NUMBER_TRANSLATION = str.maketrans({
+    "o": "0", "〇": "0", "○": "0", "ο": "0", "о": "0",
+    "i": "1", "l": "1", "丨": "1", "│": "1", "|": "1",
+    "z": "2", "s": "5", "b": "8", "🔟": "10",
+    "\ufe0e": None, "\ufe0f": None, "\u20e3": None,
+})
+
+
 def normalize(text: str) -> str:
     return "".join(
         c for c in unicodedata.normalize("NFKC", text).casefold() if unicodedata.category(c) != "Cf"
     ).strip()
+
+
+def _number_reading(match: re.Match) -> str:
+    fragment = match[0]
+    # A run of Latin letters alone is too ambiguous, as are short codes like O2.
+    if not any(char.isnumeric() or char in "丨│|○🔟" for char in fragment):
+        return fragment
+    reading = fragment.lower().translate(_NUMBER_TRANSLATION)
+    if fragment.isascii() and sum(char.isdecimal() for char in reading) < 3:
+        return fragment
+    return "".join(str(int(unicodedata.numeric(char))) if char.isnumeric() else char for char in reading)
+
+
+def normalize_number_variants(value: str) -> str:
+    """Convert number-like spans in normalized text prepared for sample matching."""
+    return _NUMBER_LIKE.sub(_number_reading, value)
+
+
+def number_readings(value: str) -> dict[str, str]:
+    """Offer possible readings for user text outside visible URLs."""
+    for url in message_content({"text": value})[1]:
+        value = value.replace(url, " ")
+    return {match[0]: reading for match in _NUMBER_LIKE.finditer(value)
+            if (reading := _number_reading(match)) != match[0]}
 
 
 def content_digest(text: str) -> str:
@@ -108,18 +144,21 @@ def domain_matches(host: str, configured: str) -> bool:
 
 
 def message_content(message: dict) -> tuple[str, list[str]]:
-    text = message.get("text") or message.get("caption") or ""
-    entities = message.get("entities") or message.get("caption_entities") or []
+    from purrai.message_parts import content_parts
+    parts = content_parts(message)
+    urls = []
     # Keep the original text for UTF-16 entity offsets and case-sensitive paths.
-    visible = "".join(c for c in unicodedata.normalize("NFKC", text) if unicodedata.category(c) != "Cf")
-    urls = re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", visible, re.I)
-    for entity in entities:
-        if entity["type"] == "text_link":
-            urls.append(entity.get("url", ""))
-        elif entity["type"] == "url":
-            encoded = text.encode("utf-16-le")
-            start = entity["offset"] * 2
-            urls.append(encoded[start : start + entity["length"] * 2].decode("utf-16-le", errors="ignore"))
+    for part in parts:
+        text = part.text
+        visible = "".join(c for c in unicodedata.normalize("NFKC", text) if unicodedata.category(c) != "Cf")
+        urls.extend(re.findall(r"(?:https?://|tg://|www\.)[^\s<>]+|(?<![A-Za-z0-9_.])(?:t\.me|telegram\.me|telegram\.dog)/[^\s<>]+", visible, re.I))
+        for entity in part.entities:
+            if entity.get("type") == "text_link":
+                urls.append(entity.get("url", ""))
+            elif entity.get("type") == "url":
+                encoded = text.encode("utf-16-le")
+                start = entity["offset"] * 2
+                urls.append(encoded[start : start + entity["length"] * 2].decode("utf-16-le", errors="ignore"))
     from purrai.message_buttons import inline_buttons
     urls.extend(button["url"] for button in inline_buttons(message) if isinstance(button["url"], str))
-    return text, list(dict.fromkeys(u.rstrip(".,，。!?！？)") for u in urls if u))
+    return "\n".join(part.text for part in parts if part.text), list(dict.fromkeys(u.rstrip(".,，。!?！？)") for u in urls if u))

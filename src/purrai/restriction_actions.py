@@ -312,7 +312,11 @@ class RestrictionActions:
         if action.payload.get("request_cooldown"):
             if member:
                 member.request_until = 0
+                if action.actor_id:
+                    await self.trust.trust_member(session, member, action.actor_id, action.reason, exclude_action=action.id)
             return
+        if member and member.owned_restriction and member.owned_restriction.get("kind") != "ban":
+            return await self.restore(session, action, group, verification, member)
         await self.unban_member(session, action, group, verification, member)
 
     async def unban_member(self, session, action, group, verification, member):
@@ -327,6 +331,8 @@ class RestrictionActions:
             and not member.restriction_conflict
         ):
             member.owned_restriction = None
+            if action.actor_id:
+                await self.trust.trust_member(session, member, action.actor_id, action.reason, exclude_action=action.id)
             return
         if member.restriction_conflict or not ban_matches(current, member.owned_restriction["until_date"]):
             raise RestrictionPreserved()
@@ -340,3 +346,5 @@ class RestrictionActions:
             only_if_banned=True,
         )
         member.owned_restriction = None
+        if action.actor_id:
+            await self.trust.trust_member(session, member, action.actor_id, action.reason, exclude_action=action.id)

@@ -99,7 +99,8 @@ class VerificationActions:
         )
 
     async def challenge(self, session, action, group, verification, member):
-        await cleanup(session, verification)
+        if not action.payload.get("challenge_message_id"):
+            await cleanup(session, verification)
         prepared = now()
         generation_started = perf_counter()
         if verification.method == "channel":
@@ -156,11 +157,14 @@ class VerificationActions:
             multiple_choice=bool(verification.choices), timeout_seconds=group.settings["verification_timeout"],
         )} if image else {"text": verification_prompts.text_prompt(verification, group)}
         try:
-            response = await self.action_call(
-                session, action, "send_photo" if image else "send_message", before_send=sending,
-                request_timeout=30, chat_id=verification.prompt_chat_id or group.id,
-                reply_markup=verification_prompts.keyboard(verification), **content,
-            )
+            if image:
+                response = await self.image_prompt(session, action, verification, content, sending)
+            else:
+                response = await self.action_call(
+                    session, action, "send_message", before_send=sending,
+                    request_timeout=30, chat_id=verification.prompt_chat_id or group.id,
+                    reply_markup=verification_prompts.keyboard(verification), **content,
+                )
         except (TelegramRetryAfter, TelegramBadRequest, TelegramForbiddenError):
             self.delivery_result(action, timing, send_started, "rejected")
             raise
@@ -173,6 +177,30 @@ class VerificationActions:
         confirm_prompt(verification, group, response["message_id"])
         if verification.method == "channel":
             await schedule_check(session, verification)
+
+    async def image_prompt(self, session, action, verification, content, sending):
+        chat_id = verification.prompt_chat_id or verification.group_id
+        message_id = action.payload.get("challenge_message_id")
+        if not message_id:
+            response = await deliver_once(
+                self.action_call, session, action, "send_message", chat_id=chat_id, request_timeout=30,
+                text=f"{verification.user_name[:60]}，正在加载验证图片，请稍候。",
+                reply_markup={"inline_keyboard": [[{"text": "重新加载图片",
+                    "callback_data": f"v:{verification.id}:{verification.nonce}:load"}]]},
+            )
+            message_id = response["message_id"]
+            action.payload = {**action.payload, "challenge_message_id": message_id}
+        try:
+            await self.action_call(
+                session, action, "edit_message_media", before_send=sending, request_timeout=30,
+                chat_id=chat_id, message_id=message_id,
+                media={"type": "photo", "media": content["photo"], "caption": content["caption"]},
+                reply_markup=verification_prompts.keyboard(verification),
+            )
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                raise
+        return {"message_id": message_id}
 
     @staticmethod
     def prepare_image(action, verification):
@@ -260,6 +288,9 @@ class VerificationActions:
             }
             member.present = True
         await cleanup(session, verification)
+        if action.actor_id:
+            await self.administration.trust.trust_member(
+                session, member, action.actor_id, action.reason or "管理员人工通过入群申请", exclude_action=action.id)
 
     async def fail(self, session, action, group, verification, member):
         if verification and verification.flow == "join_request":

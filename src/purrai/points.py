@@ -101,7 +101,11 @@ class PointsLedger:
                 func.count(PointsAccount.user_id)).where(PointsAccount.group_id == group_id))).one()
             batches = (await session.scalars(select(PointsImport).where(PointsImport.group_id == group_id)
                 .order_by(PointsImport.created_at.desc()).limit(20))).all()
-            return {"items": [dict(row) for row in rows], "total": total, "page": page_number, "size": size,
+            from dataclasses import asdict
+            from purrai.points_trust import members_trust, PointsTrust
+            trust = await members_trust(session, group_id, [row["user_id"] for row in rows])
+            return {"items": [{**dict(row), "trust": asdict(trust.get(row["user_id"], PointsTrust()))} for row in rows],
+                    "total": total, "page": page_number, "size": size,
                     "summary": {"accounts": summary[0], "points": summary[1], "pending": summary[0] - summary[2]},
                     "imports": [row_dict(batch) for batch in batches]}
 

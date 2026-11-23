@@ -94,7 +94,9 @@ async def test_all_message_filters_exempt_current_owner_and_admin(env, monkeypat
     async with db.sessions() as session:
         assert (await session.scalar(select(Violation))) is None
         assert (await session.scalar(select(Action))) is None
-        assert await session.get(Whitelist, (-1001, 42)) is None
+        white = await session.get(Whitelist, (-1001, 42))
+        if white is not None:
+            assert white.verification and white.moderation and white.administrator_backup == {"existed": False}
 
 
 @pytest.mark.parametrize("role", ["creator", "administrator"])
@@ -109,6 +111,8 @@ async def test_join_as_administrator_skips_captcha_name_and_status(env, role):
     async with db.sessions() as session:
         assert await session.scalar(select(Verification)) is None
         assert await session.scalar(select(Violation)) is None
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation and white.administrator_backup == {"existed": False}
 
 
 async def test_promotion_cancels_pending_verification_and_deletion_but_demotion_resumes_rules(
@@ -126,8 +130,11 @@ async def test_promotion_cancels_pending_verification_and_deletion_but_demotion_
     assert not any(method in ("restrict_chat_member", "ban_chat_member") for method, _ in tg.calls)
     assert (await latest(db)).state == "passed"
     async with db.sessions() as session:
-        assert await session.get(Whitelist, (-1001, 42)) is None
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation and white.administrator_backup == {"existed": False}
     await svc.member_event(promotion(tg, "member"), event_id=51)
+    async with db.sessions() as session:
+        assert await session.get(Whitelist, (-1001, 42)) is None
     await rules(db)
     incoming = message(11, "普通消息")
     incoming["from"]["first_name"] = "推广"
@@ -210,6 +217,44 @@ async def test_progress_exempts_admin_and_invalidates_old_captcha_buttons(env, m
     )
     assert (await latest(db)).state == "passed"
     assert (await latest(db)).input_digits == "1"
+
+
+@pytest.mark.parametrize("manual_during", [False, True])
+async def test_demotion_preserves_manual_whitelist_and_original_flags(env, client, manual_during):
+    _, db, tg, svc = env
+    async with db.transaction() as session:
+        session.add(Whitelist(group_id=-1001, user_id=42, verification=False, moderation=True, note="手动白名单"))
+    await svc.member_event(promotion(tg), event_id=100)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+        assert white.administrator_backup["verification"] is False
+    if manual_during:
+        current = next(r for r in (await client.get('/api/groups/-1001/whitelist')).json() if r['user_id'] == 42)
+        response = await client.put('/api/groups/-1001/whitelist', json={
+            'user_id': 42, 'verification': True, 'moderation': True, 'note': '任职期间手动添加'},
+            headers={'If-Match': current['version'], 'Idempotency-Key': 'manual-during-admin'})
+        assert response.status_code == 200, response.text
+    await svc.member_event(promotion(tg, 'member'), event_id=101)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.administrator_backup is None and white.moderation
+        assert white.verification is manual_during
+        assert white.note == ('任职期间手动添加' if manual_during else '手动白名单')
+
+
+async def test_demotion_keeps_whitelist_from_manual_unmute(env):
+    _, db, tg, svc = env
+    async with db.transaction() as session:
+        session.add(Member(group_id=-1001, user_id=42))
+    await svc.member_event(promotion(tg), event_id=100)
+    async with db.transaction() as session:
+        member = await session.get(Member, (-1001, 42))
+        await svc.trust.trust_member(session, member, 1, '管理员手动解除禁言')
+    await svc.member_event(promotion(tg, 'member'), event_id=101)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation and white.administrator_backup is None
 
 
 async def test_promotion_while_role_lookup_is_pending_cancels_stale_deletion(env, monkeypatch):

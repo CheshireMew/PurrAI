@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { groupTypeName } from '../presentation'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { post } from '../api'
 import type { Group, SharedPolicy } from '../types'
@@ -11,8 +12,9 @@ import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 import { statusTone } from '../presentation'
 
-const props = defineProps<{ refreshKey: number }>()
+const props = defineProps<{ refreshKey: number; groupId: number | null }>()
 const { me, groups, reloadGroups, submitAction } = useWorkspace()
+const currentGroup = computed(() => groups.value.find(group => group.id === props.groupId))
 const { busy, error, safe } = useTask(), settingsGroup = ref<Group | null>(null)
 const admissionOpen = ref(false), admissionId = ref('')
 const sharedBaseline = ref<SharedPolicy | null>(null)
@@ -55,6 +57,25 @@ useRefresh(load, () => props.refreshKey)
 <template>
 <el-alert v-if="error" :title="error" type="error" show-icon class="error-banner" @close="error = ''"/>
 <section class="panel" v-loading="busy">
+<template v-if="currentGroup">
+<div class="panel-title"><h2>群保护</h2><el-tag :type="currentGroup.approved ? statusTone(currentGroup.status) : 'warning'">{{ currentGroup.approved ? label(currentGroup.status) : '等待批准接入' }}</el-tag></div>
+<div class="group-settings-actions">
+<template v-if="currentGroup.approved">
+<el-button type="primary" @click="settingsGroup = currentGroup">编辑设置</el-button>
+<el-button @click="groupAction(currentGroup, currentGroup.enabled ? 'pause' : 'activate')">{{ currentGroup.enabled ? '暂停保护' : '启用保护' }}</el-button>
+<el-dropdown trigger="click" @command="(value: string) => groupAction(currentGroup!, value)"><el-button>更多操作</el-button><template #dropdown><el-dropdown-menu>
+<el-dropdown-item command="permissions">检查权限</el-dropdown-item>
+<el-dropdown-item v-if="currentGroup.settings.join_requests" command="join-link">申请入群链接</el-dropdown-item>
+<el-dropdown-item v-if="me?.root" command="revoke" divided>撤销接入</el-dropdown-item>
+</el-dropdown-menu></template></el-dropdown>
+</template>
+<el-button v-else-if="me?.root" type="primary" @click="groupAction(currentGroup, 'approve')">批准接入</el-button>
+</div>
+</template>
+<el-empty v-else description="还没有可以设置的群"/>
+</section>
+<details v-if="me?.root" class="panel group-administration">
+<summary>群接入与通用设置</summary>
 <div class="panel-title">
 <h2>已发现的群 <small>{{ groups.length }} 个</small>
 </h2>
@@ -66,7 +87,7 @@ useRefresh(load, () => props.refreshKey)
 <el-table-column label="群" min-width="200">
 <template #default="{ row }">
 <strong>{{ row.title }}</strong>
-<div class="cell-sub">{{ row.id }} · {{ row.type }}</div>
+<div class="cell-sub">{{ row.id }} · {{ groupTypeName(row.type) }}</div>
 </template>
 </el-table-column>
 <el-table-column label="状态" width="110">
@@ -88,7 +109,7 @@ useRefresh(load, () => props.refreshKey)
 </template>
 </el-table-column>
 </el-table>
-</section>
+</details>
 <el-dialog v-model="admissionOpen" title="接入群组" width="min(480px, 94vw)" :close-on-click-modal="!admissionBusy" :show-close="!admissionBusy">
 <p>公开群和私密群均可，机器人须已加入群。邀请链接不能代替群 ID。</p>
 <el-form @submit.prevent="admitGroup">

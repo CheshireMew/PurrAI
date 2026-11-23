@@ -1,0 +1,17 @@
+{
+  "group": {"id": -10010001, "title": "本机测试群"},
+  "accounts": [
+    {"user_id": 10001, "display_name": "测试群友小林", "balance": 1200},
+    {"user_id": 10002, "display_name": "测试群友小周", "balance": 800},
+    {"user_id": 10003, "display_name": "测试群友小陈", "balance": 350}
+  ],
+  "messages": [
+    {"user_id": 10001, "display_name": "测试群友小林", "text": "这是本机测试消息，可以在这里查看消息归档和编辑设置。"},
+    {"user_id": 10002, "display_name": "测试群友小周", "text": "本机的修改只保存在测试数据里，可以放心试用后台。"}
+  ],
+  "lottery": {
+    "title": "周末抽奖测试",
+    "description": "可以修改这个草稿、发布或复用，体验本机抽奖管理。",
+    "prizes": [{"name": "100 积分", "kind": "points", "points": 100, "quantity": 3}]
+  }
+}

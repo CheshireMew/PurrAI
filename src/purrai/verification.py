@@ -126,7 +126,9 @@ class VerificationService:
         answer = "验证已失效，请联系管理员重新出题。"
         verification = await session.get(Verification, identifier)
         if verification:
-            await observe_callback_prompt(session, verification, query, nonce, self.tg.user_id, received_at=received_at)
+            recovered = await observe_callback_prompt(session, verification, query, nonce, self.tg.user_id, received_at=received_at)
+            if recovered:
+                return recovered
         if verification and verification.user_id != query["from"]["id"]:
             answer = "只有被验证者本人能够操作。"
         elif verification and verification.state == "pending" and verification.nonce == nonce:

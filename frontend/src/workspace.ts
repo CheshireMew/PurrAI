@@ -13,7 +13,8 @@ export interface Workspace {
   actionRequests: Pick<ActionRequests, 'items'>
   mutations: Pick<MutationRequests, 'items' | 'submit'>
   retryMutation(request: MutationRequest): Promise<void>
-  submitAction(path: string, body: ActionBody, context?: ActionContext): Promise<void>
+  submitAction(path: string, body: ActionBody, context?: ActionContext): Promise<boolean>
+  reportError(message: string): void
   retryAction(request: ActionRequest): Promise<void>
   reloadGroups(): Promise<void>
   expireSession(): void

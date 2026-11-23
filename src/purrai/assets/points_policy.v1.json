@@ -7,6 +7,10 @@
   "chat_interval_seconds": 60,
   "packet_enabled": true,
   "packet_expiry_hours": 24,
+  "trust_enabled": true,
+  "newcomer_exemption_points": 50,
+  "advertising_exemption_points": 100,
+  "trust_excluded_user_ids": [],
   "commands": {
     "signin": ["签到", "签到加积分"],
     "balance": ["积分", "我的积分", "我的排名"],

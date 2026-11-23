@@ -164,7 +164,7 @@ async def test_pa02_late_challenge_is_cleaned_without_overwriting_reissue(env, m
     original = tg.call
 
     async def slow(method, **kwargs):
-        if method == "send_photo" and not entered.is_set():
+        if method == "edit_message_media" and not entered.is_set():
             entered.set()
             await finish.wait()
         return await original(method, **kwargs)
@@ -182,7 +182,7 @@ async def test_pa02_late_challenge_is_cleaned_without_overwriting_reissue(env, m
         finish.set()
         await task
     await drain(service)
-    photos = [data for method, data in tg.calls if method == "send_photo"]
+    photos = [data for method, data in tg.calls if method == "edit_message_media"]
     assert len(photos) == 2
     async with db.sessions() as session:
         current = await session.get(Verification, v.id)

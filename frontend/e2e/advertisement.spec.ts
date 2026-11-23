@@ -15,7 +15,7 @@ test(`广告样本可保存、试匹配、停用，并查看独立审核与设�
     else if (path === '/api/groups') data = [{ id: -1001, title: '广告审核测试群', approved: true, enabled: true, status: 'active', settings: catalog.settings.defaults }]
     else if (path.endsWith('/advertisement-samples/preview')) {
       expect(body.scope).toBe(scope)
-      data = { enabled: true, action: samples[0]?.enabled ? 'delete' : 'review', result: samples[0]?.enabled ? { score: 1, sample: samples[0] } : null }
+      data = { enabled: true, action: samples[0]?.enabled && scope === 'text' ? 'delete' : 'review', result: samples[0]?.enabled ? { score: 1, sample: samples[0] } : null }
     }
     else if (path.endsWith('/advertisement-settings')) {
       expect(request.headers()['if-match']).toBe(String(version))
@@ -27,7 +27,7 @@ test(`广告样本可保存、试匹配、停用，并查看独立审核与设�
     } else if (path.endsWith('/advertisement-samples')) {
       if (request.method() === 'POST') {
         expect(request.headers()['idempotency-key']).toBeTruthy()
-        data = { ...body, id: 's1', source: 'manual', version: 1, usable: true, review_state: 'done' }; samples.push(data)
+        data = { ...body, id: 's1', source: 'manual', version: 1, usable: scope === 'text', review_state: 'done' }; samples.push(data)
       } else data = { settings: config, version, items: samples, total: samples.length, reviews: {}, model_ready: true }
     } else if (path.endsWith('/advertisement-reviews')) data = { items: [{ id: 'r1', message_id: 15, message: { text: '模型漏答后会继续等待审核', _sender_profile: {user_id: 42, status: 'available', bio: '琥珀星河活动招募，加入我们领取参与资格', checked_at: 1794880000}, _ad_context: [{id: 'r0', text: '该账号此前的一条发言'}] }, result: {}, state: 'pending', error: '模型漏答此消息，等待重试', created_at: 1794880000 }], total: 1 }
     await route.fulfill({ json: data })
@@ -39,22 +39,22 @@ test(`广告样本可保存、试匹配、停用，并查看独立审核与设�
   const editor = page.getByRole('dialog', { name: '添加已确认广告', exact: true })
   if (scope === 'bio') {
     await editor.getByRole('combobox', { name: '样本判定依据' }).press('ArrowDown')
-    await page.getByRole('option', {name: '简介自身就是广告，可用于简介匹配', exact: true}).click()
+    await page.getByRole('option', {name: '简介参考，不能单独处罚', exact: true}).click()
   }
   await editor.getByRole('textbox', { name: '广告内容', exact: true }).fill('任意可替换的完整测试样本文字不依赖内置词表')
   await editor.getByRole('textbox', { name: '确认或修改原因' }).fill('管理员独立核实')
   await editor.getByRole('button', { name: '保存样本' }).click()
   await expect(editor).toBeHidden()
-  const scopeLabel = scope === 'bio' ? '简介可独立判断' : '正文可独立判断'
+  const scopeLabel = scope === 'bio' ? '简介参考' : '正文可独立判断'
   expect(samples[0].scope).toBe(scope)
-  await expect(panel.getByRole('cell', { name: `参与本地匹配 ${scopeLabel}` })).toBeVisible()
+  await expect(panel.getByRole('cell', { name: `${scope === 'text' ? '参与本地匹配' : '仅保留判定'} ${scopeLabel}` })).toBeVisible()
   if (scope === 'bio') {
     await panel.getByRole('combobox', {name: '样本测试范围'}).press('ArrowDown')
     await page.getByRole('option', {name: '用户简介', exact: true}).click()
   }
   await panel.getByRole('textbox', { name: '样本匹配测试消息' }).fill(samples[0].text)
   await panel.getByRole('button', { name: '测试本地匹配' }).click()
-  await expect(panel.getByText('命中样本，相似度 1.000，删除消息')).toBeVisible()
+  await expect(panel.getByText(scope === 'text' ? '命中样本，相似度 1.000，删除消息' : '未达到本地处置条件，交由 AI 审核')).toBeVisible()
   await panel.getByRole('button', { name: '编辑', exact: true }).click()
   const editing = page.getByRole('dialog', { name: '编辑广告样本' })
   await editing.getByRole('switch', { name: '启用广告样本' }).press('Space')

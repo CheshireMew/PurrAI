@@ -1,4 +1,5 @@
 import { stateLabel } from './catalog'
+import { validationMessage } from './validation'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public retryAfter = 0) { super(message) }
@@ -11,17 +12,21 @@ export async function api<T = any>(path: string, init: RequestInit = {}, receive
   const key = path.split('?')[0]!, reading = !init.method || ['GET', 'HEAD'].includes(init.method)
   const backoff = readBackoffs.get(key)
   if (reading && backoff && Date.now() < backoff.until) throw backoff.error
-  const response = await fetch(path, {
+  let response: Response
+  try { response = await fetch(path, {
     ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     credentials: 'same-origin', headers: {
       'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...init.headers,
     },
-  })
+  }) } catch (reason) {
+    const timeout = reason instanceof Error && ['TimeoutError', 'AbortError'].includes(reason.name)
+    throw new ApiError(0, timeout ? '请求超时，请重试；提交结果不明时请先确认结果' : '无法连接后台，请检查网络后重试')
+  }
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = data.detail
     const message = typeof detail === 'string' ? detail : Array.isArray(detail)
-      ? detail.map((e: any) => `${e.loc?.slice(1).join('.')}: ${e.msg}`).join('；')
+      ? detail.map(validationMessage).join('；')
       : detail?.message ? `${detail.message}：${detail.missing?.join('、') || ''}` : '请求失败，请稍后重试'
     const retry = response.headers.get('Retry-After') || ''
     const seconds = /^\d+$/.test(retry) ? Number(retry) : Math.max(0, (Date.parse(retry) - Date.now()) / 1000)

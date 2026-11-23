@@ -3,6 +3,7 @@ import time
 
 import pytest
 from sqlalchemy import func, select
+from conftest import drain
 
 from purrai.management import ManagementError
 from purrai.models import Admin, Grant, Group, Rule, Session, default_settings
@@ -86,6 +87,7 @@ async def test_id_command_returns_real_sender_number_before_any_setup_and_reject
     incoming["chat"] = {"id": -1001, "type": "supergroup"}
     incoming["sender_chat"] = {"id": -1001, "type": "supergroup", "title": "测试群"}
     await deliver(runtime, {"message": incoming})
+    await drain(service)
     assert "匿名身份无法识别真实账号" in texts(telegram)[-1]
     assert "数字 ID：1087968824" not in texts(telegram)[-1]
 

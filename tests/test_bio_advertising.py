@@ -68,8 +68,7 @@ class BioModel:
     async def completion(self, system, payload, **kwargs):
         rows = json.loads(payload)["messages"]
         self.calls.append(rows)
-        return {"decisions": [{"id": row["id"], "advertisement": bool(row.get("bio")),
-                               "message_evidence": row["text"] if row["text"].startswith("来我主页") else "",
+        return {"decisions": [{"id": row["id"], "advertisement": bool(row.get("bio")) and row["text"].startswith("来我主页"),
                                "scope": "context" if row.get("bio") else "text", "reason": "测试独立资料判定"}
                               for row in rows]}, 100
 
@@ -198,7 +197,7 @@ async def test_bio_samples_are_managed_separately_from_body_samples(client):
     assert (await client.post(path + '/preview', json={'text': changed, 'scope': 'bio'})).json()['action'] == 'review'
 
 
-async def test_bio_needs_current_message_evidence_and_cannot_become_a_standalone_sample(env):
+async def test_bio_is_context_for_current_message_and_cannot_become_a_standalone_sample(env):
     bio = "今年\u200c最新风口/一个月买车/三个月买房/加入我们一起参与"
     values = {42: bio, 43: bio}
     worker, model = await setup(env, values)
@@ -232,33 +231,37 @@ async def test_changed_bio_cancels_queued_model_penalty(env):
     assert all(row.state == 'cancelled' for row in await records(env[1], Action) if row.kind == 'delete')
 
 
-@pytest.mark.parametrize("quote", [None, "", 42, "虚构的引流句子", "只在简介中出现的内容", "只在引用中出现的内容"])
-async def test_single_ad_verdict_without_own_message_quote_cannot_punish_or_learn(env, quote):
-    worker, model = await setup(env, {42: "只在简介中出现的内容"})
+@pytest.mark.parametrize("quote", [None, "", 42, "用自己的话说明产品推广行为"])
+async def test_ai_advertisement_decision_applies_without_matching_its_explanation_to_original(env, quote):
+    worker, model = await setup(env, {42: "青岚软件，产品咨询 https://example.test/contact"})
     original = model.completion
 
     async def unsupported(*args, **kwargs):
         result, tokens = await original(*args, **kwargs)
         decision = result["decisions"][0]
+        decision["advertisement"] = True
+        decision["reason"] = "该账号在群内主动介绍其软件能力，是产品推广"
         if quote is None:
-            decision.pop("message_evidence")
+            decision.pop("message_evidence", None)
         else:
             decision["message_evidence"] = quote
         return result, tokens
 
     model.completion = unsupported
-    await env[3].message(message(551, "我已经解决了问题，谢谢大家", reply_to_message={
-        "message_id": 550, "from": {"id": 99, "first_name": "其他人"}, "text": "只在引用中出现的内容"}))
+    await env[3].message(message(551, "青岚软件能自动整理表格、生成报告，桌面和手机都能使用"))
     assert await worker.run_one()
     assert len(model.calls) == 1
     review, = await records(env[1], AdvertisementReview)
-    assert review.state == "clean" and not review.result["advertisement"]
-    assert not await records(env[1], AdvertisementSample)
-    assert not await records(env[1], Action)
+    assert review.state == "advertisement" and review.result["advertisement"]
+    assert review.result["reason"] == "该账号在群内主动介绍其软件能力，是产品推广"
+    await drain(env[3])
+    assert any(method == "delete_message" and data["message_id"] == 551 for method, data in env[2].calls)
+    assert len(await records(env[1], AdvertisementSample)) == 1
 
 
-async def test_single_review_receives_current_keyword_meanings_and_profile_but_requires_message_evidence(env, client):
-    worker, model = await setup(env, {42: "简介特有词与个人资料"})
+async def test_single_review_receives_current_keyword_meanings_profile_and_body(env, client):
+    bio = "简介特有词与个人资料，估算丨ooo点 https://example.test/z000"
+    worker, model = await setup(env, {42: bio})
     path = "/api/groups/-1001/rules"
     body = {"kind": "keyword", "value": "琥珀星河", "mode": "pinyin", "scope": "either",
             "meaning": "任意替换词的语义说明，命中仍需判断主动招揽", "penalty": "ai_confirmed_mute"}
@@ -271,14 +274,15 @@ async def test_single_review_receives_current_keyword_meanings_and_profile_but_r
         assert saved.status_code == 200, saved.text
 
     async def check(identifier):
-        incoming = message(identifier, "琥.珀\u200b星河与珊瑚远航都是今天讨论的词")
+        incoming = message(identifier, "琥.珀\u200b星河与珊瑚远航都是今天讨论的词，记录1️⃣0️⃣0️⃣0️⃣点，版本o2 |2026")
         incoming["from"]["first_name"] = "昵称特有词"
         await env[3].message(incoming)
         before = len(model.calls)
         assert await worker.run_one()
         batch, = model.calls[before:]
         assert batch[0]["name"] == "昵称特有词"
-        assert batch[0]["bio"] == "简介特有词与个人资料"
+        assert batch[0]["bio"] == bio.replace("，", ",")
+        assert batch[0]["number_readings"] == {"text": {"1️⃣0️⃣0️⃣0️⃣": "1000"}, "bio": {"丨ooo": "1000"}}
         assert len(batch[0]["keyword_hints"]) >= 2
         assert next(row for row in await records(env[1], AdvertisementReview) if row.message_id == identifier).state == "clean"
         return [item for item in batch[0]["keyword_hints"] if item["matched_fields"] == ["message"]]
@@ -336,6 +340,34 @@ async def test_matching_bio_sample_and_personal_invite_cannot_punish_normal_chat
     assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in env[2].calls)
     async with env[1].sessions() as session:
         assert not [r for r in await effective_rules(session, -1001) if r["kind"] == "block_target"]
+
+
+async def test_product_profile_is_sent_with_body_but_only_promotional_body_is_advertising(env):
+    bio = "青岚绘图器，联系入口 https://example.test/contact"
+    worker, model = await setup(env, {42: bio})
+    ordinary = message(651, "今天有人解决这个问题了吗")
+    promotion = message(652, "青岚绘图器：自动读入数据、绘制图表，手机和桌面端都能使用")
+    for incoming in (ordinary, promotion):
+        incoming["from"]["first_name"] = "青岚绘图器"
+
+    async def assess_bodies(system, payload, **kwargs):
+        rows = json.loads(payload)["messages"]
+        model.calls.append(rows)
+        return {"decisions": [{"id": row["id"], "advertisement": row["text"].startswith("青岚绘图器"),
+            "scope": "context", "reason": "结合本条正文判断是否主动宣传产品"}
+            for row in rows]}, 100
+
+    model.completion = assess_bodies
+    await env[3].message(ordinary)
+    await env[3].message(promotion)
+    assert await worker.run_one()
+    for item in model.calls[0]:
+        assert item["name"] == "青岚绘图器" and item["bio"] == bio.replace("，", ",") and item["text"]
+    reviews = {row.message_id: row for row in await records(env[1], AdvertisementReview)}
+    assert reviews[651].state == "clean" and reviews[652].state == "advertisement"
+    assert reviews[652].result["reason"] == "结合本条正文判断是否主动宣传产品"
+    await drain(env[3])
+    assert {args["message_id"] for method, args in env[2].calls if method == "delete_message"} == {652}
 
 
 async def test_clean_bio_with_personal_link_does_not_create_a_sample_or_blacklist(env):

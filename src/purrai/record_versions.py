@@ -6,7 +6,7 @@ import json
 from purrai.errors import ManagementError
 
 RULE_FIELDS = ("id", "group_id", "kind", "value", "mode", "scope", "context_value", "meaning", "penalty", "name_penalty", "enabled", "inherited", "inherited_from")
-WHITE_FIELDS = ("group_id", "user_id", "verification", "moderation", "note")
+WHITE_FIELDS = ("group_id", "user_id", "verification", "moderation", "note", "administrator_backup")
 AUTO_REPLY_FIELDS = ("id", "group_id", "keyword", "reply", "mode", "enabled", "priority", "cooldown_seconds")
 
 

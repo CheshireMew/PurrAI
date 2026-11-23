@@ -50,8 +50,34 @@ class BotUI:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def send(self, chat_id, text):
+    async def send(self, chat_id, text, *, request_id=None):
+        if chat_id < 0:
+            from purrai.action_queue import enqueue
+            from purrai.models import uid
+            async with self.state.db.transaction() as session:
+                key = f"bot-reply:{request_id}:{hashlib.sha256(text.encode()).hexdigest()}" if request_id else f"bot-reply:{uid()}"
+                return await enqueue(session, "admin_notify", key, chat_id,
+                    payload={"chat_id": chat_id, "text": text[:4000]}, priority=20)
         return await self.tg.call("send_message", chat_id=chat_id, text=text[:4000])
+
+    async def cleanup_command(self, message):
+        from purrai.action_queue import enqueue
+        from purrai.models import Group, now
+        from purrai.schemas import GroupSettings
+        chat_id = message["chat"]["id"]
+        if chat_id >= 0:
+            return
+        async with self.state.db.transaction() as session:
+            group = await session.get(Group, chat_id)
+            if not group or not group.approved:
+                return
+            action = await enqueue(session, "delete", f"cleanup:command:{chat_id}:{message['message_id']}", chat_id,
+                payload={"chat_id": chat_id, "message_id": message["message_id"]}, priority=5,
+                reason="群内管理命令自动清理")
+            if not action.payload.get("expires_at"):
+                deadline = now() + GroupSettings.model_validate(group.settings).notice_seconds
+                action.payload = {**action.payload, "expires_at": deadline}
+                action.available_at = deadline
 
     async def panel(self, actor, text, buttons, group_id=None, message_id=None, *, resume=None):
         resume = resume or (

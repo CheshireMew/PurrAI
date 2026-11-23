@@ -12,6 +12,7 @@ from purrai.archive import capture, mark_reasons
 from purrai.group_link_identity import own_channel_id, remember_linked_channel
 from purrai.media_gate import remember_text, restricted_newcomer, text_count_before, visual_media
 from purrai.message_activity import observe_activity
+from purrai.message_parts import message_text
 from purrai.message_identity import message_sender, sender_chat as chat_identity
 from purrai.models import (
     Group,
@@ -185,7 +186,8 @@ class Moderation:
                 profile["reasons"] += channel_reasons
                 profile["mute_reasons"] += [item for item in channel_reasons if item.action == "mute"]
                 profile["ban_reasons"] += [item for item in channel_reasons if item.action == "ban"]
-            if contact_should_block(message, group.settings, rules) or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]:
+            if (contact_should_block(message, group.settings, rules) or profile["name_reasons"] or profile["mute_reasons"] or profile["ban_reasons"]
+                    or any(getattr(reason, "learn_emoji_packs", False) for reason in profile["reasons"])):
                 if not admin_checked:
                     return True
                 await self.record_member_message(
@@ -220,7 +222,7 @@ class Moderation:
                 )
                 return
             minimum = group.settings.get("media_min_text_messages", 3)
-            if minimum and restricted_newcomer(member, now(), group.settings) and visual_media(message):
+            if minimum and not assessment.newcomer_exempt and restricted_newcomer(member, now(), group.settings) and visual_media(message):
                 count = await text_count_before(session, message, minimum)
                 if count < minimum:
                     if not admin_checked:
@@ -250,7 +252,7 @@ class Moderation:
         coordinated = await coordinated_reason(session, group, message, activity)
         if coordinated:
             result["reasons"].append(coordinated)
-        if activity.newcomer and (urls or message_links(message)) and (await emergency_state(session, group_id)).get("active"):
+        if activity.newcomer and not assessment.newcomer_exempt and (urls or message_links(message)) and (await emergency_state(session, group_id)).get("active"):
             result["reasons"].append("临时应急保护：新人链接消息暂时拦截")
         result["reasons"].extend(activity_reasons(group.settings, activity.repeats, activity.similar, activity.burst))
         reasons = list(dict.fromkeys(result["reasons"] + result["name_reasons"]))
@@ -301,7 +303,7 @@ class Moderation:
             message_id=message["message_id"],
             reasons=reasons,
             sender_name=display_name,
-            excerpt=message.get("text") or message.get("caption") or "",
+            excerpt=message_text(message),
             profile_violation=bool(result["name_reasons"]),
             rule_mute=bool(result["mute_reasons"]),
             message_violation=True,
@@ -323,7 +325,7 @@ class Moderation:
             user_id=sender["id"],
             message_id=message["message_id"],
             reasons=[reason],
-            excerpt=message.get("text") or message.get("caption") or "",
+            excerpt=message_text(message),
             sender_name=sender_name(sender, include_username=True),
             message_violation=True,
         )

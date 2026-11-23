@@ -81,6 +81,7 @@ class ActionRunner:
             "warn": ActionHandler(self.notifications.warn, self.notifications.prepare),
             "auto_reply": ActionHandler(self.notifications.auto_reply, self.notifications.prepare, False),
             "points_message": ActionHandler(self.notifications.points_message, self.notifications.prepare, False),
+            "lottery_notice": ActionHandler(self.notifications.lottery_notice, self.notifications.prepare, False),
             "owner_alert": ActionHandler(self.notifications.owner_alert, self.notifications.prepare, False),
         }
 
@@ -201,14 +202,17 @@ class ActionRunner:
                 action.available_at = now() + exc.retry_after
                 action.error = f"Telegram 限流，{exc.retry_after} 秒后重试"
             except (TelegramForbiddenError, TelegramBadRequest, ValueError) as exc:
-                action.state = "failed"
+                recovering = self.recovery_retry(action, exc)
+                action.state = "pending" if recovering else "failed"
+                if recovering:
+                    action.available_at = now() + min(300, 2 ** min(action.attempts, 8))
                 action.error = failure(
                     logger,
                     self.settings,
                     exc,
                     "任务执行失败",
                     f"action={action.id} kind={action.kind} group={action.group_id}",
-                    terminal=True,
+                    terminal=not recovering,
                 )
                 group = await session.get(Group, action.group_id) if action.group_id else None
                 if group and isinstance(exc, TelegramForbiddenError):
@@ -233,12 +237,17 @@ class ActionRunner:
                 from purrai.notice_cleanup import schedule_notice_cleanup
                 await schedule_notice_cleanup(session, action)
             await deletion_result(session, action)
+            from purrai.message_events import queue_related_delete
+            await queue_related_delete(session, action)
             logger.info("操作处理结果 action=%s kind=%s group=%s state=%s attempt=%s elapsed=%.3fs",
                         action.id, action.kind, action.group_id, action.state, action.attempts, perf_counter() - started)
             return True
 
     @staticmethod
     def recovery_retry(action, exc):
+        if action.kind == "delete" and action.dedupe_key.startswith(("cleanup:command:", "cleanup:notice:")):
+            return (now() - action.created_at < 47 * 3600 and isinstance(exc,
+                (TelegramNetworkError, TimeoutError, ConnectionError, OSError, TelegramForbiddenError, TelegramBadRequest)))
         return (action.kind in ("release", "subscription_check") or action.payload.get("automatic_restore")) and isinstance(
             exc, (TelegramNetworkError, TimeoutError, ConnectionError, OSError))
 

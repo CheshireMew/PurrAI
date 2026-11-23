@@ -32,6 +32,11 @@ const editorOpen = ref(false), editingRule = ref<Rule | null>(null)
 const businessOpen = ref(false)
 const { input: previewInput, reasons: previewReasons, preview: runPreview } = usePreview(() => props.groupId, () => [rows.value, props.refreshKey])
 function edit(row: Rule | null = null) { editingRule.value = row; editorOpen.value = true }
+function focusPreview() {
+  const section = document.getElementById('rule-preview')
+  section?.scrollIntoView({ block: 'start' })
+  section?.querySelector('textarea')?.focus({ preventScroll: true })
+}
 async function preview() { await safe(() => runPreview()) }
 useRefresh(load, () => props.refreshKey)
 </script>
@@ -42,8 +47,12 @@ useRefresh(load, () => props.refreshKey)
 <section class="panel" v-loading="busy">
 <div class="panel-title">
 <h2>本群广告规则</h2>
+<div class="panel-actions">
 <AdvertisementSamples :group-id="groupId"/>
+<el-button @click="focusPreview">测试消息</el-button>
+<el-button v-if="me?.root" @click="businessOpen = true">管理业务规则</el-button>
 <el-button type="primary" @click="edit()">添加规则</el-button>
+</div>
 </div>
 <form class="filterbar" @submit.prevent="search">
 <el-input v-model="query.query" aria-label="搜索规则" placeholder="搜索规则内容" clearable/>
@@ -64,7 +73,7 @@ useRefresh(load, () => props.refreshKey)
 <template #default="{ row }">{{ row.matching_label || catalog?.rules?.modes[row.mode] || row.mode }}</template>
 </el-table-column>
 <el-table-column label="处置" min-width="240">
-<template #default="{ row }">{{ row.consequence || '查看规则预览确认处置' }}</template>
+<template #default="{ row }"><details class="rule-consequence"><summary>{{ row.consequence_short || '查看处置说明' }}</summary><p>{{ row.consequence || '查看规则预览确认处置' }}</p></details></template>
 </el-table-column>
 <el-table-column label="状态" width="100">
 <template #default="{ row }">
@@ -79,7 +88,7 @@ useRefresh(load, () => props.refreshKey)
 </el-table>
 <el-pagination v-model:current-page="pagination" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load"/>
 </section>
-<section class="panel preview-panel">
+<section id="rule-preview" class="panel preview-panel">
 <h2>试一条消息</h2>
 <p class="muted">只查看命中原因，不发送消息或执行处罚。域名白名单不会豁免关键词检查。</p>
 <el-input v-model="previewInput.sender_name" aria-label="测试昵称及用户名" placeholder="测试昵称 @username"/>
@@ -100,6 +109,5 @@ useRefresh(load, () => props.refreshKey)
 </section>
 
 <RuleEditor :open="editorOpen" :rule="editingRule" :rules="rows" :group-id="groupId" @close="editorOpen = false" @saved="load"/>
-<section v-if="me?.root" class="panel"><div class="panel-title"><h2>业务组合规则</h2><el-button @click="businessOpen = true">管理业务规则</el-button></div><p>维护原有广告、昵称和聊天排除规则的词组、组合条件、豁免和处置。</p></section>
 <BusinessPolicyDialog v-if="me?.root" :open="businessOpen" :group-id="groupId" @close="businessOpen = false" @saved="load"/>
 </template>

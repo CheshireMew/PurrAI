@@ -24,6 +24,8 @@ SPAM_SETTINGS = ("repeat_enabled", "repeat_window", "repeat_count", "similar_ena
 
 
 async def apply_penalty(session, group, violation, member, actor_id=None, reason="", *, evidence=None):
+    from purrai.message_emoji import remember_packs
+    await remember_packs(session, group, violation, evidence)
     from purrai.promotion_targets import remember_targets
     await remember_targets(session, group, violation, evidence)
     rules = await effective_rules(session, group.id)

@@ -54,7 +54,12 @@ def matches(reason, category, rules=None):
 
 
 def details(reason):
-    return {"action": reason.action, "contact": reason.contact} if hasattr(reason, "action") else {}
+    if not hasattr(reason, "action"):
+        return {}
+    result = {"action": reason.action, "contact": reason.contact}
+    if getattr(reason, "learn_emoji_packs", False):
+        result.update(learn_emoji_packs=True, rule_id=reason.rule_id)
+    return result
 
 
 def classifies(reason, category, rules=None, recorded=None):

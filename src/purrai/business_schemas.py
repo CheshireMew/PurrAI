@@ -26,3 +26,4 @@ class BusinessPreviewInput(BusinessDocumentInput):
     contact: bool = False
     contact_name: str = Field(default="", max_length=250)
     direct: bool = False
+    entities: list[dict] = Field(default_factory=list, max_length=4096)

@@ -12,6 +12,7 @@ class BotCommands:
     def __init__(self, management, ui, state, panels, inputs):
         self.management, self.panels, self.inputs = management, panels, inputs
         self.tg, self.send = ui.tg, ui.send
+        self.cleanup_command = ui.cleanup_command
         self.remember, self.recall = state.remember, state.recall
 
     async def message(self, message):
@@ -47,16 +48,22 @@ class BotCommands:
         ):
             return False
         if not private and command == "/start":
+            await self.cleanup_command(message)
             return True
         chat_id = message["chat"]["id"]
         request_id = f"tg-message:{chat_id}:{message['message_id']}"
+        if not private:
+            await self.cleanup_command(message)
+        async def send(destination, body):
+            return await self.send(destination, body, request_id=request_id)
+
         try:
             if command == "/id":
                 if message.get("sender_chat"):
-                    await self.send(chat_id, "请使用个人账号私聊机器人发送 /id，匿名身份无法识别真实账号。")
+                    await send(chat_id, "请使用个人账号私聊机器人发送 /id，匿名身份无法识别真实账号。")
                 else:
                     username = message.get("from", {}).get("username")
-                    await self.send(
+                    await send(
                         chat_id,
                         f"你的 Telegram 数字 ID：{actor}"
                         + (f"\n用户名：@{username}" if username else "")
@@ -68,13 +75,13 @@ class BotCommands:
                     try:
                         await self.panels.choose_groups(actor)
                     except ManagementError:
-                        await self.send(
+                        await send(
                             chat_id,
                             "/start 用于打开管理面板。群管理员可发送 /admin 选择要管理的群，设置入群验证、防广告和群聊天。发送 /id 可查看自己的 Telegram 数字 ID。",
                         )
                         return True
                 else:
-                    await self.send(chat_id, "/start 用于打开管理面板。管理员请私聊我发送 /start 或 /admin，选择要管理的群，可设置入群验证、防广告和群聊天。发送 /id 可查看自己的 Telegram 数字 ID。")
+                    await send(chat_id, "/start 用于打开管理面板。管理员请私聊我发送 /start 或 /admin，选择要管理的群，可设置入群验证、防广告和群聊天。发送 /id 可查看自己的 Telegram 数字 ID。")
                 return True
             if not private and message.get("sender_chat"):
                 raise ManagementError(403, "匿名管理员请使用个人账号私聊机器人操作")
@@ -85,7 +92,7 @@ class BotCommands:
                 else:
                     await self.management.authorize(actor, chat_id)
                     username = getattr(self.tg, "username", "")
-                    await self.send(
+                    await send(
                         chat_id,
                         "请私聊机器人发送 /admin"
                         + (f"：https://t.me/{username}?start=admin" if username else "。"),
@@ -93,13 +100,13 @@ class BotCommands:
                 return True
             if command == "/cancel":
                 await self.remember(f"bot_prompt:{actor}", None)
-                await self.send(chat_id, "已取消当前输入。私聊发送 /admin 返回管理面板。")
+                await send(chat_id, "已取消当前输入。私聊发送 /admin 返回管理面板。")
                 return True
             group_id = await self.recall(f"bot_selected:{actor}") if private else chat_id
             if command in ("/mute", "/ban", "/unmute", "/unban", "/release", "/reissue"):
                 if group_id is None:
                     await self.panels.choose_groups(actor)
-                    await self.send(chat_id, "请先选择群，再发送成员操作命令。")
+                    await send(chat_id, "请先选择群，再发送成员操作命令。")
                     return True
                 reply = message.get("reply_to_message") or {}
                 if not private and reply.get("from") and not reply.get("sender_chat"):
@@ -126,7 +133,7 @@ class BotCommands:
                     await self.panels.choose_groups(actor)
                 else:
                     group = await self.management.authorize(actor, group_id)
-                    await self.send(
+                    await send(
                         chat_id,
                         f"PurrAI · {group.title}\n群保护：{STATE.get(group.status, group.status)}\n"
                         f"图片验证：{'开启' if group.settings['verification_enabled'] else '关闭'}\n"
@@ -142,9 +149,9 @@ class BotCommands:
                     else:
                         await self.inputs.input(actor, text, prompt, request_id)
                 else:
-                    await self.send(chat_id, "请发送 /admin 打开管理面板，或 /cancel 取消输入。")
+                    await send(chat_id, "请发送 /admin 打开管理面板，或 /cancel 取消输入。")
                 return True
         except (ManagementError, ValidationError) as exc:
-            await self.send(chat_id, explain(exc))
+            await send(chat_id, explain(exc))
             return True
         return False

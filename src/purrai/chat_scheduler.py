@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, or_, select
 
 from purrai import chat_commands
 from purrai.advertisement_store import latest_reviews
+from purrai.advertisement_routing import shared_review
 from purrai.chat_state import (
     has_sent_text, ignored_text, image_message_ids,
     message_bursts, session_state, store_state,
@@ -64,6 +65,8 @@ class ChatScheduler:
         waiting = set()
         for item in batch:
             review = reviews.get(item.message_id)
+            if shared_review(review, item.message_id) and review.message["_chat_turn_id"] == item.id:
+                continue
             if review and review.state in ("pending", "requesting", "failed"):
                 waiting.add(item.id)
             elif review and (review.state not in ("clean", "exempt") or item.review_only):

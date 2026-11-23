@@ -21,6 +21,18 @@ STATE = {
     "superseded": "已换新验证",
 }
 
+CHAT_STATES = {
+    "pending": "等待处理", "generating": "请求模型", "sending": "正在发送", "done": "已回复",
+    "silent": "保持静默", "skipped": "已跳过", "merged": "合并处理", "failed": "失败",
+    "retracting": "正在撤回", "retracted": "已撤回", "retraction_failed": "撤回失败",
+}
+
+BACKUP_FIELDS = {
+    "enabled": "定时备份", "hour_beijing": "北京时间执行小时", "interval_days": "间隔天数",
+    "retention_days": "保留天数", "retention_count": "最多保留份数", "max_total_mb": "备份总量上限（MB）",
+    "prune_enabled": "允许自动整理自有备份", "exercise_after_backup": "备份后自动恢复演练",
+}
+
 
 OPERATIONS = {
     "channel_ad_ban": "封禁广告频道在本群发言",
@@ -28,6 +40,8 @@ OPERATIONS = {
     "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
     "points_message": "积分互动",
+    "lottery_notice": "抽奖公告与结果",
+    "lottery_manage": "抽奖管理",
     "points_policy": "修改积分设置",
     "auto_reply_rule": "修改自动回复规则",
     "group_migration": "群升级数据接续",
@@ -38,7 +52,7 @@ OPERATIONS = {
     "ban": "临时封禁",
     "mute": "临时禁言",
     "unmute": "解除 PurrAI 禁言",
-    "unban": "解除 PurrAI 封禁",
+    "unban": "解除 PurrAI 封禁或禁言",
     "revoke_warning": "撤销警告",
     "violation_correction": "误判纠正",
     "delivery_review": "人工核实发送结果",
@@ -95,6 +109,7 @@ FAILURE_ACTIONS = {
 
 
 BOOLEANS = {
+    "admin_submission_notice": "在群内显示管理操作提交提示",
     "bio_advertising_enabled": "检查用户简介广告",
     "coordinated_enabled": "多账号重复刷屏检测",
     "raid_enabled": "集中入群时自动应急保护",
@@ -199,6 +214,7 @@ CHAT_BUTTON_LABELS = {
 
 
 NAVIGATION_ACTIONS = {
+    "lottery_home", "lottery_detail", "lottery_new", "lottery_field", "lottery_confirm",
     "ops_chat", "ops_emergency", "ops_emergency_prompt", "ops_backups", "ops_backup_prompt",
     "batch_review", "batch_page", "batch_reason",
     "member_detail",

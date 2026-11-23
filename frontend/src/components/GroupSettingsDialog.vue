@@ -7,6 +7,7 @@ import { useWorkspace } from '../workspace'
 import { useTask } from '../composables/useTask'
 import { useDraftClose } from '../composables/useDraftClose'
 import EmergencyProtection from './EmergencyProtection.vue'
+import { settingOptions, settingValue } from '../settingPresentation'
 
 const props = defineProps<{ group: Group | null; sharedBaseline?: SharedPolicy | null }>()
 const sharedMode = computed(() => props.group?.id === 0)
@@ -23,6 +24,9 @@ const settingsTabs = [
   { name: 'protection', label: '联合刷屏与应急' },
   { name: 'policy', label: '审核与提醒' },
 ]
+const primaryTabs = ['verification', 'moderation', 'chat']
+const moreTabs = settingsTabs.filter(tab => !primaryTabs.includes(tab.name))
+const visibleTabs = computed(() => settingsTabs.filter(tab => primaryTabs.includes(tab.name) || tab.name === activeTab.value))
 const policyNumbers = ['notice_seconds', 'ai_ad_window_hours', 'ai_ad_limit', 'spam_mute_seconds',
   'media_newcomer_days', 'chat_advertiser_cooldown_seconds', 'chat_evidence_hours', 'chat_command_min_users',
   'chat_min_opening_chars', 'chat_repeat_hours'] as const
@@ -62,12 +66,12 @@ const pendingReset = computed(() => {
   return stagedReset.value.filter(key => JSON.stringify(draft[key]) === JSON.stringify(resetValues.value[key]))
 })
 const dirty = computed(() => !!emojiPacksText.value.trim() || stagedReset.value.length > 0 || JSON.stringify(draftSettings()) !== JSON.stringify(settingsBaseline.value))
-const { requestClose } = useDraftClose(() => dirty.value, () => { dialog.value = false }, () => busy.value)
+const { requestClose } = useDraftClose(() => dirty.value, () => { dialog.value = false }, () => busy.value, () => dialog.value)
 const chatStatus = ref<Partial<ChatStatus>>({})
 const inheritance = ref<{ defaults: GroupSettings; settings: GroupSettings; overrides: string[] } | null>(null)
 const inheritedRows = computed(() => Object.keys(form).map(key => ({ key: key as keyof GroupSettings,
   label: catalog.value!.settings.labels?.[key] || key })))
-const showValue = (value: unknown) => typeof value === 'boolean' ? value ? '开启' : '关闭' : Array.isArray(value) ? value.join('、') || '空' : String(value)
+const sourceLabel = (key: keyof GroupSettings) => pendingReset.value.includes(key) ? '保存后跟随通用' : inheritance.value?.overrides.includes(key) ? '本群设置' : '跟随通用'
 type NumericKey = { [K in keyof GroupSettings]: GroupSettings[K] extends number ? K : never }[keyof GroupSettings]
 type BooleanKey = { [K in keyof GroupSettings]: GroupSettings[K] extends boolean ? K : never }[keyof GroupSettings]
 const verificationKeys = new Set(['join_requests', 'verification_enabled', 'verification_timeout', 'max_attempts', 'failure_ban_seconds'])
@@ -174,19 +178,29 @@ async function save() {
 <template>
 <el-dialog v-model="dialog" :title="sharedMode ? '通用设置' : '群设置'" class="settings-dialog" width="min(760px, 94vw)" :before-close="requestClose" :close-on-click-modal="false" destroy-on-close>
 <p v-if="sharedMode">修改会应用到没有单独设置该项目的群。</p>
-<p class="settings-group-name">{{ group?.title }}</p>
+<div class="settings-context"><p class="settings-group-name">{{ group?.title }}</p>
+<el-dropdown trigger="click" @command="(value: string) => activeTab = value"><el-button text>更多设置</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-for="tab in moreTabs" :key="tab.name" :command="tab.name">{{ tab.label }}</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+</div>
 <el-alert v-if="pendingReset.length" title="已将全部分页恢复为通用设置，保存后生效。随后改动的项目将作为本群设置。" type="info" :closable="false"/>
 <el-tabs v-model="activeTab" class="settings-tabs">
-<el-tab-pane v-for="tab in settingsTabs" :key="tab.name" :label="tab.label" :name="tab.name">
+<el-tab-pane v-for="tab in visibleTabs" :key="tab.name" :label="tab.label" :name="tab.name">
 <template v-if="tab.name === 'inheritance' && activeTab === 'inheritance'">
 <p v-if="sharedMode">通用设置是各群的继承来源；本群覆盖请在对应群中管理。</p>
-<el-table v-else-if="inheritance" :data="inheritedRows">
-<el-table-column prop="label" label="设置" min-width="160"/>
-<el-table-column label="当前值" min-width="160"><template #default="{ row }">{{ showValue(form[row.key as keyof GroupSettings]) }}</template></el-table-column>
-<el-table-column label="通用值" min-width="160"><template #default="{ row }">{{ showValue(inheritance.defaults[row.key as keyof GroupSettings]) }}</template></el-table-column>
-<el-table-column label="来源" width="130"><template #default="{ row }">{{ pendingReset.includes(row.key) ? '保存后跟随通用' : inheritance.overrides.includes(row.key) ? '本群设置' : '跟随通用' }}</template></el-table-column>
-<el-table-column label="操作" width="130"><template #default="{ row }"><el-button text :disabled="busy" @click="changeInheritance(row.key, inheritance!.overrides.includes(row.key))">{{ inheritance.overrides.includes(row.key) ? '恢复此项' : '固定为本群值' }}</el-button></template></el-table-column>
+<template v-else-if="inheritance">
+<el-table class="inheritance-table" :data="inheritedRows" max-height="calc(100dvh - 350px)">
+<el-table-column prop="label" label="设置" min-width="160" fixed="left"/>
+<el-table-column label="当前值" min-width="160"><template #default="{ row }">{{ settingValue(row.key, form[row.key as keyof GroupSettings]) }}</template></el-table-column>
+<el-table-column label="通用值" min-width="160"><template #default="{ row }">{{ settingValue(row.key, inheritance.defaults[row.key as keyof GroupSettings]) }}</template></el-table-column>
+<el-table-column label="来源" width="130"><template #default="{ row }">{{ sourceLabel(row.key) }}</template></el-table-column>
+<el-table-column label="操作" width="130" fixed="right"><template #default="{ row }"><el-button text :disabled="busy" @click="changeInheritance(row.key, inheritance!.overrides.includes(row.key))">{{ inheritance.overrides.includes(row.key) ? '恢复此项' : '固定为本群值' }}</el-button></template></el-table-column>
 </el-table>
+<div class="inheritance-cards">
+<article v-for="row in inheritedRows" :key="row.key">
+<strong>{{ row.label }}</strong><dl><div><dt>当前值</dt><dd>{{ settingValue(row.key, form[row.key]) }}</dd></div><div><dt>通用值</dt><dd>{{ settingValue(row.key, inheritance.defaults[row.key]) }}</dd></div></dl>
+<div class="inheritance-card-actions"><span class="muted">{{ sourceLabel(row.key) }}</span><el-button :disabled="busy" @click="changeInheritance(row.key, inheritance!.overrides.includes(row.key))">{{ inheritance.overrides.includes(row.key) ? '恢复此项' : '固定为本群值' }}</el-button></div>
+</article>
+</div>
+</template>
 <p v-else>正在读取继承来源…</p>
 </template>
 <el-form v-if="activeTab === tab.name" label-position="top" class="settings-form" @submit.prevent="save">
@@ -195,20 +209,16 @@ async function save() {
 <div class="settings-grid"><el-form-item v-for="key in policyNumbers" :key="key" :label="catalog!.settings.labels?.[key] || key">
 <el-input-number v-model="form[key]" :min="bounds(key).minimum" :max="bounds(key).maximum" :aria-label="catalog!.settings.labels?.[key] || key"/>
 </el-form-item></div>
-<el-form-item label="AI广告累计处理"><el-select v-model="form.ai_ad_penalty" aria-label="AI广告累计处理"><el-option value="delete" label="只删除广告消息"/><el-option value="permanent_mute" label="达到累计次数后永久禁言"/></el-select></el-form-item>
-<el-form-item label="频道身份广告处理"><el-select v-model="form.channel_ad_penalty" aria-label="频道身份广告处理"><el-option value="delete" label="只删除广告消息"/><el-option value="ban" label="删除广告并封禁发言频道"/></el-select></el-form-item>
-<el-form-item label="转发或引用外部频道的处理"><el-select v-model="form.external_channel_penalty" aria-label="转发或引用外部频道的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并踢出封禁"/></el-select></el-form-item>
-<el-form-item label="新学习推广目标的处理"><el-select v-model="form.learned_target_penalty" aria-label="新学习推广目标的处理"><el-option value="delete" label="只删消息"/><el-option value="permanent_mute" label="删消息并永久禁言"/><el-option value="ban" label="删消息并永久封禁"/></el-select></el-form-item>
+<el-form-item label="AI广告累计处理"><el-select v-model="form.ai_ad_penalty" aria-label="AI广告累计处理"><el-option v-for="(label, value) in settingOptions.ai_ad_penalty" :key="value" :value="value" :label="label"/></el-select></el-form-item>
+<el-form-item label="频道身份广告处理"><el-select v-model="form.channel_ad_penalty" aria-label="频道身份广告处理"><el-option v-for="(label, value) in settingOptions.channel_ad_penalty" :key="value" :value="value" :label="label"/></el-select></el-form-item>
+<el-form-item label="转发或引用外部频道的处理"><el-select v-model="form.external_channel_penalty" aria-label="转发或引用外部频道的处理"><el-option v-for="(label, value) in settingOptions.external_channel_penalty" :key="value" :value="value" :label="label"/></el-select></el-form-item>
+<el-form-item label="新学习推广目标的处理"><el-select v-model="form.learned_target_penalty" aria-label="新学习推广目标的处理"><el-option v-for="(label, value) in settingOptions.learned_target_penalty" :key="value" :value="value" :label="label"/></el-select></el-form-item>
 <el-form-item label="忽略纯数字独立开场"><el-switch v-model="form.chat_ignore_numeric_openings" aria-label="忽略纯数字独立开场"/></el-form-item>
 <p class="muted">系统提醒包括处罚通知和发到群里的操作结果。账号冷却和重复聊天时长设为 0 可关闭对应限制；历史已过期的记录不会恢复。</p>
 </section>
 <section v-show="activeTab === 'verification'" aria-label="入群验证设置">
 <el-form-item label="验证方式">
-<el-select v-model="form.verification_method" aria-label="验证方式">
-<el-option value="image" label="图片验证"/>
-<el-option value="text" label="文字算术验证"/>
-<el-option value="channel" label="订阅频道自动验证"/>
-</el-select>
+<el-select v-model="form.verification_method" aria-label="验证方式"><el-option v-for="(label, value) in settingOptions.verification_method" :key="value" :value="value" :label="label"/></el-select>
 </el-form-item>
 <el-form-item v-if="form.verification_method === 'channel'" label="订阅验证频道">
 <el-input v-model="form.verification_channel" aria-label="订阅验证频道" placeholder="@频道用户名或 t.me 频道链接"/>
@@ -216,10 +226,7 @@ async function save() {
 <p v-if="form.verification_method === 'channel'" class="muted">机器人须为频道管理员。已订阅者自动通过；其他成员订阅后自动放行，无需点击检查。</p>
 <p v-else-if="form.verification_method === 'text'" class="muted">随机加减法题，点击四个选项中的正确答案。仅入群者本人可作答，无需发送文字。</p>
 <el-form-item label="已入群成员验证失败处理">
-<el-select v-model="form.verification_failure_action" aria-label="验证失败处理">
-<el-option value="permanent_mute" label="永久禁言（留在群里）"/>
-<el-option value="kick" label="踢出群聊（允许重新加入）"/>
-</el-select>
+<el-select v-model="form.verification_failure_action" aria-label="验证失败处理"><el-option v-for="(label, value) in settingOptions.verification_failure_action" :key="value" :value="value" :label="label"/></el-select>
 </el-form-item>
 <p class="muted">超时或错误次数用尽后执行所选方式；默认永久禁言，可由管理员放行或重出题。申请入群者尚未进群，失败仅拒绝申请。</p>
 </section>
@@ -242,7 +249,7 @@ async function save() {
 <div class="settings-grid">
 <el-form-item label="本人的 Telegram 数字 ID"><el-input-number v-model="form.identity_user_id" :min="0" :max="4503599627370495" :controls="false" aria-label="本人的 Telegram 数字 ID"/></el-form-item>
 <el-form-item label="受保护昵称"><el-input v-model="identityNamesText" type="textarea" :rows="2" aria-label="受保护昵称" placeholder="每行一个昵称"/></el-form-item>
-<el-form-item label="确认冒充后的处理"><el-select v-model="form.identity_action" aria-label="确认冒充后的处理"><el-option value="kick" label="踢出群聊"/><el-option value="ban" label="踢出并禁止再次加入"/></el-select></el-form-item>
+<el-form-item label="确认冒充后的处理"><el-select v-model="form.identity_action" aria-label="确认冒充后的处理"><el-option v-for="(label, value) in settingOptions.identity_action" :key="value" :value="value" :label="label"/></el-select></el-form-item>
 </div>
 <div class="settings-toggles">
 <el-form-item label="匹配昵称后的括号说明"><el-switch v-model="form.identity_parentheses"/></el-form-item>

@@ -41,7 +41,7 @@ async def test_join_request_lost_photo_receipt_recovers_after_restart(env, monke
 
     async def lose(method, **kwargs):
         result = await original(method, **kwargs)
-        if method == "send_photo":
+        if method == "edit_message_media":
             accepted.append((kwargs, result["message_id"]))
             raise ConnectionError("response lost after acceptance")
         return result
@@ -57,7 +57,7 @@ async def test_join_request_lost_photo_receipt_recovers_after_restart(env, monke
     correct = next(button["callback_data"] for row in data["reply_markup"]["inline_keyboard"]
                    for button in row if button["text"] == "123456")
     if reissue:
-        original_photo = next(values for method, values in tg.calls if method == "send_photo")
+        original_photo = next(values for method, values in tg.calls if method == "edit_message_media")
         old_button = original_photo["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
         assert "失效" in await restarted.callback({
             "id": "old-picture", "from": {"id": old.user_id}, "data": old_button,
@@ -306,19 +306,27 @@ def test_frontend_build_invalidates_changed_input_output_and_source_set(tmp_path
 
     source, dist = tmp_path / "frontend", tmp_path / "dist"
     (source / "src").mkdir(parents=True)
+    (source / "public").mkdir()
     (dist / "assets").mkdir(parents=True)
     for name in (*INPUTS, "src/main.ts"):
         (source / name).write_text("source:" + name, encoding="utf-8")
     (dist / "index.html").write_text('<script src="/assets/current.js"></script>', encoding="utf-8")
     (dist / "assets/current.js").write_text("current", encoding="utf-8")
     (dist / "assets/old.js").write_text("obsolete", encoding="utf-8")
+    (source / "public/favicon.svg").write_text("public icon", encoding="utf-8")
+    (dist / "favicon.svg").write_text("public icon", encoding="utf-8")
     def digest(file):
         return hashlib.sha256(file.read_bytes()).hexdigest()
-    manifest = {"schema": 1, "inputs": {name: digest(source / name) for name in (*INPUTS, "src/main.ts")},
-                "outputs": {name: digest(dist / name) for name in ("index.html", "assets/current.js")}}
+    manifest = {"schema": 1, "inputs": {name: digest(source / name) for name in (*INPUTS, "src/main.ts", "public/favicon.svg")},
+                "outputs": {name: digest(dist / name) for name in ("index.html", "assets/current.js", "favicon.svg")}}
     (dist / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     build = FrontendBuild(dist, source)
     assert build.status()["ready"] and "assets/old.js" not in build.files
+    assert "favicon.svg" in build.files
+    (source / "public/favicon.svg").write_text("changed icon", encoding="utf-8")
+    assert not build.status()["ready"]
+    (source / "public/favicon.svg").write_text("public icon", encoding="utf-8")
+    assert build.status()["ready"]
     original = (source / "src/main.ts").read_bytes()
     (source / "src/main.ts").write_text("new source", encoding="utf-8")
     assert not build.status()["ready"]

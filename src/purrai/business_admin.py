@@ -66,6 +66,9 @@ class BusinessAdministration:
             for stage in document["stages"]:
                 for rule in stage["rules"]:
                     rule.setdefault("advertiser_cooldown", previous_rules.get(rule["id"], {}).get("advertiser_cooldown", False))
+                    prior_rule = previous_rules.get(rule["id"], {})
+                    if "learn_emoji_packs" in prior_rule:
+                        rule.setdefault("learn_emoji_packs", prior_rule["learn_emoji_packs"])
             if current not in session:
                 current = SharedPolicy(id=1, settings=current.settings, rules=current.rules)
                 session.add(current)
@@ -78,7 +81,7 @@ class BusinessAdministration:
         group = await self.context.access.authorize(actor, body.group_id)
         async with self.context.db.sessions() as session:
             rules = copy.deepcopy(await effective_rules(session, group.id))
-        message = {"text": body.text, "from": {"first_name": body.sender_name},
+        message = {"text": body.text, "entities": body.entities, "from": {"first_name": body.sender_name},
                    "chat": {"id": group.id, "type": "supergroup"}}
         if body.contact:
             message["contact"] = {"first_name": body.contact_name}

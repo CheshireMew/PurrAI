@@ -28,8 +28,6 @@ class ReviewModel:
         if self.wait:
             await self.release.wait()
         return {"decisions": [{"id": row["id"], "advertisement": self.decide(row), "scope": "text",
-                               "message_evidence": row["text"] or next(iter(row.get("links", [])), "")
-                               or next((value for button in row.get("buttons", []) for value in button.values()), ""),
                                "reason": "独立审核正文"} for row in rows if row["text"] not in self.omit]}, 100
 
     async def close(self):
@@ -157,6 +155,20 @@ def test_shortened_real_template_and_numeric_variants():
     assert not compare("来我这", old)["direct"]
 
 
+@pytest.mark.parametrize("amount", ["丨ooo", "I000", "1Ｏ〇0", "1️⃣0️⃣0️⃣0️⃣", "❶⓿⓿⓿", "2o2S", "Z000", "B000"])
+def test_lookalike_and_emoji_numbers_are_same_template_variable(amount):
+    template = "参加虚构星光工作可获{}积分立即联系负责人"
+    result = compare(template.format(amount), template.format("1000"))
+    assert result["direct"] and result["score"] == 1.0
+    assert not compare("请勿相信" + template.format(amount), template.format("1000"))["direct"]
+
+
+def test_ordinary_letters_and_short_codes_cannot_replace_sample_numbers():
+    template = "参与团队项目的工作人员编号是{}请查看详细说明"
+    for value in ("o2", "iooo", "v1ooo"):
+        assert not compare(template.format(value), template.format("1000"))["direct"]
+
+
 async def test_audit_runs_with_chat_disabled_and_ninety_second_cooldown(env):
     _, db, _, service = env
     worker, model = await reviewer(env)
@@ -192,10 +204,10 @@ async def test_busy_requests_batch_all_members_without_losing_any_verdict(env):
 async def test_same_template_other_account_deletes_locally_without_learning_from_match(env):
     _, db, tg, service = env
     worker, model = await reviewer(env)
-    text = "这里是测试招揽话术请来参加虚构星光项目领取收益"
+    text = "这里是测试招揽话术请来参加虚构星光项目领取2000点"
     await service.message(message(1, text))
     await worker.run_one()
-    await service.message(message(2, text, user_id=43))
+    await service.message(message(2, text.replace("2000", "Z0️⃣o〇"), user_id=43))
     assert len(model.calls) == 1
     assert len(await records(db, AdvertisementSample)) == 1
     states = {row.message_id: row.state for row in await records(db, AdvertisementReview)}
@@ -350,13 +362,14 @@ async def test_history_import_is_idempotent_and_not_automatic_text_proof(env):
 async def test_imported_history_is_independently_rechecked_without_punishment(env):
     settings, db, tg, service = env
     worker, model = await reviewer(env)
-    text = "历史已确认的虚构推广模板在复核后可以跨账号复用"
+    text = "历史已确认的虚构推广模板新增额度B000点"
     async with db.transaction() as session:
         session.add(Violation(group_id=-1001, user_id=42, message_id=50,
                               excerpt=text, reasons=["AI确认广告，删除消息"]))
     admin = Management(db, tg, settings=settings).advertisements
     await admin.import_history(1, -1001, AdvertisementImport(apply=True), "history-recheck-01")
     assert await worker.run_one()
+    assert model.calls[0][0]["number_readings"] == {"text": {"B000": "8000"}}
     saved = (await records(db, AdvertisementSample))[0]
     assert saved.scope == "text" and saved.source == "model" and saved.review_state == "done"
     assert all(row.kind == "advertisement_import" for row in await records(db, Action))
@@ -503,6 +516,40 @@ async def test_invalid_batch_result_never_silently_passes_a_message(env, change)
     model.completion = malformed
     await worker.run_one()
     assert (await records(env[1], AdvertisementReview))[0].state == "pending"
+    assert not await records(env[1], Violation)
+
+
+async def test_advertisement_decision_with_paraphrased_reason_applies_in_one_request(env):
+    worker, model = await reviewer(env, lambda item: item["text"].startswith("青岚绘图器"))
+    original = model.completion
+
+    async def explained_result(*args, **kwargs):
+        result, tokens = await original(*args, **kwargs)
+        for decision in result["decisions"]:
+            if decision["advertisement"]:
+                decision["reason"] = "发布者正在为其数据可视化软件介绍功能与适用平台"
+        return result, tokens
+
+    model.completion = explained_result
+    await env[3].message(message(641, "青岚绘图器：自动分析数据并生成精美图表，桌面与手机版均支持"))
+    await env[3].message(message(642, "谢谢大家，我已经修好了问题", user_id=43))
+    assert await worker.run_one()
+    reviews = {row.message_id: row for row in await records(env[1], AdvertisementReview)}
+    assert reviews[641].state == "advertisement" and reviews[642].state == "clean"
+    assert reviews[641].result["reason"] == "发布者正在为其数据可视化软件介绍功能与适用平台"
+    assert len(model.calls) == 1
+    await drain(env[3])
+    assert {data["message_id"] for method, data in env[2].calls if method == "delete_message"} == {641}
+
+
+async def test_historical_sample_accepts_advertisement_decision_without_a_quote(env):
+    worker, model = await reviewer(env)
+    async with env[1].transaction() as session:
+        session.add(AdvertisementSample(group_id=-1001, text="这是一个等待重新核实的历史推广样本正文",
+            source="import", source_key="history-invalid-quote", scope="context", review_state="pending"))
+    assert await worker.run_one()
+    sample, = await records(env[1], AdvertisementSample)
+    assert sample.enabled and sample.review_state == "done" and sample.scope == "text"
     assert not await records(env[1], Violation)
 
 

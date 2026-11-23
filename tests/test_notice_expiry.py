@@ -7,6 +7,85 @@ from purrai.notice_cleanup import NoticeCleanup
 from purrai.service import Service
 
 
+@pytest.mark.parametrize("command,submission", [("/unmute", False), ("/unban", False), ("/unmute", True)])
+async def test_group_command_and_all_enabled_receipts_use_durable_cleanup(env, monkeypatch, command, submission):
+    from purrai.runtime import Runtime
+    from test_profile_trust import name_rule
+    from test_ad_filters import named
+    _, db, tg, svc = env
+    await name_rule(db)
+    await svc.message(named(1, "正文", "推广"))
+    await drain(svc)
+    tg.calls.clear()
+    async with db.transaction() as session:
+        group = await session.get(Group, -1001)
+        group.settings = {**group.settings, "admin_submission_notice": submission}
+    runtime = Runtime(db, tg, svc)
+    incoming = message(901, f"{command} 42 管理员核实", 1)
+    try:
+        assert await runtime.admin.message(incoming)
+        assert await runtime.admin.message(incoming)
+        await drain(svc)
+        sent = [data for method, data in tg.calls if method == "send_message"]
+        assert len(sent) == 1 + submission
+        assert all(data["chat_id"] == -1001 for data in sent)
+        assert any("已完成" in data["text"] for data in sent)
+        assert sum("已提交" in data["text"] for data in sent) == submission
+        async with db.transaction() as session:
+            cleanups = (await session.scalars(select(Action).where(Action.dedupe_key.like("cleanup:%")))).all()
+            receipts = (await session.scalars(select(Action).where(Action.kind == "admin_notify"))).all()
+            sent_ids = {row.payload["delivery"]["result"]["message_id"] for row in receipts}
+            assert len(sent_ids) == len(sent)
+            assert {row.payload["message_id"] for row in cleanups} == {901, *sent_ids}
+            deadline = max(row.available_at for row in cleanups)
+            assert all(29 <= row.available_at - row.created_at <= 32 for row in cleanups)
+            (await session.get(Group, -1001)).enabled = False
+        restarted = Service(db, tg, env[0])
+        monkeypatch.setattr("purrai.actions.now", lambda: deadline + 1)
+        while await restarted.run_one_cleanup():
+            pass
+        deleted = {data["message_id"] for method, data in tg.calls if method == "delete_message"}
+        assert {row.payload["message_id"] for row in cleanups} <= deleted
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.parametrize("failure", ["network", "permissions", "bad_request"])
+async def test_cleanup_survives_more_than_eight_failures_and_recovers_after_restart(env, monkeypatch, failure):
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    from aiogram.methods import DeleteMessage
+    from purrai.action_queue import enqueue
+    _, db, tg, svc = env
+    async with db.transaction() as session:
+        task = await enqueue(session, "delete", "cleanup:retry:test", -1001,
+            payload={"chat_id": -1001, "message_id": 800})
+    original = tg.call
+    remaining = 9
+    async def flaky(method, **kwargs):
+        nonlocal remaining
+        if method == "delete_message" and remaining:
+            remaining -= 1
+            if failure == "network":
+                raise ConnectionError("offline")
+            cls = TelegramForbiddenError if failure == "permissions" else TelegramBadRequest
+            raise cls(method=DeleteMessage(**kwargs), message="not enough rights to delete messages")
+        return await original(method, **kwargs)
+    monkeypatch.setattr(tg, "call", flaky)
+    for _ in range(9):
+        async with db.transaction() as session:
+            row = await session.get(Action, task.id)
+            row.available_at = 0
+        assert await svc.run_one_cleanup()
+    async with db.transaction() as session:
+        row = await session.get(Action, task.id)
+        assert row.state == "pending" and row.attempts == 9
+        row.available_at = 0
+    assert await Service(db, tg, env[0]).run_one_cleanup()
+    async with db.sessions() as session:
+        assert (await session.get(Action, task.id)).state == "succeeded"
+    assert [data["message_id"] for method, data in tg.calls if method == "delete_message"] == [800]
+
+
 async def test_spam_notice_uses_name_and_expires_at_30_seconds_even_if_group_paused(env, monkeypatch):
     _, db, tg, svc = env
     async with db.transaction() as session:

@@ -7,6 +7,7 @@ from sqlalchemy import exists, select, update
 from purrai.advertisement_schemas import AdvertisementSettings
 from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Meta, now
 from purrai.sender_profile import biography
+from purrai.message_parts import CONTENT_FIELDS, message_text
 
 
 def criteria_version(rules):
@@ -37,6 +38,7 @@ def revision(message):
         "quote", "forward_origin", "forward_from", "forward_from_chat", "external_reply",
         "edit_date", "date", "photo", "video", "document", "reply_markup", "via_bot",
         "guest_bot_caller_user", "guest_bot_caller_chat", "is_automatic_forward")}
+    evidence.update({key: message[key] for key in CONTENT_FIELDS if key not in evidence and key in message})
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -67,7 +69,7 @@ async def remember(session, review, *, scope, reason, violation_id=""):
         return existing
     from purrai.message_identity import profile_name, message_sender
     message = review.message
-    row = AdvertisementSample(group_id=review.group_id, text=biography(message) if scope == "bio" else message.get("text") or message.get("caption") or "",
+    row = AdvertisementSample(group_id=review.group_id, text=biography(message) if scope == "bio" else message_text(message),
         sender_name=profile_name(message_sender(message)), scope=scope, source="model", source_key=key,
         message_id=review.message_id, violation_id=violation_id, reason=reason)
     session.add(row)
@@ -78,6 +80,9 @@ async def remember(session, review, *, scope, reason, violation_id=""):
 
 
 async def current(session, review):
+    from purrai.message_events import event_current
+    if not await event_current(session, review.message, review.update_id):
+        return False
     if review.message.get("_profile_event") or review.message_id <= 0:
         return False  # Group upgrades retain old messages under negative historical IDs.
     later = await session.scalar(select(AdvertisementReview.id).where(
@@ -106,8 +111,6 @@ async def evidence_applies(session, action, group):
     if not group or not group.approved or not group.enabled:
         return False
     if evidence.get("bio_digest"):
-        if not evidence.get("message_evidence"):
-            return False
         from purrai.sender_profile import evidence_current
         if not await evidence_current(session, action, group, evidence["bio_digest"]):
             return False

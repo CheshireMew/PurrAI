@@ -90,8 +90,7 @@ class ArchivePanels:
         if revisions:
             revision = revisions[version]
             body = (
-                revision["payload"].get("text")
-                or revision["payload"].get("caption")
+                revision.get("display_text")
                 or "（无文字，媒体元数据见导出）"
             )
             text += f"\n{'编辑' if revision['is_edit'] else '收到'} · {clock(revision['event_at'])}\n{body}\n"

@@ -1,4 +1,6 @@
 """Validated points data; nicknames are never identity keys."""
+from typing import Annotated
+
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 MAX_POINTS = 9_007_199_254_740_991
@@ -67,7 +69,18 @@ class PointsSettings(PointsModel):
     chat_interval_seconds: int = Field(default=60, strict=True, ge=10, le=3600)
     packet_enabled: bool = True
     packet_expiry_hours: int = Field(default=24, strict=True, ge=1, le=168)
+    trust_enabled: bool = True
+    newcomer_exemption_points: int = Field(default=50, strict=True, ge=1, le=MAX_POINTS)
+    advertising_exemption_points: int = Field(default=100, strict=True, ge=1, le=MAX_POINTS)
+    trust_excluded_user_ids: list[Annotated[int, Field(strict=True, ge=1, le=MAX_POINTS)]] = Field(default_factory=list, max_length=500)
     commands: dict[str, list[str]]
+
+    @model_validator(mode="after")
+    def valid_trust(self):
+        if self.advertising_exemption_points < self.newcomer_exemption_points:
+            raise ValueError("广告审核豁免门槛应不低于新人限制豁免门槛")
+        self.trust_excluded_user_ids = list(dict.fromkeys(self.trust_excluded_user_ids))
+        return self
 
     @model_validator(mode="after")
     def valid_commands(self):

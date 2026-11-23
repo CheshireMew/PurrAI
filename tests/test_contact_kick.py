@@ -180,10 +180,14 @@ async def test_only_explicit_admin_unban_allows_rejoining_after_contact_ban(env)
     tg.members[(-1001, 42)] = {"status": "member"}
     await svc.member_event(join(date=now() + 1), event_id=30)
     await drain(svc)
-    assert (await latest(db)).state == "pending"
+    from purrai.models import Whitelist
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+    assert await latest(db) is None
     await svc.message(card())
     await drain(svc)
-    assert (await latest(db)).state == "pending"
+    assert await latest(db) is None
     assert len([1 for name, _ in tg.calls if name == "ban_chat_member"]) == 1
 
 

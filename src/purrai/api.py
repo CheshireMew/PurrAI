@@ -35,6 +35,8 @@ from purrai.schemas import (
 
 
 def install_api(app):
+    from purrai.lottery_api import install_lottery_api
+    install_lottery_api(app)
     from purrai.advertisement_api import install_advertisement_api
     install_advertisement_api(app)
     from purrai.points_api import install_points_api
@@ -98,6 +100,7 @@ def install_api(app):
             "root": user.root,
             "csrf": user.csrf,
             "group_ids": None,
+            **({"local_dev": True} if getattr(request.app.state, "local_dev", False) else {}),
         }
 
     @app.get("/api/catalog")

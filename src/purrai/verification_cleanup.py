@@ -1,6 +1,7 @@
 """Durable cleanup of exact CAPTCHA prompts."""
 
 from sqlalchemy import String, and_, literal_column, or_, select
+from sqlalchemy.orm import aliased
 
 from purrai.action_queue import enqueue
 from purrai.models import (
@@ -13,15 +14,22 @@ from purrai.verification_state import confirm_prompt, queued_answer
 
 
 async def cleanup(session, verification):
-    if verification.message_id:
+    message_ids = {verification.message_id} if verification.message_id else set()
+    anchors = await session.scalars(select(Action.payload["challenge_message_id"].as_integer()).where(
+        Action.kind == "challenge", Action.group_id == verification.group_id,
+        Action.payload["verification_id"].as_string() == verification.id,
+        Action.payload["challenge_message_id"].as_integer() > 0,
+    ))
+    message_ids.update(anchors)
+    for message_id in message_ids:
         await enqueue(
             session,
             "delete",
-            f"cleanup:{verification.id}:{verification.message_id}",
+            f"cleanup:{verification.id}:{message_id}",
             verification.group_id,
             verification.user_id,
             {
-                "message_id": verification.message_id,
+                "message_id": message_id,
                 "chat_id": verification.prompt_chat_id or verification.group_id,
             },
             priority=5,
@@ -39,6 +47,22 @@ async def observe_callback_prompt(session, verification, query, nonce, bot_id, *
         or message.get("from", {}).get("id", bot_id) != bot_id
     ):
         return
+    if (query.get("data", "").endswith(":load") and verification.state == "pending"
+            and verification.nonce == nonce and query["from"]["id"] == verification.user_id
+            and not verification.message_id):
+        action = await session.scalar(select(Action).where(
+            Action.kind == "challenge", Action.group_id == verification.group_id,
+            Action.payload["verification_id"].as_string() == verification.id,
+            Action.payload["challenge_nonce"].as_string() == nonce,
+        ).order_by(Action.created_at.desc()).limit(1))
+        if action and action.state in ("pending", "failed"):
+            anchor = action.payload.get("challenge_message_id")
+            delivery = action.payload.get("delivery", {})
+            if anchor == message_id or not anchor and delivery.get("state") in ("sending", "uncertain"):
+                action.payload = {**action.payload, "challenge_message_id": message_id,
+                    "delivery": {"state": "confirmed", "method": "send_message", "result": {"message_id": message_id}}}
+                action.state, action.error, action.available_at = "pending", "", now()
+                return "正在重新加载验证图片，请稍候。"
     if (
         verification.message_id and verification.deadline <= (received_at if received_at is not None else now())
         or verification.state not in ("muting", "pending", "checking")
@@ -95,6 +119,19 @@ class VerificationCleanup:
             for verification in rows:
                 if verification.state in ("muting", "pending") and await queued_answer(session, verification):
                     continue
+                await cleanup(session, verification)
+                processed += 1
+            # Uploads may have a known placeholder even before the picture and
+            # its answer deadline are confirmed. Ended verifications still own it.
+            cleaned = aliased(Action)
+            anchor_key = "cleanup:" + Verification.id + ":" + Action.payload["challenge_message_id"].as_integer().cast(String)
+            anchors = (await session.execute(select(Verification, Action).join(
+                Action, Action.payload["verification_id"].as_string() == Verification.id,
+            ).outerjoin(cleaned, cleaned.dedupe_key == anchor_key).where(
+                Verification.state.not_in(("muting", "pending", "checking")), Action.kind == "challenge",
+                Action.payload["challenge_message_id"].as_integer() > 0, cleaned.id.is_(None),
+            ).order_by(Verification.created_at, Verification.id).limit(max(0, limit - processed)))).all()
+            for verification, action in anchors:
                 await cleanup(session, verification)
                 processed += 1
             return processed

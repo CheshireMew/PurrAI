@@ -16,7 +16,7 @@ const group = computed(() => groups.value.find(item => item.id === props.groupId
 const { busy, error, safe } = useTask()
 const preview = ref<{ items: {id: string; user_id: number; user_name: string; state: string}[]; total: number; snapshot: string } | null>(null)
 const reason = ref(''), previewPage = ref(1)
-const { requestClose } = useDraftClose(() => !!reason.value, () => emit('close'), () => busy.value)
+const { requestClose } = useDraftClose(() => !!reason.value, () => emit('close'), () => busy.value, () => !!props.selection)
 let revision = 0
 watch(() => props.selection, async selection => {
   const current = ++revision

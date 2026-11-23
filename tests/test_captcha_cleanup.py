@@ -258,7 +258,7 @@ async def lost_challenge_receipt(env, monkeypatch):
 
     async def lose_receipt(method, **kwargs):
         result = await original(method, **kwargs)
-        if method == "send_photo":
+        if method == "edit_message_media":
             sent.update(result)
             raise TelegramNetworkError(method=SendPhoto(chat_id=-1001, photo="test"), message="Request timeout")
         return result
@@ -278,10 +278,82 @@ async def test_lost_send_receipt_retries_same_question_after_restart(env, monkey
         task = await session.scalar(select(Action).where(Action.kind == "challenge"))
         task.available_at = 0
     assert await restarted.run_one_action()
-    photos = [data for method, data in telegram.calls if method == "send_photo"]
+    photos = [data for method, data in telegram.calls if method == "edit_message_media"]
     assert len(photos) == 2
-    assert photos[0]["photo"] == photos[1]["photo"]
+    assert photos[0]["media"]["media"] == photos[1]["media"]["media"]
     assert photos[0]["reply_markup"] == photos[1]["reply_markup"]
+    assert photos[0]["message_id"] == photos[1]["message_id"]
+    assert sum(method == "send_message" for method, _ in telegram.calls) == 1
+
+
+async def test_lost_placeholder_receipt_can_reload_same_message_without_answer_timeout(env, monkeypatch):
+    from aiogram.methods import SendMessage
+
+    settings, database, telegram, service = env
+    original, sent = telegram.call, {}
+
+    async def lose_anchor(method, **kwargs):
+        result = await original(method, **kwargs)
+        if method == "send_message":
+            sent.update(result)
+            raise TelegramNetworkError(method=SendMessage(chat_id=-1001, text="loading"), message="timeout")
+        return result
+
+    monkeypatch.setattr(telegram, "call", lose_anchor)
+    verification = await fixed_challenge(env, monkeypatch)
+    async with database.transaction() as session:
+        task = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        assert task.state == "failed" and task.payload["delivery"]["state"] == "uncertain"
+        (await session.get(Verification, verification.id)).deadline = 0
+    query = choice_query(verification)
+    query["message"]["message_id"] = sent["message_id"]
+    query["data"] = f"v:{verification.id}:{verification.nonce}:load"
+    assert "重新加载" in await service.callback(query)
+    monkeypatch.setattr(telegram, "call", original)
+    await drain(Service(database, telegram, settings))
+    async with database.sessions() as session:
+        row = await session.get(Verification, verification.id)
+        assert row.state == "pending" and row.message_id == sent["message_id"] and row.deadline > time.time()
+        assert not await session.scalar(select(Action).where(Action.kind == "verification_failure"))
+    assert sum(method == "send_message" for method, _ in telegram.calls) == 1
+
+
+async def test_manual_release_cleans_known_placeholder_after_picture_upload_failed(env, monkeypatch):
+    from purrai.management import Management
+    from purrai.schemas import ActionInput
+
+    verification, message_id = await lost_challenge_receipt(env, monkeypatch)
+    settings, database, telegram, service = env
+    await Management(database, telegram, settings=settings).verification_action(
+        1, verification.id, ActionInput(action="release", reason="结束故障验证", request_id="release-upload-error"))
+    await drain(service)
+    assert any(method == "delete_message" and data["message_id"] == message_id for method, data in telegram.calls)
+    async with database.sessions() as session:
+        assert (await session.get(Verification, verification.id)).state == "passed"
+
+
+async def test_retry_accepts_unchanged_picture_receipt_and_starts_countdown(env, monkeypatch):
+    from aiogram.methods import EditMessageMedia
+
+    verification, message_id = await lost_challenge_receipt(env, monkeypatch)
+    _, database, telegram, service = env
+    original = telegram.call
+
+    async def already_updated(method, **kwargs):
+        if method == "edit_message_media":
+            raise TelegramBadRequest(method=EditMessageMedia(chat_id=-1001, message_id=message_id,
+                media={"type": "photo", "media": "stored-file"}), message="message is not modified")
+        return await original(method, **kwargs)
+
+    monkeypatch.setattr(telegram, "call", already_updated)
+    async with database.transaction() as session:
+        (await session.scalar(select(Action).where(Action.kind == "challenge"))).available_at = 0
+    await drain(service)
+    async with database.sessions() as session:
+        row = await session.get(Verification, verification.id)
+        task = await session.scalar(select(Action).where(Action.kind == "challenge"))
+        assert task.state == "succeeded" and row.message_id == message_id and row.deadline > time.time()
+    assert sum(method == "send_message" for method, _ in telegram.calls) == 1
 
 
 async def test_callback_recovers_lost_receipt_and_completion_cleans_original_picture(env, monkeypatch):
@@ -297,7 +369,7 @@ async def test_callback_recovers_lost_receipt_and_completion_cleans_original_pic
         task = await session.scalar(select(Action).where(Action.kind == "challenge"))
         assert task.state == "succeeded" and task.payload["challenge_delivery"] == "recovered"
     assert any(method == "delete_message" and data["message_id"] == message_id for method, data in telegram.calls)
-    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+    assert len([1 for method, _ in telegram.calls if method == "edit_message_media"]) == 1
 
 
 async def test_unknown_picture_callback_starts_deadline_even_after_original_deadline(env, monkeypatch):
@@ -344,7 +416,7 @@ async def test_crash_during_picture_send_resends_after_restart(env, monkeypatch)
         action.state = "pending"
         action.payload = {**action.payload, "challenge_delivery": "sending"}
     assert await Service(database, telegram, settings).run_one_action()
-    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 2
+    assert len([1 for method, _ in telegram.calls if method == "edit_message_media"]) == 2
     async with database.sessions() as session:
         assert (await session.get(Verification, verification.id)).state == "pending"
 
@@ -355,7 +427,7 @@ async def test_explicit_picture_rate_limit_remains_retryable(env, monkeypatch):
 
     async def rate_limit_once(method, **kwargs):
         nonlocal attempts
-        if method == "send_photo":
+        if method == "edit_message_media":
             attempts += 1
             if attempts == 1:
                 raise TelegramRetryAfter(method=SendPhoto(chat_id=-1001, photo="test"), message="wait", retry_after=1)

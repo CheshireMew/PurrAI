@@ -155,6 +155,8 @@ class ChatDelivery:
                     "context": fingerprint,
                     "source_context": generated.context,
                     "text_message_id": text_message_id,
+                    **({"combined_review": generated.review_id, "review_revision": generated.review_revision}
+                       if generated.review_id else {}),
                 },
                 ensure_ascii=False,
             )

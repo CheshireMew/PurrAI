@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import math
 
 from purrai.business_rules import compiled, transform
 
@@ -72,12 +73,13 @@ def validate_document(document):
             label(item.get("title"))
         indexed[name] = {item["id"]: item for item in items}
         require(len(indexed[name]) == len(items), "同类规则的标识不能重复")
-    fields = {"text", "source_titles", "direct", "urls", "$item", "$match", "$prefix", "$start"} | indexed["views"].keys()
+    numeric_fields = {"text_length", "custom_emoji_count", "custom_emoji_percent", "$start"}
+    fields = {"text", "source_titles", "direct", "urls", "$item", "$match", "$prefix"} | numeric_fields | indexed["views"].keys()
     def field(value, local=(), text_only=False):
         require(isinstance(value, str) and value in fields, "引用的文本字段不存在")
         require(not value.startswith("$") or value in local, "匹配片段和当前分句只能在对应的附加条件内使用")
         if text_only:
-            require(value not in ("source_titles", "direct", "urls", "$start"), "此条件需要文本字段")
+            require(value not in {"source_titles", "direct", "urls", *numeric_fields}, "此条件需要文本字段")
 
     refs = {name: {identifier: set() for identifier in indexed[name]} for name in indexed}
     for item in document["views"]:
@@ -126,6 +128,15 @@ def validate_document(document):
                 require(item["input"] == "source_titles", "遍历文本必须指定分句表达式")
             steps(item.get("steps", []))
             expression(item["condition"], edges, depth + 1, {*local, "$item"})
+        elif operation == "range":
+            keys(item, ("op", "input"), ("minimum", "maximum"))
+            field(item["input"], local)
+            require(item["input"] in numeric_fields, "数值范围必须使用数值字段")
+            require("minimum" in item or "maximum" in item, "数值范围至少需要上限或下限")
+            for bound in ("minimum", "maximum"):
+                if bound in item:
+                    require(type(item[bound]) in (int, float) and math.isfinite(item[bound]), "数值范围必须是有限数字")
+            require(item.get("minimum", float('-inf')) <= item.get("maximum", float('inf')), "范围下限不能大于上限")
         elif operation == "match":
             keys(item, ("op", "input", "pattern", "mode"), ("where", "prefix_chars"))
             field(item["input"], local, text_only=True)
@@ -156,8 +167,11 @@ def validate_document(document):
         expression(stage["condition"], set())
         require(isinstance(stage["rules"], list) and len(stage["rules"]) <= 1000, "规则组最多包含 1000 条规则")
         for rule in stage["rules"]:
-            keys(rule, ("id", "title", "enabled", "action", "reason", "condition"), ("reason_field", "advertiser_cooldown"))
+            keys(rule, ("id", "title", "enabled", "action", "reason", "condition"), ("reason_field", "advertiser_cooldown", "learn_emoji_packs"))
             require(type(rule.get("advertiser_cooldown", False)) is bool, "账号冷却设置必须是布尔值")
+            require(type(rule.get("learn_emoji_packs", False)) is bool, "表情包自动学习设置必须是布尔值")
+            require(not rule.get("learn_emoji_packs", False) or stage["id"] == "message_structure",
+                    "只有消息结构规则可以自动学习表情包")
             identifier(rule["id"])
             require(rule["id"] not in rule_ids, "规则标识不能重复")
             rule_ids.add(rule["id"])

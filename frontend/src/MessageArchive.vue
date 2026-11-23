@@ -22,13 +22,15 @@ const opened = ref(false), detail = ref<ArchivedDetail | null>(null)
 const storageOpen = ref(false)
 const sampleOpen = ref(false), sampleIds = ref<string[]>([])
 const filters = reactive({ query: '', sender_id: '', message_type: '', flagged: false, deletion: '', dates: null as DateRange })
-const applied = ref('')
+const applied = ref(''), requested = ref('')
+const hasResult = ref(false), retained = ref(false)
+let acceptedPage = 1, loadVersion = 0
 let written = route.value.params.get('filter') || ''
 function restoreQuery() {
   const saved = savedFilters('messages')
-  applied.value = typeof saved.query === 'string' ? saved.query : ''
+  requested.value = typeof saved.query === 'string' ? saved.query : ''
   page.value = Number.isInteger(saved.page) && saved.page > 0 ? saved.page : 1
-  const query = new URLSearchParams(applied.value)
+  const query = new URLSearchParams(requested.value)
   for (const key of ['query', 'sender_id', 'message_type', 'deletion'] as const) filters[key] = query.get(key) || ''
   filters.flagged = query.get('flagged') === 'true'
   const dateText = (value: string) => new Date(Number(value) * 1000 + 8 * 3600000).toISOString().slice(0, 19).replace('T', ' ')
@@ -37,26 +39,35 @@ function restoreQuery() {
 }
 restoreQuery()
 const states: Record<string, string> = { not_requested: '未发起删除', pending: '等待删除', failed: '删除失败', deleted: 'PurrAI 已确认删除', already_absent: '删除时已不存在' }
-const types: Record<string, string> = { text: '文字', photo: '图片', video: '视频', document: '文件', animation: '动图', sticker: '贴纸', voice: '语音', audio: '音频', video_note: '视频留言', contact: '联系人', location: '位置', poll: '投票', service: '群事件', unknown: '历史摘录' }
+const types: Record<string, string> = { text: '文字', checklist: '核对清单', rich_message: '富文本', game: '游戏', invoice: '账单', photo: '图片', video: '视频', document: '文件', animation: '动图', sticker: '贴纸', voice: '语音', audio: '音频', video_note: '视频留言', contact: '联系人', location: '位置', venue: '地点', poll: '投票', service: '群事件', unknown: '历史摘录' }
 const exportUrl = computed(() => `/api/groups/${props.groupId}/messages/export?${applied.value}`)
 async function load(apply = false, change = false) {
   details.error.value = ''
-  await listing.run(async () => {
+  const version = ++loadVersion
+  retained.value = hasResult.value
+  const success = await listing.run(async () => {
+    let candidate = requested.value
     if (apply) {
       if (filters.sender_id && !/^-?\d+$/.test(filters.sender_id.trim())) throw new Error('请填写有效的用户或频道数字 ID')
       const query = new URLSearchParams()
       for (const key of ['query', 'sender_id', 'message_type', 'deletion'] as const) if (filters[key].trim()) query.set(key, filters[key].trim())
       if (filters.flagged) query.set('flagged', 'true')
       applyBeijingDates(query, filters.dates)
-      applied.value = query.toString(); page.value = 1
+      candidate = query.toString()
     }
-    const saved = {section: 'messages', query: applied.value, page: page.value}
-    written = JSON.stringify(saved); saveFilters(saved, !(apply || change))
-    return api<ArchivePage>(`/api/groups/${props.groupId}/messages?${applied.value}&page_number=${page.value}`)
-  }, result => {
+    requested.value = candidate
+    const number = apply ? 1 : page.value
+    const result = await api<ArchivePage>(`/api/groups/${props.groupId}/messages?${candidate}&page_number=${number}`)
+    return { result, query: candidate, number }
+  }, ({ result, query, number }) => {
     rows.value = result.items; total.value = result.total
+    applied.value = query; page.value = acceptedPage = number
+    hasResult.value = true; retained.value = false; sampleIds.value = []
+    const saved = {section: 'messages', query, page: number}
+    written = JSON.stringify(saved); saveFilters(saved, !(apply || change))
     recording.value = result.recording || { state: 'unknown', reason: '' }
   })
+  if (!success && version === loadVersion && hasResult.value) { page.value = acceptedPage; requested.value = applied.value }
 }
 async function show(row: ArchivedMessage) {
   detail.value = null; opened.value = true; listing.error.value = ''
@@ -78,14 +89,20 @@ useRefresh(() => load(false), () => props.refreshKey)
     <form class="filterbar" aria-label="筛选归档消息" @submit.prevent="load(true)">
       <el-input v-model="filters.query" aria-label="归档关键词" placeholder="搜索正文、昵称或历史编辑" clearable/>
       <el-input v-model="filters.sender_id" aria-label="归档发送者 ID" placeholder="用户或频道数字 ID" clearable/>
+      <el-button type="primary" native-type="submit">查询归档</el-button>
+      <details class="advanced-filters" :open="Boolean(filters.message_type || filters.deletion || filters.flagged || filters.dates?.some(value => value))">
+      <summary>更多筛选{{ filters.message_type || filters.deletion || filters.flagged || filters.dates?.some(value => value) ? ' · 已设置' : '' }}</summary>
+      <div class="filter-options">
       <el-select v-model="filters.message_type" aria-label="归档消息类型" placeholder="全部消息类型" clearable><el-option v-for="(name, key) in types" :key="key" :value="key" :label="name"/></el-select>
       <el-select v-model="filters.deletion" aria-label="归档删除状态" placeholder="全部删除状态" clearable><el-option v-for="(name, key) in states" :key="key" :value="key" :label="name"/></el-select>
       <DateRangeFilter v-model="filters.dates"/>
       <el-checkbox v-model="filters.flagged">只看命中规则</el-checkbox>
-      <el-button type="primary" native-type="submit">查询归档</el-button>
-      <a class="archive-download" :href="exportUrl">导出当前查询 JSONL</a>
+      </div>
+      </details>
+      <a class="archive-download" :href="hasResult && !busy ? exportUrl : undefined" :aria-disabled="!hasResult || busy">导出当前查询 JSONL</a>
     </form>
     <el-alert v-if="error" :title="error" type="error" :closable="false"/>
+    <p v-if="listing.error.value && retained" class="muted" role="status">查询失败，仍显示上次成功查询的结果；导出也使用上次成功的条件。</p>
     <el-button v-if="sampleIds.length" @click="sampleOpen = true">试跑所选 {{ sampleIds.length }} 条归档</el-button>
     <el-table :data="rows" row-key="id" empty-text="暂无匹配的归档消息" @selection-change="sampleIds = $event.map((row: ArchivedMessage) => row.id)">
       <el-table-column type="selection" width="45"/>
@@ -110,7 +127,7 @@ useRefresh(() => load(false), () => props.refreshKey)
         <el-alert v-if="!detail.original_observed" title="未收到原始版本；历史违规摘录也无法还原完整原文。" type="info" :closable="false"/>
         <section v-for="revision in detail.revisions" :key="revision.id" class="archive-revision">
           <h3>{{ revision.is_edit ? '编辑版本' : '收到的版本' }} · {{ time(revision.event_at) }}</h3>
-          <pre class="archive-body">{{ revision.payload.text || revision.payload.caption || '（无文字内容）' }}</pre>
+          <pre class="archive-body">{{ revision.display_text || revision.payload.text || revision.payload.caption || '（无文字内容）' }}</pre>
           <p v-if="revision.reasons.length">当时命中：{{ revision.reasons.join('；') }}</p>
           <details><summary>链接、媒体与消息元数据</summary><pre>{{ JSON.stringify(revision.payload, null, 2) }}</pre></details>
         </section>

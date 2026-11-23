@@ -11,6 +11,7 @@ class GroupSettings(BaseModel):
     bio_advertising_enabled: bool = Field(default=True, title="检查用户简介广告")
     bio_cache_seconds: int = Field(default=300, ge=30, le=3600, title="用户简介刷新间隔（秒）")
     notice_seconds: int = Field(default=30, ge=5, le=3600, title="群内系统提醒保留秒数")
+    admin_submission_notice: bool = Field(default=False, title="在群内显示管理操作提交提示")
     ai_ad_mute_notice: bool = Field(default=False, title="在群内发送 AI 广告禁言通知")
     ai_ad_window_hours: int = Field(default=72, ge=1, le=720, title="AI广告累计窗口（小时）")
     ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")

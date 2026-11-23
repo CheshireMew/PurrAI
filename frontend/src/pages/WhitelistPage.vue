@@ -20,7 +20,7 @@ const error = computed({ get: () => actions.error.value || records.error.value,
 const dialog = ref(false)
 const original = ref('')
 const form = reactive<Omit<Whitelist, 'user_id'> & { user_id: string | number }>({ user_id: '', verification: true, moderation: true, note: '' })
-const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => { dialog.value = false }, () => busy.value)
+const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => { dialog.value = false }, () => busy.value, () => dialog.value)
 function edit(row?: Whitelist) { Object.assign(form, { user_id: '', version: undefined, verification: true, moderation: true, note: '' }, row); original.value = JSON.stringify(form); error.value = ''; dialog.value = true }
 async function save() {
   if (await safe(async () => {
@@ -48,7 +48,7 @@ useRefresh(load, () => props.refreshKey)
 </div>
 <el-table :data="rows" empty-text="暂无白名单成员">
 <el-table-column prop="user_id" label="Telegram 用户 ID" min-width="180"/>
-<el-table-column label="免验证" width="100">
+<el-table-column label="免入群验证" width="120">
 <template #default="{ row }"><el-tag :type="row.verification ? 'success' : 'info'">{{ row.verification ? '是' : '否' }}</el-tag></template>
 </el-table-column>
 <el-table-column label="免自动处罚" width="120">
@@ -69,8 +69,8 @@ useRefresh(load, () => props.refreshKey)
 <el-form-item label="Telegram 用户 ID">
 <el-input v-model="form.user_id"/>
 </el-form-item>
-<el-form-item label="免图片验证">
-<el-switch v-model="form.verification" aria-label="免图片验证"/>
+<el-form-item label="免入群验证">
+<el-switch v-model="form.verification" aria-label="免入群验证"/>
 </el-form-item>
 <el-form-item label="免自动处罚">
 <el-switch v-model="form.moderation" aria-label="免自动处罚"/>

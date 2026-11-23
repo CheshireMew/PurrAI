@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 
 from purrai.advertising_patterns import source_titles
-from purrai.models import Action, ArchivedMessage, Group, MessageRevision, Violation
+from purrai.models import Action, ArchivedMessage, Group, MessageRevision, Violation, Whitelist
 from purrai.message_buttons import has_inline_buttons
 from purrai.reason_policy import classifies
 from purrai.rules import assess, content_digest, message_content, similarity_signature
@@ -16,6 +16,8 @@ from purrai.sender_identity import sender_name
 from purrai.message_identity import message_sender
 from purrai.solicitation_rules import contact_should_block
 from purrai.sender_profile import attach, biography
+from purrai.points_trust import member_trust
+from purrai.message_parts import message_entities
 
 
 @dataclass
@@ -28,29 +30,35 @@ class MessageAssessment:
     digest: str
     similarity: tuple
     sender_profile: dict
+    newcomer_exempt: bool = False
+    user_id: int = 0
 
     async def current(self, session, group):
-        return self.settings == group.settings and self.rules == await effective_rules(session, group.id)
+        return (self.settings == group.settings and self.rules == await effective_rules(session, group.id)
+                and self.newcomer_exempt == (await member_trust(
+                    session, group.id, self.user_id)).newcomer)
 
 
-def evaluate_message(message, settings, rules, *, emoji_packs=()):
+def evaluate_message(message, settings, rules, *, emoji_packs=(), newcomer_exempt=False):
+    from purrai.message_emoji import metrics
     text, urls = message_content(message)
     sender = message_sender(message)
     args = dict(sender_name=sender_name(sender, include_username=True),
                 sender_bio=biography(message),
                 contact=contact_should_block(message, settings, rules), source_titles=source_titles(message),
-                inline_buttons=has_inline_buttons(message), message_emoji_packs=emoji_packs)
+                inline_buttons=has_inline_buttons(message), message_emoji_packs=emoji_packs, message_metrics=metrics(message))
     profile = assess(text, urls, rules, settings, **args)
     args.update(forwarded=bool(message.get("forward_origin") or message.get("forward_date")
                               or message.get("forward_from") or message.get("forward_from_chat")
                               or message.get("forward_sender_name")),
                 mentioned_users=[entity.get("user", {}) for entity in
-                                 (message.get("entities") or message.get("caption_entities") or [])
+                                 message_entities(message)
                                  if entity.get("type") == "text_mention"])
-    return MessageAssessment(settings, rules, profile, assess(text, urls, rules, settings, **args),
-                             assess(text, urls, rules, settings, newcomer=True, **args),
+    result = MessageAssessment(settings, rules, profile, assess(text, urls, rules, settings, **args),
+                             assess(text, urls, rules, settings, newcomer=not newcomer_exempt, **args),
                              content_digest(text) if text else "", similarity_signature(text),
-                             copy.deepcopy(message.get("_sender_profile") or {}))
+                             copy.deepcopy(message.get("_sender_profile") or {}), newcomer_exempt, sender.get("id", 0))
+    return result
 
 
 async def prepare_message(db, message, telegram=None):
@@ -58,12 +66,17 @@ async def prepare_message(db, message, telegram=None):
         group = await session.get(Group, message["chat"]["id"])
         if not group or not group.approved or not group.enabled:
             return None
+        white = await session.get(Whitelist, (group.id, message_sender(message).get("id", 0)))
+        if white and white.verification and white.moderation:
+            return None
         settings = copy.deepcopy(group.settings)
         rules = copy.deepcopy(await effective_rules(session, group.id))
+        trust = await member_trust(session, group.id, message_sender(message).get("id", 0))
     from purrai.message_emoji import enabled, resolve
     await attach(db, telegram, message, settings)
     packs = await resolve(db, telegram, message) if enabled(rules) else ()
-    return await asyncio.to_thread(evaluate_message, message, settings, rules, emoji_packs=packs)
+    return await asyncio.to_thread(evaluate_message, message, settings, rules, emoji_packs=packs,
+                                   newcomer_exempt=trust.newcomer)
 
 
 async def rule_penalty_applies(session, action, group):
@@ -134,7 +147,15 @@ async def message_penalty_applies(session, action, group):
         if (settings != group.settings or rules != await effective_rules(session, group.id)
                 or message != await latest()):
             continue
-        ordinary = result.ordinary
+        from purrai.models import Fingerprint, Member, now
+        member = await session.get(Member, (group.id, action.user_id))
+        fingerprint = await session.get(Fingerprint, (group.id, action.user_id, message["message_id"]))
+        newcomer = bool(member and (member.passed_at or member.joined_at) and (
+            now() - (member.passed_at or member.joined_at) < settings["newcomer_seconds"]
+            or fingerprint and 0 < fingerprint.sequence <= settings.get("newcomer_messages", 3)))
+        # Recheck earned privileges after the external handoff, alongside rules.
+        trust = await member_trust(session, group.id, action.user_id)
+        ordinary = result.newcomer if newcomer and not trust.newcomer else result.ordinary
         target_reasons = blacklist_reasons(message, independent, settings=settings)
         from purrai.group_link_identity import own_channel_id
         from purrai.telegram_sources import channel_sources, external_channel_reasons
@@ -174,6 +195,8 @@ def edited_evidence(previous, incoming):
 
 async def refresh_message_evidence(session, message, update_id):
     """Keep pending message-based decisions current even when archive is off."""
+    from purrai.message_events import remember_target_edit
+    await remember_target_edit(session, message, update_id)
     version = (message.get("edit_date", message["date"]), True, update_id)
     actions = await session.scalars(select(Action).where(
         Action.group_id == message["chat"]["id"], Action.state == "pending",

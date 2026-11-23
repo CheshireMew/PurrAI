@@ -15,7 +15,7 @@ const open = computed({get: () => props.open, set: value => { if (!value) emit('
 const { mutations } = useWorkspace(), {busy, error, safe} = useTask()
 const plan = ref<Plan | null>(null), items = ref<Backup[]>([]), free = ref(0), state = ref<{last_success?: number; error?: string}>({})
 const baseline = ref('')
-const { requestClose, confirmDiscard } = useDraftClose(() => !!plan.value && JSON.stringify(plan.value) !== baseline.value, () => emit('close'), () => busy.value)
+const { requestClose, confirmDiscard } = useDraftClose(() => !!plan.value && JSON.stringify(plan.value) !== baseline.value, () => emit('close'), () => busy.value, () => props.open)
 let version = 0
 async function load(preserveDraft = false) {
   const current = ++version

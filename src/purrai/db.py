@@ -31,6 +31,8 @@ class Database:
 
         @event.listens_for(self.engine.sync_engine, "connect")
         def configure(connection, _):
+            from purrai.message_parts import stored_message_text
+            connection.create_function("purrai_message_text", 1, stored_message_text, deterministic=True)
             cursor = connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA busy_timeout=5000")

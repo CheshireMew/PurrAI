@@ -1,6 +1,6 @@
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter, TelegramUnauthorizedError
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InputMediaPhoto
 from pydantic import BaseModel
 from time import perf_counter
 
@@ -36,6 +36,10 @@ class TelegramGateway:
             raise ConnectionError("尚未配置 Telegram Bot Token")
         if method == "send_photo" and isinstance(kwargs.get("photo"), bytes):
             kwargs["photo"] = BufferedInputFile(kwargs["photo"], "verification.png")
+        if method == "edit_message_media" and isinstance(kwargs.get("media"), dict):
+            media = kwargs["media"]
+            if media.get("type") == "photo" and isinstance(media.get("media"), bytes):
+                kwargs["media"] = InputMediaPhoto(**{**media, "media": BufferedInputFile(media["media"], "verification.png")})
         if method == "send_document" and isinstance(kwargs.get("document"), bytes):
             kwargs["document"] = BufferedInputFile(
                 kwargs["document"], kwargs.pop("filename", "messages.jsonl")
@@ -76,7 +80,7 @@ class TelegramGateway:
             ("mute", "临时禁言"),
             ("ban", "临时封禁"),
             ("unmute", "解除 PurrAI 禁言"),
-            ("unban", "解除 PurrAI 封禁"),
+            ("unban", "解除 PurrAI 封禁或禁言"),
         ]
         for scope, commands in (
             ("default", common),

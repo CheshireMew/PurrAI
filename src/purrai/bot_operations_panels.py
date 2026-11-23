@@ -1,9 +1,24 @@
 """Operational readouts and explicit temporary-protection controls in Telegram."""
 
 from purrai.bot_common import button, clock
+from purrai.admin_labels import BACKUP_FIELDS, CHAT_STATES
 from purrai.errors import ManagementError
 from purrai.models import now
 from purrai.schemas import BackupExerciseInput, BackupPlanInput, EmergencyInput
+
+
+def backup_summary(plan):
+    return "\n".join(f"{label}：{'开启' if value else '关闭'}" if isinstance(value, bool) else f"{label}：{value}"
+                     for key, label in BACKUP_FIELDS.items() if (value := plan.get(key)) is not None)
+
+
+def timing_summary(timing):
+    if not timing:
+        return "尚未记录"
+    model = timing.get("model_seconds", "—")
+    recent = timing.get("last_attempt_seconds", "—")
+    usage = f"实际 {timing.get('actual_tokens', 0)} Token" if timing.get("token_usage_confirmed") else f"预留 {timing.get('reserved_tokens', 0)} Token，用量未确认"
+    return f"模型 {model} 秒，最近处理 {recent} 秒；{usage}"
 
 
 class OperationsPanels:
@@ -29,7 +44,7 @@ class OperationsPanels:
             result = await self.management.chat_admin.diagnostics(actor, group_id, page_number=data.get("page", 0) + 1, size=5)
             lines = ["群聊天诊断 · 最近任务"]
             for row in result["items"]:
-                lines.append(f"消息 {row['message_id']} · 话题 {row['topic_id']} · {row['state']}\n{row['reason'] or '已按当前策略处理'}\n耗时：{row['timing'] or '尚未记录'}")
+                lines.append(f"消息 {row['message_id']} · 话题 {row['topic_id']} · {CHAT_STATES.get(row['state'], '状态待核实')}\n{row['reason'] or '已按当前策略处理'}\n耗时：{timing_summary(row['timing'])}")
             lines.append("最近用量（北京时间）：\n" + "\n".join(f"{row['day']} · 话题 {row['topic_id']}：{row['calls']} 次 / {row['tokens']} Token 额度" for row in result["usage"][:8]))
             buttons = [button("返回聊天设置", "settings", section="chat")]
             page = data.get("page", 0)
@@ -41,16 +56,34 @@ class OperationsPanels:
         await self.management.principal(actor, root=True)
         if action == "ops_backup_exercise":
             result = await self.management.backups.exercise(actor, BackupExerciseInput(file=data["file"], request_id=request_id))
-            return await self.send(actor, f"备份恢复演练：{result['file']}\n完整性：{result['integrity_ok']}；外键：{result['foreign_keys_ok']}；版本兼容：{result['compatible']}\n未改写当前业务数据库。")
+            return await self.send(actor, f"备份恢复演练：{result['file']}\n完整性：{'通过' if result['integrity_ok'] else '异常'}；外键：{'通过' if result['foreign_keys_ok'] else '异常'}；版本：{'与当前版本兼容' if result['compatible'] else '需配套版本或迁移'}\n未改写当前业务数据库。")
         if action == "ops_backup_prompt":
-            return await self.prompt(actor, None, {"kind": "ops_backup_plan"},
-                "请发送需要修改的计划字段，每行 key=value。布尔值用 true/false，其他字段填整数。\n"
-                "enabled（计划开关）、hour_beijing（北京时间小时）、interval_days（间隔天数）、retention_days（保留天数）、retention_count（保留份数）、max_total_mb（总量 MB）、prune_enabled（允许整理本计划自有旧备份）、exercise_after_backup（备份后演练）。输入后还需确认授权。")
+            current = (await self.management.backups.status(actor))["plan"]
+            field = data.get("field")
+            if field not in BACKUP_FIELDS:
+                # Keep the existing batch-input boundary for already-open old prompts.
+                await self.remember(f"bot_prompt:{actor}", {"group_id": None,
+                    "data": {"kind": "ops_backup_plan"}, "expires": now() + 900})
+                controls = [button(label, "ops_backup_prompt", field=key) for key, label in BACKUP_FIELDS.items()]
+                controls.append(button("返回备份计划", "ops_backups"))
+                return await self.panel(actor, "选择要修改的备份设置。修改后还需核对并确认，才会保存。",
+                                       controls, message_id=message_id, resume={"action": "ops_backups", "data": {}})
+            if isinstance(current[field], bool):
+                if "value" in data:
+                    return await self.preview_backup(actor, {field: data["value"]})
+                return await self.panel(actor, BACKUP_FIELDS[field] + "：请选择开启或关闭。保存前还需确认。",
+                    [button("开启", "ops_backup_prompt", field=field, value=True),
+                     button("关闭", "ops_backup_prompt", field=field, value=False),
+                     button("返回设置项目", "ops_backup_prompt")], message_id=message_id,
+                    resume={"action": "ops_backups", "data": {}})
+            schema = BackupPlanInput.model_json_schema()["properties"][field]
+            return await self.prompt(actor, None, {"kind": "ops_backup_field", "field": field},
+                f"请发送{BACKUP_FIELDS[field]}，填写 {schema['minimum']} 至 {schema['maximum']} 的整数。输入后还需确认。")
         if action == "ops_backup_commit":
             await self.management.backups.plan(actor, BackupPlanInput(**data, request_id=request_id))
         result = await self.management.backups.status(actor)
         page = max(0, data.get("page", 0))
-        lines = ["备份计划与文件", *[f"{key} = {value}" for key, value in result["plan"].items()],
+        lines = ["备份计划与文件", backup_summary(result["plan"]),
                  "整理只作用于本计划创建且未被修改的旧文件；共享和外来备份保留。"]
         buttons = []
         for row in result["items"][page * 5:page * 5 + 5]:
@@ -73,6 +106,12 @@ class OperationsPanels:
             buttons = [button("确认调整应急保护", "ops_emergency_commit", **body.model_dump(exclude={"request_id"})),
                        button("取消", "ops_emergency")]
             title = f"{'启用' if body.active else '恢复'} · 原因：{body.reason}"
+        elif data["kind"] == "ops_backup_field":
+            try:
+                value = int(text.strip())
+            except ValueError as exc:
+                raise ManagementError(422, "请填写提示范围内的整数") from exc
+            return await self.preview_backup(actor, {data["field"]: value})
         else:
             current = (await self.management.backups.status(actor))["plan"]
             changes = {}
@@ -80,7 +119,7 @@ class OperationsPanels:
                 key, equal, value = line.partition("=")
                 key, value = key.strip(), value.strip()
                 if not equal or key not in current:
-                    raise ManagementError(422, "请逐行填写计划字段 key=value")
+                    raise ManagementError(422, "请点击上方的备份设置项目，再按提示填写")
                 if type(current[key]) is bool:
                     if value not in ("true", "false"):
                         raise ManagementError(422, "布尔值请填写 true 或 false")
@@ -90,9 +129,20 @@ class OperationsPanels:
                         changes[key] = int(value)
                     except ValueError as exc:
                         raise ManagementError(422, "数值字段请填写整数") from exc
-            plan = BackupPlanInput(**{**current, **changes}, request_id="preview-only")
-            title = "核对备份计划：\n" + "\n".join(f"{key}={value}" for key, value in plan.model_dump(exclude={"request_id"}).items())
-            title += "\nprune_enabled=true 即授权按计划整理本计划自有旧备份。"
-            buttons = [button("确认计划与保留授权", "ops_backup_commit", **plan.model_dump(exclude={"request_id"})), button("取消", "ops_backups")]
+            return await self.preview_backup(actor, changes)
         await self.remember(f"bot_prompt:{actor}", None)
         return await self.panel(actor, title, buttons, group_id)
+
+    async def preview_backup(self, actor, changes):
+        await self.management.principal(actor, root=True)
+        current = (await self.management.backups.status(actor))["plan"]
+        plan = BackupPlanInput(**{**current, **changes}, request_id="preview-only")
+        title = "核对备份计划：\n" + backup_summary(plan.model_dump())
+        if plan.prune_enabled:
+            title += "\n确认后允许按计划整理本程序登记且未被改动的旧备份，至少保留最新一份。"
+        else:
+            title += "\n自动整理关闭，不会按计划删除备份。"
+        await self.remember(f"bot_prompt:{actor}", None)
+        return await self.panel(actor, title,
+            [button("确认计划与保留授权", "ops_backup_commit", **plan.model_dump(exclude={"request_id"})),
+             button("取消", "ops_backups")], resume={"action": "ops_backups", "data": {}})

@@ -1,6 +1,6 @@
 export type Expression = { op: string; [key: string]: any }
 export type TextStep = { op: string; pattern?: string; value?: string | Record<string, string> }
-export type BusinessRule = { id: string; title: string; reason: string; enabled: boolean; action: string; condition: Expression; reason_field?: string; advertiser_cooldown?: boolean }
+export type BusinessRule = { id: string; title: string; reason: string; enabled: boolean; action: string; condition: Expression; reason_field?: string; advertiser_cooldown?: boolean; learn_emoji_packs?: boolean }
 export type BusinessStage = { id: string; title: string; enabled: boolean; first_match: boolean; before: string[]; condition: Expression; rules: BusinessRule[] }
 export type RecognitionEntry = { id: string; title: string; enabled: boolean; pattern?: string; value?: string }
 export type RecognitionPolicy = Record<'utility_patterns' | 'candidate_patterns' | 'other_bot_patterns' | 'output_patterns' | 'phone_prefixes' | 'shortener_domains', RecognitionEntry[]>
@@ -18,7 +18,7 @@ export type BusinessDocument = {
 export type BusinessPolicy = { document: BusinessDocument; version: string }
 export const operations: Record<string, string> = {
   all: '全部满足', any: '任意满足', not: '不满足', match: '文本匹配', ref: '引用公共条件',
-  each: '逐项或分句检查', empty: '为空', truthy: '为真', equals: '相等', always: '始终满足',
+  each: '逐项或分句检查', empty: '为空', truthy: '为真', equals: '相等', range: '数值范围', always: '始终满足',
 }
 export const actions: Record<string, string> = { delete: '只删除消息', mute: '删除并永久禁言', ban: '删除并永久封禁', exclude: '仅排除聊天' }
 export function expression(op = 'match'): Expression {
@@ -28,8 +28,14 @@ export function expression(op = 'match'): Expression {
   if (op === 'ref') return { op, ref: '' }
   if (op === 'each') return { op, input: 'text', split: '[。！？!?；;，,\\n]', steps: [], condition: expression() }
   if (op === 'equals') return { op, input: 'text', value: '' }
+  if (op === 'range') return { op, input: 'custom_emoji_count', minimum: 0 }
   return op === 'always' ? { op } : { op, input: 'text' }
 }
+export const numericFields = [
+  { id: 'text_length', title: '正文字符数（不含空白）' },
+  { id: 'custom_emoji_count', title: '自定义表情数量' },
+  { id: 'custom_emoji_percent', title: '自定义表情占正文百分比' },
+]
 export function textFields(document: BusinessDocument) {
   return [
     { id: 'text', title: '原始文本' }, ...document.views.map(view => ({ id: view.id, title: view.title })),

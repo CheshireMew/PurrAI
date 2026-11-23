@@ -27,7 +27,9 @@ class FrontendBuild:
             # A source checkout must match its build exactly. A deployed artifact
             # without sources can still verify its complete output receipt.
             if (self.source / "src").is_dir():
-                actual = {path.relative_to(self.source).as_posix() for path in (self.source / "src").rglob("*") if path.is_file()} | set(INPUTS)
+                actual = {path.relative_to(self.source).as_posix()
+                          for directory in ("src", "public") for path in (self.source / directory).rglob("*")
+                          if path.is_file()} | set(INPUTS)
                 if actual != set(inputs):
                     raise ValueError("source set changed")
                 paths += [(self.source / name, inputs[name]) for name in sorted(actual)]

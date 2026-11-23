@@ -59,9 +59,9 @@ class Service:
             await self.identity_protection.queue(event["chat"]["id"], event["new_chat_member"].get("user"))
         return result
 
-    async def message(self, message, edited=False, update_id=0, archived_at_receipt=False):
+    async def message(self, message, edited=False, update_id=0, archived_at_receipt=False, chat_routing=False):
         result = await self.moderation.message(message, edited, update_id, archived_at_receipt)
-        await self.advertisement_review.observe(message, edited, update_id)
+        await self.advertisement_review.observe(message, edited, update_id, chat_routing=chat_routing)
         from purrai.message_identity import message_sender, sender_chat
         if message["chat"]["type"] in ("group", "supergroup") and not sender_chat(message):
             await self.identity_protection.queue(message["chat"]["id"], message_sender(message))

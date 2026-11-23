@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, literal, or_, select, union_all
 
 from purrai.shared_policy import effective_rules
 from purrai.advertisement_store import latest_reviews
+from purrai.advertisement_routing import shared_review
 from purrai.chat_input import LINK_REASON, has_link, input_reasons
 from purrai import chat_commands
 from purrai.chat_participation import excluded_ids as participation_exclusions
@@ -103,8 +104,10 @@ class ChatContext:
         excluded.update(identifier for identifier, timestamp in sent_at.items()
                         if timestamp < now() - cfg.chat_context_hours * 3600)
         reviews = await latest_reviews(session, group_id, speakers)
-        excluded.update(identifier for identifier, review in reviews.items() if review.state not in ("clean", "exempt"))
-        context = [{**row, "advertisement_reviewed": True} if row["id"] in reviews else row for row in context]
+        excluded.update(identifier for identifier, review in reviews.items()
+                        if review.state not in ("clean", "exempt") and not shared_review(review, message_id))
+        context = [{**row, "advertisement_reviewed": reviews[row["id"]].state in ("clean", "exempt")}
+                   if row["id"] in reviews else row for row in context]
         excluded.update(identifier for identifier, sender in speakers.items() if sender in cfg.chat_no_reply_user_ids)
         excluded.update(identifier for identifier, name in names.items()
                         if assess("", [], rules, cfg.model_dump(), sender_name=name)["name_reasons"])

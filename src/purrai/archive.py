@@ -20,6 +20,7 @@ from purrai.serialization import row_dict as values
 from purrai.sender_identity import sender_name
 from purrai.archive_capacity import group_bytes, increment, limits
 from purrai.message_identity import message_sender, sender_chat
+from purrai.message_parts import message_text
 
 ARCHIVE_BYTES = "archive:stored-bytes"
 
@@ -43,6 +44,10 @@ async def archive_bytes(session):
 
 
 MEDIA = (
+    "checklist",
+    "rich_message",
+    "game",
+    "invoice",
     "photo",
     "video",
     "animation",
@@ -190,7 +195,10 @@ async def capture(session, message, edited=False, update_id=0, *, settings=None)
         row.message_type = next(
             (kind for kind in MEDIA if message.get(kind)), "text" if "text" in message else "service"
         )
-        row.text, row.caption = message.get("text", ""), message.get("caption", "")
+        # Keep caption presentation compatible; store the additional visible fields
+        # in the searchable text summary while retaining the untouched raw revision.
+        row.text = message_text({key: value for key, value in message.items() if key not in ("caption", "caption_entities")})
+        row.caption = message.get("caption", "")
         row.sent_at, row.edited_at = message["date"], message.get("edit_date", 0)
         row.latest_update_id, row.latest_is_edit, row.source = update_id, edited, "telegram"
     await session.flush()
@@ -302,6 +310,7 @@ def conditions(group_id, filters: ArchiveFilter):
                     or_(
                         MessageRevision.payload["text"].as_string().contains(term, autoescape=True),
                         MessageRevision.payload["caption"].as_string().contains(term, autoescape=True),
+                        func.purrai_message_text(MessageRevision.payload).contains(term, autoescape=True),
                     ),
                 )
                 .exists(),
@@ -326,7 +335,7 @@ async def decorate(session, rows, detail=False):
                 .order_by(MessageRevision.event_at, MessageRevision.update_id, MessageRevision.id)
             )
         ).all():
-            revisions.setdefault(revision.archive_id, []).append(values(revision))
+            revisions.setdefault(revision.archive_id, []).append({**values(revision), "display_text": message_text(revision.payload)})
     group_id = rows[0].group_id
     violations = {
         row.message_id: values(row)

@@ -192,6 +192,7 @@ class RuleAdministration:
                 else:
                     for key, value in body.model_dump().items():
                         setattr(row, key, value)
+                row.administrator_backup = None
                 result = versioned(row_dict(row))
             return await self.context.record(
                 session,

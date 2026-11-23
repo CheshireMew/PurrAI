@@ -18,6 +18,8 @@ class BotRoutes:
     async def route(self, actor, token, record, message_id):
         action, group_id, data = record["action"], record["group_id"], record["data"]
         request_id = f"tg-button:{token}"
+        if action.startswith("lottery_"):
+            return await self.panels.lottery.route(actor, group_id, action, data, request_id, message_id)
         if action.startswith("autoreply_"):
             return await self.panels.auto_replies.route(actor, group_id, action, data, request_id, message_id)
         if action.startswith("ops_"):

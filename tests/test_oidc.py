@@ -7,6 +7,32 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.jose import JsonWebKey, jwt
 
 
+@pytest.mark.parametrize('configured', [False, True])
+async def test_browser_login_failures_return_to_login_with_recovery_message(env, client, monkeypatch, configured):
+    settings, _, _, _ = env
+    if configured:
+        settings.oidc_client_id, settings.oidc_client_secret = '999', 'secret'
+        settings.session_secret = 's' * 32
+        original_get = httpx.AsyncClient.get
+
+        async def unavailable(self, url, *args, **kwargs):
+            if str(url).startswith('https://oauth.telegram.org/'):
+                raise httpx.ConnectError('offline')
+            return await original_get(self, url, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, 'get', unavailable)
+    else:
+        settings.oidc_client_id = ''
+    response = await client.get('/auth/telegram/start', headers={'accept': 'text/html'})
+    assert response.status_code == 303
+    destination = urlsplit(response.headers['location'])
+    assert destination.path == '/'
+    message = parse_qs(destination.query)['login_error'][0]
+    assert ('重新点击登录' if configured else '/admin') in message
+    api_response = await client.get('/auth/telegram/start')
+    assert api_response.status_code == 503
+
+
 @pytest.mark.parametrize(
     "mode", ["valid", "group_admin", "wrong_nonce", "expired", "not_authorized", "wrong_audience"]
 )

@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from purrai.telegram_links import TelegramLink, allowed_link, extract_links, parse_link
 from purrai.recognition_policy import values
+from purrai.message_parts import message_entities, message_text
 
 PREFIX = "全局广告黑名单："
 KINDS = {"account", "channel", "invite", "phone", "email", "contact", "domain", "url"}
@@ -140,7 +141,7 @@ def advertised_targets(message, rules=(), *, settings=None, urls=None, evidence=
         add("phone:" + contact["phone_number"])
     if contact.get("user_id"):
         add("contact:" + str(contact["user_id"]))
-    for entity in message.get("entities") or message.get("caption_entities") or []:
+    for entity in message_entities(message):
         if entity.get("type") == "text_mention" and entity.get("user", {}).get("id"):
             add("contact:" + str(entity["user"]["id"]))
     for email in re.findall(r"(?<![\w@])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w@])", authored):
@@ -161,7 +162,7 @@ def blacklist_reasons(message, rules, *, settings=None, urls=None, evidence=()):
         return []
     targets = set(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence))
     source_only = targets - set(advertised_targets(message, rules, settings=settings, urls=urls, evidence=evidence, include_sources=False))
-    text = message.get("text") or message.get("caption") or ""
+    text = message_text(message)
     reporting = discussion(text, rules)
     prefix = "举报中引用广告黑名单，仅删除：" if reporting else PREFIX
     from purrai.business_rules import BusinessReason
@@ -211,7 +212,7 @@ async def remember_targets(session, group, violation, evidence):
         from purrai.message_identity import message_sender
         message = {"text": biography(message), "from": message_sender(message), "chat": message.get("chat", {})}
     rules = await effective_rules(session, group.id)
-    if not message or discussion(message.get("text") or message.get("caption") or "", rules):
+    if not message or discussion(message_text(message), rules):
         return []
     independent_ad = (evidence or {}).get("confirmed_advertisement", False) or violation.rule_mute or any(
         matches(reason, "target_learning", rules)

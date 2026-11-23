@@ -16,7 +16,7 @@ interface Preview { matched: boolean; rule: AutoReply | null }
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const { mutations } = useWorkspace()
 const query = reactive({ query: '' })
-const { rows, total, pagination, busy, error, safe, load, filters } = useRecords<AutoReply>(
+const { rows, total, pagination, busy, error, safe, load, filters, loaded, queryFailed, appliedFilters } = useRecords<AutoReply>(
   () => props.groupId, 'auto-replies', () => ({ ...query }), values => { query.query = values.query || '' })
 const open = ref(false), editing = ref<AutoReply | null>(null)
 const defaults = () => ({ keyword: '', reply: '', mode: 'exact' as 'exact' | 'contains', enabled: true, priority: 0, cooldown_seconds: 10 })
@@ -25,7 +25,7 @@ const sample = ref(''), draftSample = ref(''), original = ref(''), rulesRevision
 const savedPreview = usePreviewResult<Preview>(() => [props.groupId, sample.value, rulesRevision.value, props.refreshKey])
 const draftPreview = usePreviewResult<Preview>(() => [props.groupId, form, draftSample.value, open.value])
 const result = savedPreview.result, draftResult = draftPreview.result
-const { requestClose } = useDraftClose(() => JSON.stringify(body()) !== original.value, () => { open.value = false }, () => busy.value)
+const { requestClose } = useDraftClose(() => JSON.stringify(body()) !== original.value, () => { open.value = false }, () => busy.value, () => open.value)
 function edit(row: AutoReply | null = null) {
   editing.value = row; Object.assign(form, defaults(), row || {}); draftSample.value = ''; draftPreview.invalidate()
   original.value = JSON.stringify(body())
@@ -72,7 +72,7 @@ useRefresh(load, () => props.refreshKey)
     <el-input v-model="query.query" aria-label="搜索自动回复" placeholder="搜索关键词或回复内容" maxlength="250" clearable/>
     <el-button native-type="submit">查询</el-button>
   </form>
-  <el-table :data="rows" row-key="id" empty-text="还没有自动回复，可点击上方添加">
+  <el-table :data="rows" row-key="id" :empty-text="queryFailed ? '自动回复加载失败，请重试' : !loaded ? '正在加载自动回复…' : appliedFilters().extra.query ? '没有匹配的自动回复，请调整搜索条件' : '还没有自动回复，可点击上方添加'">
     <el-table-column prop="keyword" label="关键词" min-width="160"/>
     <el-table-column prop="reply" label="回复内容" min-width="240" show-overflow-tooltip/>
     <el-table-column label="匹配" width="110"><template #default="{ row }">{{ row.mode === 'exact' ? '完整匹配' : '包含匹配' }}</template></el-table-column>

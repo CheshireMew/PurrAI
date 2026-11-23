@@ -158,7 +158,7 @@ class ConfigurationPanels:
                 ),
             ]
         for key in keys:
-            value = group.settings[key]
+            value = group.settings.get(key, False) if key in BOOLEANS else group.settings[key]
             name = BOOLEANS.get(key) or NUMBERS[key]
             if key in BOOLEANS:
                 buttons.append(

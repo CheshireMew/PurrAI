@@ -44,6 +44,7 @@ def assess(
     inline_buttons: bool = False,
     message_emoji_packs: list[str] | tuple = (),
     sender_bio: str = "",
+    message_metrics: dict | None = None,
 ) -> dict:
     reasons, names, mute_reasons, hit_ids = [], [], [], []
     engine = BusinessEngine(rules)
@@ -69,6 +70,8 @@ def assess(
         hits = [(hit, True) for hit in engine.run("profile", sender_name)]
         hits += [(hit, False) for stage in ("short", "advertising")
                   for hit in engine.run(stage, normalize(text), source_titles=[normalize(title) for title in source_titles or []], urls=urls)]
+        if "message_structure" in engine.stages:
+            hits += [(hit, False) for hit in engine.run("message_structure", text, metrics=message_metrics)]
         for hit, profile in hits:
             hit_ids.append(hit.id)
             if profile and hit.action == "mute":

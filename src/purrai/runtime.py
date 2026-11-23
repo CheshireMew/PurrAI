@@ -15,6 +15,7 @@ class Runtime:
     def __init__(self, db, telegram, service):
         self.db, self.tg, self.service = db, telegram, service
         self.chat = GroupChat(db, telegram, service.settings)
+        self.chat.reviewer = service.advertisement_review
         self.management = Management(db, telegram, settings=service.settings, chat=self.chat, access=service.access)
         self.admin = BotAdmin(self.management)
         self.events = TelegramEvents(service, self.admin, self.chat)

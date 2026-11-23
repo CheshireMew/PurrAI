@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from aiogram.types import Update
+from aiogram.types import BufferedInputFile, InputMediaPhoto, Update
 from sqlalchemy import select
 
 from conftest import message
@@ -54,3 +54,20 @@ async def test_gateway_converts_both_single_responses_and_update_lists():
     assert updates[0]["message"]["link_preview_options"]["is_disabled"] is False
     result = await gateway.call("send_message", chat_id=-1001, text="测试")
     assert result["message_id"] == 81 and result["from"]["id"] == 42
+
+
+async def test_gateway_uploads_picture_into_known_text_message():
+    gateway = TelegramGateway("")
+    incoming = update_with_link_preview().message
+
+    async def edit(**kwargs):
+        assert kwargs["message_id"] == 81
+        media = kwargs["media"]
+        assert isinstance(media, InputMediaPhoto) and isinstance(media.media, BufferedInputFile)
+        assert media.media.data == b"png" and media.caption == "验证图片"
+        return incoming
+
+    gateway.bot = SimpleNamespace(edit_message_media=edit)
+    result = await gateway.call("edit_message_media", chat_id=-1001, message_id=81,
+        media={"type": "photo", "media": b"png", "caption": "验证图片"})
+    assert result["message_id"] == 81

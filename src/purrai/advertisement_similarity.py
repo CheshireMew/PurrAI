@@ -8,7 +8,7 @@ import unicodedata
 from difflib import SequenceMatcher
 from functools import lru_cache
 
-from purrai.text_matching import normalize
+from purrai.text_matching import normalize, normalize_number_variants
 
 
 BODY_SAMPLE = "text"
@@ -20,7 +20,7 @@ def features(value):
     # Variable contacts and amounts do not change a copied template's structure.
     value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s<>]+", "§", value)
     value = re.sub(r"(?<![\w@])@[a-z0-9_]+", "§", value)
-    value = re.sub(r"\d+(?:[.,]\d+)*", "#", value)
+    value = re.sub(r"\d+(?:[.,]\d+)*", "#", normalize_number_variants(value))
     value = "".join(char for char in value if char.isalnum() or char in "§#")
     return value, frozenset(value[i:i + 2] for i in range(len(value) - 1))
 

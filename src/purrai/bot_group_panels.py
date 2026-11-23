@@ -62,6 +62,7 @@ class GroupPanels:
             button("防广告设置", "settings", section="moderation"),
             button("群聊天设置", "settings", section="chat"),
             button("关键词自动回复", "autoreply_home"),
+            button("抽奖管理", "lottery_home"),
             button("聊天处理诊断", "ops_chat"),
             button("临时应急保护", "ops_emergency"),
             button("待验证成员", "list", kind="pending"),

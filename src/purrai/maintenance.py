@@ -28,6 +28,8 @@ class Maintenance:
                     async with self.db.transaction() as session:
                         from purrai.points_rewards import refund_expired
                         await refund_expired(session)
+                        from purrai.lottery import cycle as lottery_cycle
+                        await lottery_cycle(session)
                         await prune_expired_fingerprints(session)
                         removed = await prune_temporary_state(session)
                     # Drain large backlogs in short transactions, sharing each

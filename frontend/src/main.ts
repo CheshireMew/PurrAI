@@ -1,6 +1,6 @@
 import { createApp, h } from 'vue'
 import {
-  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElConfigProvider, ElDatePicker, ElDialog, ElDivider, ElDrawer,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElConfigProvider, ElDatePicker, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
   ElEmpty, ElForm, ElFormItem, ElIcon, ElInput, ElInputNumber, ElLoading, ElOption,
   ElPagination, ElRadio, ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn,
   ElTabPane, ElTabs, ElTag, ElTooltip,
@@ -15,6 +15,7 @@ import 'element-plus/es/components/divider/style/css'
 import 'element-plus/es/components/date-picker/style/css'
 import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/drawer/style/css'
+import 'element-plus/es/components/dropdown/style/css'
 import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
@@ -39,9 +40,9 @@ import 'element-plus/es/components/tooltip/style/css'
 import App from './App.vue'
 import './style.css'
 
-const app = createApp({ render: () => h(ElConfigProvider, { locale: zhCn }, () => h(App)) })
+const app = createApp({ render: () => h(ElConfigProvider, { locale: zhCn, message: { placement: 'bottom-right' } }, () => h(App)) })
 for (const component of [
-  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElDatePicker, ElDialog, ElDivider, ElDrawer, ElEmpty, ElForm,
+  ElAlert, ElButton, ElCheckbox, ElCheckboxGroup, ElCollapse, ElCollapseItem, ElDatePicker, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu, ElEmpty, ElForm,
   ElFormItem, ElIcon, ElInput, ElInputNumber, ElOption, ElPagination, ElRadio,
   ElRadioGroup, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTabPane, ElTabs, ElTag, ElTooltip,
 ]) app.use(component)

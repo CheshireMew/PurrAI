@@ -1,6 +1,7 @@
 """Group conversation observation, runnable topic scheduling and worker lifecycle."""
 
 import asyncio
+import json
 import logging
 from time import perf_counter
 from contextlib import suppress
@@ -35,6 +36,7 @@ class GroupChat:
     def __init__(self, db, telegram, settings, model=None):
         self.db, self.tg, self.settings = db, telegram, settings
         self.model = model or ChatModel(settings)
+        self.reviewer = None
         self.budget = ChatBudget(db, settings)
         self.busy = set()
         self.wakeup = asyncio.Event()
@@ -107,6 +109,9 @@ class GroupChat:
             generated = await ChatGeneration(self.model, self.budget, self.tg, self.db).generate(
                 turn, cfg, context, sender_id, sticker_options
             )
+            if generated.review_id and self.reviewer:
+                if not await self.complete_shared_review(turn, generated):
+                    return True
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)
         except BudgetCooldown as exc:
             async with self.db.transaction() as session:
@@ -157,6 +162,40 @@ class GroupChat:
             async with self.db.transaction() as session:
                 await timing(session, turn.id, last_attempt_seconds=round(perf_counter() - started, 3),
                              last_processed_at=now(), queue_seconds=round(max(0, now() - turn.created_at - (perf_counter() - started)), 3))
+        return True
+
+    async def complete_shared_review(self, turn, generated):
+        from dataclasses import replace
+        from purrai.models import AdvertisementReview
+        result = generated.result
+        async with self.db.transaction() as session:
+            current = await session.get(ChatTurn, turn.id)
+            review = await session.get(AdvertisementReview, generated.review_id)
+            if review and review.state in ("pending", "requesting") and review.revision == generated.review_revision:
+                # Keep a successful model response before role checks or Telegram I/O.
+                current.response = json.dumps({
+                    "context": generated.fingerprint, "text": result.text, "sticker": result.sticker,
+                    "should_reply": result.should_reply, "is_advertisement": result.is_advertisement,
+                    "audience": result.audience, "decision_reason": result.decision_reason,
+                    "source_context": generated.context, "combined_review": review.id,
+                    "review_revision": review.revision,
+                }, ensure_ascii=False)
+        await self.reviewer.apply(generated.review_id, {
+            "advertisement": result.is_advertisement, "scope": "context",
+            "reason": result.decision_reason or "本次对话请求同时完成广告判断",
+        }, generated.review_version, hints=generated.keyword_hints, criteria=generated.review_criteria)
+        async with self.db.transaction() as session:
+            current = await session.get(ChatTurn, turn.id)
+            review = await session.get(AdvertisementReview, generated.review_id)
+            if not review or review.state not in ("clean", "exempt"):
+                current.state = "silent" if review and review.state == "advertisement" else "skipped"
+                current.error = review.result.get("reason", "") if review else "广告审核记录已失效"
+                return False
+            for item in generated.context:
+                if item["id"] == turn.message_id:
+                    item["advertisement_reviewed"] = True
+            if review.state == "exempt":
+                generated.result = replace(generated.result, is_advertisement=False)
         return True
 
     async def loop(self):

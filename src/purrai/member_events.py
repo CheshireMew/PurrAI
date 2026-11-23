@@ -16,7 +16,7 @@ from purrai.models import (
     now,
     uid,
 )
-from purrai.telegram import is_admin, is_present, permission_snapshot
+from purrai.telegram import ALL_PERMISSIONS, is_admin, is_present, permission_snapshot
 from purrai.verification_cleanup import cleanup
 from purrai.verification_state import ACTIVE
 from purrai.rule_evaluation import prepare_message
@@ -42,24 +42,29 @@ class MemberEvents:
                     return
         old, new = event["old_chat_member"], event["new_chat_member"]
         actor = event.get("from", {})
-        manual_unmute = bool(
-            not bot_event
-            and old.get("status") == "restricted"
-            and not old.get("can_send_messages", False)
-            and is_present(new)
-            and (
-                new.get("status") == "member"
+        released = bool(
+            event.get("via_join_request") and is_present(new) and not is_present(old)
+            or
+            old.get("status") == "kicked" and new.get("status") in ("left", "member", "restricted")
+            or old.get("status") == "restricted" and (
+                new.get("status") in ("member", "left")
                 or new.get("status") == "restricted"
-                and new.get("can_send_messages")
+                and any(new.get(key, False) and not old.get(key, False) for key in ALL_PERMISSIONS)
             )
+        )
+        manual_release = bool(
+            not bot_event
+            and released
+            and not is_admin(new)
+            and not (old.get("until_date") and old["until_date"] <= event["date"])
             and actor.get("id")
             and actor["id"] != self.tg.user_id
             and not actor.get("is_bot")
         )
-        if manual_unmute and actor["id"] not in self.settings.superadmin_ids:
+        if manual_release and actor["id"] not in self.settings.superadmin_ids:
             # A human administrator's explicit event grants trust; automatic
             # expiry and another bot's changes must never create a whitelist.
-            manual_unmute = is_admin(
+            manual_release = is_admin(
                 await self.tg.call("get_chat_member", chat_id=chat["id"], user_id=actor["id"])
             )
         profile = None
@@ -99,6 +104,18 @@ class MemberEvents:
                 return
             if member and event_id:
                 member.last_event_id = event_id
+            if not is_admin(new):
+                await self.trust.revoke_administrator(session, group.id, user["id"])
+            if manual_release:
+                if member is None:
+                    member = Member(group_id=group.id, user_id=user["id"], joined_at=0)
+                    session.add(member)
+                    await session.flush()
+                await self.trust.trust_member(session, member, actor["id"], "Telegram 管理员手动解除成员限制")
+                member.owned_restriction, member.restriction_conflict = None, False
+                member.present, member.last_event_id = is_present(new), event_id
+                if not is_present(new) or is_present(old):
+                    return
             if is_admin(new):
                 await self.trust.exempt_administrator(session, group.id, user["id"])
                 return
@@ -106,7 +123,7 @@ class MemberEvents:
                 return await self.depart(session, group, member, user, new, event)
             if is_present(old) and is_present(new):
                 return await self.update_role(
-                    session, group, member, user, old, new, actor, event, event_id, manual_unmute
+                    session, group, member, user, old, new, actor, event, event_id
                 )
             if is_present(old) or not is_present(new):
                 return
@@ -150,22 +167,12 @@ class MemberEvents:
         return
 
     async def update_role(
-        self, session, group, member, user, old, new, actor, event, event_id, manual_unmute
+        self, session, group, member, user, old, new, actor, event, event_id
     ):
         if is_admin(old) and new.get("status") == "member":
             if member:
                 member.present = True
                 member.owned_restriction, member.restriction_conflict = None, False
-            return
-        if manual_unmute:
-            if member is None:
-                member = Member(group_id=group.id, user_id=user["id"], joined_at=0)
-                session.add(member)
-                await session.flush()
-            await self.trust.trust_member(session, member, actor["id"], "Telegram 群设置手动解除禁言")
-            if event_id:
-                member.last_event_id = event_id
-            member.owned_restriction, member.restriction_conflict = None, False
             return
         # Changes made by another admin are never silently undone by PurrAI.
         if member and event.get("from", {}).get("id") != self.tg.user_id:

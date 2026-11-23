@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BusinessDocument, Expression } from '../businessPolicy'
-import { expression, operations, textFields } from '../businessPolicy'
+import { expression, operations, textFields, numericFields } from '../businessPolicy'
 import TextStepsEditor from './TextStepsEditor.vue'
 const model = defineModel<Expression>({ required: true })
 defineProps<{ document: BusinessDocument }>()
@@ -27,7 +27,13 @@ function changeField(value: string) {
   <el-select :model-value="model.input || ''" aria-label="引用条件使用的文本" @change="$event ? model.input = $event : delete model.input"><el-option value="" label="保持当前文本"/><el-option v-for="field in textFields(document).filter(item => !['source_titles', 'direct', '$start'].includes(item.id))" :key="field.id" :value="field.id" :label="field.title"/></el-select>
 </template>
 <template v-else-if="model.op !== 'always'">
-  <el-select :model-value="model.input" aria-label="检查的文本字段" @change="changeField"><el-option v-for="field in textFields(document)" :key="field.id" :value="field.id" :label="field.title"/></el-select>
+  <el-select :model-value="model.input" aria-label="检查的字段" @change="changeField"><el-option v-for="field in model.op === 'range' ? numericFields : textFields(document)" :key="field.id" :value="field.id" :label="field.title"/></el-select>
+  <template v-if="model.op === 'range'">
+    <el-checkbox :model-value="model.minimum !== undefined" @change="$event ? model.minimum = 0 : delete model.minimum">设置下限</el-checkbox>
+    <el-input-number v-if="model.minimum !== undefined" v-model="model.minimum" aria-label="数值下限"/>
+    <el-checkbox :model-value="model.maximum !== undefined" @change="$event ? model.maximum = 100 : delete model.maximum">设置上限</el-checkbox>
+    <el-input-number v-if="model.maximum !== undefined" v-model="model.maximum" aria-label="数值上限"/>
+  </template>
   <template v-if="model.op === 'match'">
     <el-input v-model="model.pattern" type="textarea" :rows="2" aria-label="匹配表达式" placeholder="关键词可直接填写；用 | 分隔多个词，也支持正则表达式"/>
     <el-select v-model="model.mode" aria-label="表达式匹配方式"><el-option value="search" label="任意位置首次匹配"/><el-option value="match" label="从开头匹配"/><el-option value="fullmatch" label="整条文本匹配"/><el-option value="find" label="逐个匹配直到满足附加条件"/></el-select>

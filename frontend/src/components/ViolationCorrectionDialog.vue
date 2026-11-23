@@ -15,12 +15,13 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 const open = computed({ get: () => Boolean(props.violation), set: value => { if (!value) emit('close') } })
 const { mutations, actionTracker, groups } = useWorkspace()
 const { busy, error, safe } = useTask()
-const evidence = ref<Evidence | null>(null), selected = ref<string[]>([]), scope = ref('local'), reason = ref(''), action = ref('')
-const { requestClose } = useDraftClose(() => !!reason.value || !!action.value || selected.value.length > 0 || scope.value !== 'local', () => emit('close'), () => busy.value)
+const evidence = ref<Evidence | null>(null), selected = ref<string[]>([]), scope = ref('local'), reason = ref(''), action = ref('keep')
+const { requestClose } = useDraftClose(() => !!reason.value || action.value !== 'keep' || selected.value.length > 0 || scope.value !== 'local', () => emit('close'), () => busy.value, () => !!props.violation)
+const actionSummary = computed(() => action.value === 'keep' ? '保留当前成员限制，不解除禁言或封禁' : action.value === 'unban' ? '提交解除这次 PurrAI 封禁的任务' : '提交解除这次 PurrAI 禁言的任务')
 let revision = 0
 watch(() => props.violation, async row => {
   const current = ++revision
-  evidence.value = null; selected.value = []; scope.value = 'local'; reason.value = ''; action.value = ''; error.value = ''
+  evidence.value = null; selected.value = []; scope.value = 'local'; reason.value = ''; action.value = 'keep'; error.value = ''
   if (row) await safe(async () => {
     const result = await api<Evidence>(`/api/groups/${props.groupId}/violations/${row.id}/correction`)
     if (current === revision) evidence.value = result
@@ -34,10 +35,10 @@ async function save() {
     const rule_versions = Object.fromEntries(data.rules.filter(rule => selected.value.includes(rule.id!))
       .map(rule => [rule.id!, scope.value === 'global' ? rule.global_version : rule.version]))
     const result = await mutations.submit<{action_ids: string[]}>(`/api/groups/${props.groupId}/violations/${row.id}/correction`,
-      'POST', { reason: reason.value.trim(), action: action.value, scope: scope.value, rule_versions }, undefined, '纠正误判')
+      'POST', { reason: reason.value.trim(), action: action.value === 'keep' ? '' : action.value, scope: scope.value, rule_versions }, undefined, '纠正误判')
     const group = groups.value.find(item => item.id === props.groupId)
     for (const id of result.action_ids) actionTracker.accept({ id, state: 'pending', reason: reason.value }, reason.value,
-      group ? actionContext(group, action.value || '纠正误判', row.user_id, row.sender_name) : undefined)
+      group ? actionContext(group, action.value === 'keep' ? '纠正误判' : action.value, row.user_id, row.sender_name) : undefined)
     ElMessage.success(result.action_ids.length ? '纠正已保存，解除限制任务已提交' : '纠正已保存')
   })) { emit('saved'); emit('close') }
 }
@@ -53,7 +54,7 @@ async function save() {
 <el-form-item label="核实原因"><el-input v-model="reason" type="textarea" maxlength="300"/></el-form-item>
 <el-form-item label="成员限制">
 <el-select v-model="action" aria-label="纠正成员限制">
-<el-option value="" label="保留当前限制，仅登记误判和处理规则"/>
+<el-option value="keep" label="保留当前限制，仅登记误判和处理规则"/>
 <el-option v-for="operation in violation?.allowed_operations.filter(item => ['unmute', 'unban'].includes(item))" :key="operation" :value="operation" :label="operation === 'unban' ? '解除这次 PurrAI 封禁' : '解除这次 PurrAI 禁言'"/>
 </el-select></el-form-item>
 <el-form-item v-if="evidence.rules.length" label="关联的推广目标（勾选后停用）">
@@ -67,6 +68,7 @@ async function save() {
 <el-alert v-if="selected.length && scope === 'global'" :title="`将影响继承这些通用规则的群：${evidence.affected_groups.filter(group => !group.rule_ids || group.rule_ids.some(id => selected.includes(id))).map(group => group.title).join('、') || '无'}。已设置本群覆盖的规则保留；已有处罚不会批量解除。`" type="warning" :closable="false"/>
 </el-form>
 </div>
-<template #footer><el-button :disabled="busy" @click="requestClose">取消</el-button><el-button type="primary" :loading="busy" :disabled="!evidence" @click="save">确认纠正</el-button></template>
+<template #footer><p v-if="evidence" class="correction-summary" role="status">{{ actionSummary }}；停用关联规则 {{ selected.length }} 条{{ selected.length ? scope === 'global' ? '（通用）' : '（仅本群）' : '' }}。</p>
+<el-button :disabled="busy" @click="requestClose">取消</el-button><el-button type="primary" :loading="busy" :disabled="!evidence" @click="save">确认纠正</el-button></template>
 </el-dialog>
 </template>

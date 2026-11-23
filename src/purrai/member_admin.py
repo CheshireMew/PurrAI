@@ -34,6 +34,8 @@ class MemberAdministration:
             row = await session.get(Verification, identifier)
         if not row:
             raise ManagementError(404, "验证记录不存在")
+        if body.action == "unban" and (row.state in ACTIVE or retryable_verification(row.state, row.failure_action)):
+            body = body.model_copy(update={"action": "release"})
         await self.context.access.authorize(actor, row.group_id, write=True)
         async with self.context.access.group_transaction(row.group_id) as session:
             existing = await session.scalar(
@@ -231,7 +233,7 @@ class MemberAdministration:
                     "mute": ("manual_mute",),
                     "ban": ("ban", "manual_ban"),
                     "unmute": ("unmute", "release"),
-                    "unban": ("unban",),
+                    "unban": ("unban", "release"),
                     "release": ("release",),
                     "reissue": ("challenge", "verify_mute"),
                 }
@@ -255,16 +257,16 @@ class MemberAdministration:
                 )
                 .order_by(Verification.created_at.desc())
             )
-        if verification and verification.state == "failed" and action not in ("release", "reissue", "unmute"):
+        if verification and verification.state == "failed" and action not in ("release", "reissue", "unmute", "unban"):
             verification = None
         if verification and verification.state in ACTIVE and action == "mute":
             raise ManagementError(409, "此成员正在验证，已处于禁言状态；请使用放行、重出题或封禁")
-        if verification and action in ("release", "reissue", "ban", "unmute"):
+        if verification and action in ("release", "reissue", "ban", "unmute", "unban"):
             return await self.verification_action(
                 actor,
                 verification.id,
                 ActionInput(
-                    action="release" if action == "unmute" else action, reason=reason, request_id=request_id,
+                    action="release" if action in ("unmute", "unban") else action, reason=reason, request_id=request_id,
                     duration_seconds=duration_seconds,
                 ),
             )

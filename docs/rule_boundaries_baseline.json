@@ -872,15 +872,16 @@
       "path": "src/purrai/telegram.py",
       "scope": "TelegramGateway.register_commands",
       "kind": "matching-data",
-      "digest": "1401bdd105185b736290a4b8059ae9b1da0c42fa5abde99bbaecc53345f1d08c",
-      "line": 54,
+      "digest": "11245ee2410835910961a0ce418fe7edc54e77bc6c8e183b63417a10f9b4c834",
+      "line": 77,
       "examples": [
         "临时封禁",
         "临时禁言",
         "人工放行验证",
-        "解除 PurrAI 封禁",
+        "解除 PurrAI 封禁或禁言",
         "解除 PurrAI 禁言"
-      ]
+      ],
+      "review": "2026-11-23: User requested unban to cover mute removal. This is the Telegram command-menu description list, with no message matching or advertising vocabulary."
     },
     {
       "path": "src/purrai/telegram_links.py",
@@ -1030,15 +1031,16 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "89117acbb703bc05fc7ac92bb6c3cbb7cf06d03db621a46e4455b91021541c04",
-      "line": 95,
+      "digest": "06f2cb908ca15ebaab746f64fcf5699ba1a8135de720c088d39b195372e83bc8",
+      "line": 111,
       "examples": [
         "入群验证",
         "全员拦截钱包及代币合约地址",
         "只拦截广告联系人名片",
-        "外群链接、外部频道引用及转发永久封禁",
-        "外部私密邀请统一封禁"
-      ]
+        "在群内显示管理操作提交提示",
+        "外群链接、外部频道引用及转发永久封禁"
+      ],
+      "review": "2026-11-23: User requested optional submission receipts with automatic cleanup. BOOLEANS contains only administrator setting names and display labels, never advertising match data."
     },
     {
       "path": "src/purrai/chat_input.py",
@@ -1136,21 +1138,6 @@
         "验证超时"
       ],
       "review": "2026-11-14: Explicitly requested verification repair. VerificationService.fail_verification: internal timeout reason selects final subscription lookup and timely inbox callback protection; not user text or an ad rule."
-    },
-    {
-      "path": "src/purrai/admin_labels.py",
-      "scope": "<module>",
-      "kind": "matching-data",
-      "digest": "5ed95130ad29bb016d3a49dc918337a1bd182c5bf2b52a570e24acddc3845f7e",
-      "line": 25,
-      "examples": [
-        "AI广告永久禁言",
-        "临时封禁",
-        "临时应急保护",
-        "临时禁言",
-        "人工核实发送结果"
-      ],
-      "review_note": "Only action display labels for channel ban and unban; no matching policy."
     },
     {
       "path": "src/purrai/points_bot.py",
@@ -1462,6 +1449,239 @@
         "unban"
       ],
       "review_note": "API action enum validation for channel correction, not message or advertising matching."
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "35b6f283fbf0eca31ce31e3fa98344bbcec28f9c6480f50a625f347299ec65d6",
+      "line": 37,
+      "examples": [
+        "AI广告永久禁言",
+        "临时封禁",
+        "临时应急保护",
+        "临时禁言",
+        "人工核实发送结果"
+      ],
+      "review": "2026-11-23: Requested unban to cover mute removal. OPERATIONS only displays operation names in administrator interfaces and receipts; it never matches advertisement content."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.detail",
+      "kind": "matching-data",
+      "digest": "c2d38dfb1e00dd9d183afb6300a5e123a712fcc1d5a99872940dbcd46dcd0439",
+      "line": 39,
+      "examples": [
+        "修改标题",
+        "修改说明",
+        "设置奖品",
+        "设置开奖 / 结束方式",
+        "设置活跃条件"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Private lottery editor buttons, confirmation text and field prompts; no message or profile filtering."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.route",
+      "kind": "matching-data",
+      "digest": "da19e4264e79713bff6a63f7c6f0061d2bb59ec26ba3ea940af3b0bec8e47e3c",
+      "line": 92,
+      "examples": [
+        "确认取消活动？已收取的报名积分将原路退回。",
+        "确认按当前规则发布到本群？发布后不可修改规则。",
+        "确认立即开奖？不足最低成团人数时将取消并退款。",
+        "确认结束即时抽奖？已完成的抽奖保留结果，已消耗积分不退回。",
+        "确认这份奖品已经人工发放？此操作只登记，不会自动发送奖品。"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Private lottery editor buttons, confirmation text and field prompts; no message or profile filtering."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.route",
+      "kind": "matching-data",
+      "digest": "a46ccca69c2d11d22a1247b7390ddc41d58050273df1734c3bb3132fd53991d3",
+      "line": 103,
+      "examples": [
+        "请发送参与前所需积分余额，0 表示无门槛。门槛本身不扣积分。",
+        "请发送新标题，最多 80 个字符。",
+        "请发送最低成团人数。人数不足时取消活动并退款。",
+        "请发送每人每天最多抽奖次数，1 至 100，北京时间零点重置。",
+        "请发送每次消耗的积分整数，0 表示免费报名。即时抽奖须大于 0。"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Private lottery editor buttons, confirmation text and field prompts; no message or profile filtering."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.parse_prizes",
+      "kind": "comparison",
+      "digest": "72dafafcac3d9a162bd7e52b13a33b93c9e83d19bd1470fc705e3d3ec4047780",
+      "line": 132,
+      "examples": [
+        "未中奖"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.parse_prizes",
+      "kind": "comparison",
+      "digest": "7d0c32e8a223ba8f12a1390458a0a0f39209fdf87958d1ea1dffce50dc8c009e",
+      "line": 135,
+      "examples": [
+        "奖品",
+        "积分"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.parse_prizes",
+      "kind": "comparison",
+      "digest": "9829f6977837c38f53e3dc9a04ee2644a5cad44506995e72a00552c1b993c6d5",
+      "line": 137,
+      "examples": [
+        "积分"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.parse_prizes",
+      "kind": "comparison",
+      "digest": "9829f6977837c38f53e3dc9a04ee2644a5cad44506995e72a00552c1b993c6d5",
+      "line": 138,
+      "examples": [
+        "积分"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.input",
+      "kind": "comparison",
+      "digest": "b3b5d6d43e0ec005a105df9e6392c2e72e3c0ce0856942a44bab23813a60dbf7",
+      "line": 165,
+      "examples": [
+        "手动"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.input",
+      "kind": "comparison",
+      "digest": "33a231511d0d1b390cb5168c9507a032f81564e89a4a6831d446651a289c23e8",
+      "line": 167,
+      "examples": [
+        "满员"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/bot_lottery_panels.py",
+      "scope": "LotteryPanels.input",
+      "kind": "comparison",
+      "digest": "1c9c1d7a356fb5a5296052bae1ef25854c0cad68973b29901506c90a348b866d",
+      "line": 169,
+      "examples": [
+        "定时"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. Explicit administrator-only lottery input grammar: prize types and manual/time/participant schedule selectors, not advertisement keywords."
+    },
+    {
+      "path": "src/purrai/lottery.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "9e02ab90ac7329ffbb465cb601b5920cf81448a0541eca4914ab317bba66c3b7",
+      "line": 17,
+      "examples": [
+        "已取消",
+        "已开奖",
+        "已结束",
+        "草稿",
+        "进行中"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. STATES and ENTRY_STATES translate saved lottery status codes to display labels."
+    },
+    {
+      "path": "src/purrai/lottery.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "0a2ee5fe95b25e2204ec2b95c229268db801631703b7572d46fe80e0ff8abaad",
+      "line": 18,
+      "examples": [
+        "已中奖",
+        "已报名",
+        "已退款",
+        "待退款",
+        "未中奖"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. STATES and ENTRY_STATES translate saved lottery status codes to display labels."
+    },
+    {
+      "path": "src/purrai/lottery_messages.py",
+      "scope": "public_result",
+      "kind": "matching-data",
+      "digest": "dc4c1b8e66cf40288b2b08775e985a63d1220718b96b866f2312c0c4c2497e06",
+      "line": 62,
+      "examples": [
+        " 人参与",
+        "共  人参与"
+      ],
+      "review": "2026-11-22: User authorized lotteries and reuse. public_result builds a result announcement from saved lottery data, not content matching."
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "b97032aec0fc6a04c0da2c00dcc80c14d854eb430cae55fbc7a62d0631936d83",
+      "line": 24,
+      "examples": [
+        "保持静默",
+        "合并处理",
+        "失败",
+        "已回复",
+        "已撤回"
+      ],
+      "review": "2026-11-22: User explicitly authorized UI/UX findings 10 and 12. CHAT_STATES and BACKUP_FIELDS map stable state/configuration protocol keys to Chinese interface labels. They never inspect message text, profiles, links or moderation keywords."
+    },
+    {
+      "path": "src/purrai/admin_labels.py",
+      "scope": "<module>",
+      "kind": "matching-data",
+      "digest": "7e906849d68e71620db9128fee4f7c8d259552581ffa2751bd94547a8126e9a5",
+      "line": 30,
+      "examples": [
+        "保留天数",
+        "允许自动整理自有备份",
+        "北京时间执行小时",
+        "备份后自动恢复演练",
+        "备份总量上限（MB）"
+      ],
+      "review": "2026-11-22: User explicitly authorized UI/UX findings 10 and 12. CHAT_STATES and BACKUP_FIELDS map stable state/configuration protocol keys to Chinese interface labels. They never inspect message text, profiles, links or moderation keywords."
+    },
+    {
+      "path": "src/purrai/bot_operations_panels.py",
+      "scope": "OperationsPanels.route",
+      "kind": "matching-data",
+      "digest": "c86cd810cec940283786626bc2d08105ce900315408ebbc0d52fa09c96fb3c9f",
+      "line": 86,
+      "examples": [
+        "备份计划与文件",
+        "整理只作用于本计划创建且未被修改的旧文件；共享和外来备份保留。"
+      ],
+      "review": "2026-11-22: User explicitly authorized UI/UX finding 10. This exact backup panel list only renders a heading, saved backup settings and retention explanation. The previous raw field list is replaced by backup_summary; no moderation or matching content is read."
+    },
+    {
+      "path": "src/purrai/member_admin.py",
+      "scope": "MemberAdministration.verification_action",
+      "kind": "comparison",
+      "digest": "a6f1d05def47cbbf557df0913627f87556a72f4df081340a7dd056e53857c9dd",
+      "line": 63,
+      "examples": [
+        "unban"
+      ],
+      "review": "2026-11-23: User explicitly requested unban to include mute removal. This compares the management ActionInput operation field, not a message, profile, keyword or advertising decision."
     }
   ],
   "additional_seed_sha256": {

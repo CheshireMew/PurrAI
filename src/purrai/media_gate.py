@@ -205,7 +205,9 @@ async def media_gate_exemption( session, action, group, member):
     ):
         return False
     minimum = group.settings.get("media_min_text_messages", 3)
+    from purrai.points_trust import member_trust
     return (
         not group.enabled or not minimum or not restricted_newcomer(member, now(), group.settings)
         or await completed_text_count(session, group.id, action.user_id) >= minimum
+        or (await member_trust(session, group.id, action.user_id)).newcomer
     )

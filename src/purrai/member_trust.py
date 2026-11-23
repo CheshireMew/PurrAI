@@ -27,7 +27,18 @@ class MemberTrust:
         self.settings = settings
 
     async def exempt_administrator(self, session, group_id, user_id):
-        """Apply a confirmed current Telegram role without persisting a whitelist."""
+        """Persist role-derived trust while retaining any independent manual whitelist."""
+        white = await session.get(Whitelist, (group_id, user_id))
+        if white is None:
+            white = Whitelist(group_id=group_id, user_id=user_id,
+                administrator_backup={"existed": False})
+            session.add(white)
+        elif white.administrator_backup is None:
+            white.administrator_backup = {"existed": True, "verification": white.verification,
+                "moderation": white.moderation, "note": white.note}
+        white.verification, white.moderation = True, True
+        if not white.note:
+            white.note = "Telegram 群主或管理员自动加入白名单；撤职时仅移除身份带来的豁免"
         for action in await session.scalars(
             select(Action).where(
                 Action.group_id == group_id,
@@ -55,12 +66,25 @@ class MemberTrust:
             member.passed_at, member.request_until, member.present = now(), 0, True
             member.owned_restriction, member.restriction_conflict = None, False
 
+    async def revoke_administrator(self, session, group_id, user_id):
+        white = await session.get(Whitelist, (group_id, user_id))
+        if white is None or white.administrator_backup is None:
+            return
+        previous = white.administrator_backup
+        if not previous["existed"]:
+            await session.delete(white)
+        else:
+            white.verification, white.moderation, white.note = (
+                previous["verification"], previous["moderation"], previous["note"])
+            white.administrator_backup = None
+
     async def trust_member(self, session, member, actor_id, reason, exclude_action=None):
         white = await session.get(Whitelist, (member.group_id, member.user_id))
         if white is None:
             white = Whitelist(group_id=member.group_id, user_id=member.user_id)
             session.add(white)
         white.verification, white.moderation = True, True
+        white.administrator_backup = None
         white.note = f"管理员 {actor_id} 手动解禁后自动加入白名单：{reason}"[:300]
         for pending in await session.scalars(
             select(Action).where(

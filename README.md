@@ -37,6 +37,12 @@ PurrAI 部署在服务器上，为所有者批准的 Telegram 群提供入群验
 
 [部署到服务器](#部署到服务器) · [接入第一个群](#接入第一个群) · [Bot 使用说明](BOT_GUIDE.md) · [运维与开发](docs/OPERATIONS.md)
 
+## 本机边改边看
+
+Windows 下双击仓库根目录的 [start.bat](start.bat)，会自动启动本机测试后台并打开 `http://127.0.0.1:5188`。不需要 Telegram 登录，前后端代码修改会自动更新；测试数据保存在 `data/local-dev`，重启后继续保留。按 `Ctrl+C` 或关闭启动窗口即可停止。
+
+这个入口使用真实后台接口和独立演示数据，Telegram 操作在本机模拟，不读取 `.env` 中的真实机器人和模型密钥，也不修改线上服务。已有 Python 和 Node.js 环境直接复用，不打包、不自动安装依赖。更多选项见 [Windows 本地开发](docs/OPERATIONS.md#windows-本地开发)。
+
 ## 部署到服务器
 
 主部署方式是 **Linux + systemd + Python 3.12**，由单个服务进程通过 Telegram 长轮询工作。只使用 Bot 时，准备 Bot Token 即可接通 Telegram，群服务还需所有者批准并启用；网页、OIDC、HTTPS 域名和 Node.js 都是启用网页时才需要的部分。

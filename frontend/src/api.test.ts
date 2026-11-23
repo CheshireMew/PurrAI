@@ -17,6 +17,17 @@ describe('后台接口契约', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [{ loc: ['body', 'max_attempts'], msg: '至少为 1' }] }), { status: 422 })))
     await expect(api('/api/test')).rejects.toBeInstanceOf(ApiError)
   })
+  it('定位嵌套奖品和导入记录，用中文解释服务端限制', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
+      { loc: ['body', 'config', 'prizes', 0, 'name'], type: 'string_too_short', ctx: { min_length: 1 }, msg: 'String should have at least 1 character' },
+      { loc: ['body', 'rows', 2, 'points'], type: 'greater_than_equal', ctx: { ge: 0 }, msg: 'Input should be greater than or equal to 0' },
+    ] }), { status: 422 })))
+    await expect(api('/api/test')).rejects.toMatchObject({ message: '奖品 1 的名称：不能为空；第 3 条记录的积分：不能小于 0' })
+  })
+  it('连接失败提供重试提示', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    await expect(api('/api/test')).rejects.toMatchObject({ status: 0, message: '无法连接后台，请检查网络后重试' })
+  })
   it('操作仍在等待时不会显示成已完成', () => {
     configureCatalog(catalogFixture as AdminCatalog)
     expect(label('pending')).toBe('等待处理'); expect(label('succeeded')).toBe('已完成')

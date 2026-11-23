@@ -13,6 +13,22 @@ from test_bot_admin import click, deliver, open_group
 from test_verification import enter_code, latest
 
 
+async def test_manual_join_request_release_grants_whitelist_only_after_confirmation(env, monkeypatch):
+    from purrai.management import Management
+    from purrai.models import Whitelist
+    await prepare(env, monkeypatch)
+    settings, db, tg, svc = env
+    await svc.join_request(request(), event_id=1)
+    await drain(svc)
+    await Management(db, tg, svc, settings).member_action(1, -1001, 42, "release", "manual-approve", "人工核实")
+    async with db.sessions() as session:
+        assert await session.get(Whitelist, (-1001, 42)) is None
+    await drain(svc)
+    async with db.sessions() as session:
+        white = await session.get(Whitelist, (-1001, 42))
+        assert white.verification and white.moderation
+
+
 def request(date=None, user_id=42):
     return {
         "chat": {"id": -1001, "type": "supergroup", "title": "测试群"},
@@ -39,7 +55,7 @@ async def test_request_is_verified_in_private_then_approved_without_group_mute(e
     await drain(service)
     verification = await latest(database)
     assert verification.flow == "join_request" and verification.state == "pending"
-    assert any(method == "send_photo" and data["chat_id"] == 10042 for method, data in telegram.calls)
+    assert any(method == "edit_message_media" and data["chat_id"] == 10042 for method, data in telegram.calls)
     assert not any(
         method in ("restrict_chat_member", "approve_chat_join_request") for method, _ in telegram.calls
     )
@@ -52,7 +68,7 @@ async def test_request_is_verified_in_private_then_approved_without_group_mute(e
     assert any(method == "delete_message" and data["chat_id"] == 10042 for method, data in telegram.calls)
     await service.member_event(join(actor=telegram.user_id), event_id=99999)
     await drain(service)
-    assert len([1 for method, _ in telegram.calls if method == "send_photo"]) == 1
+    assert len([1 for method, _ in telegram.calls if method == "edit_message_media"]) == 1
     async with database.sessions() as session:
         assert (await session.get(Member, (-1001, 42))).present
         assert (await session.get(Member, (-1001, 42))).join_observed
@@ -109,7 +125,7 @@ async def test_external_approval_or_direct_entry_falls_back_to_group_verificatio
         assert (await session.get(Verification, first.id)).state == "superseded"
     current = await latest(database)
     assert current.flow == "joined" and current.state == "pending"
-    assert any(method == "send_photo" and data["chat_id"] == -1001 for method, data in telegram.calls)
+    assert any(method == "edit_message_media" and data["chat_id"] == -1001 for method, data in telegram.calls)
 
 
 async def test_manual_release_and_restart_resume_request_approval(env, monkeypatch):

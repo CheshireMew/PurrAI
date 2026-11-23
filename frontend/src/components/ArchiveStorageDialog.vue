@@ -17,7 +17,7 @@ const capacity = ref<Capacity | null>(null), receipts = ref<Receipt[]>([])
 const globalMb = ref(512), groupMb = ref(128), limited = ref(false), selected = ref(''), reason = ref(''), savedFile = ref(false)
 const quota = () => JSON.stringify([globalMb.value, limited.value ? groupMb.value : null])
 const baseline = ref('')
-const { requestClose } = useDraftClose(() => (!!capacity.value && capacity.value.can_edit_quotas && quota() !== baseline.value) || !!selected.value || !!reason.value || savedFile.value, () => emit('close'), () => busy.value)
+const { requestClose } = useDraftClose(() => (!!capacity.value && capacity.value.can_edit_quotas && quota() !== baseline.value) || !!selected.value || !!reason.value || savedFile.value, () => emit('close'), () => busy.value, () => props.open)
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(2)} MB`
 let revision = 0
 async function load(preserveDraft = false) {

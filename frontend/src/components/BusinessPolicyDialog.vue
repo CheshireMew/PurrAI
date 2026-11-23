@@ -27,11 +27,11 @@ const stage = computed(() => document.value?.stages.find(item => item.id === sta
 const rule = computed(() => stage.value?.rules.find(item => item.id === ruleId.value))
 const condition = computed(() => document.value?.conditions.find(item => item.id === conditionId.value))
 const view = computed(() => document.value?.views.find(item => item.id === viewId.value))
-const sample = ref({ text: '', sender_name: '', source_title: '', contact: false, contact_name: '', direct: false })
+const sample = ref({ text: '', sender_name: '', source_title: '', contact: false, contact_name: '', direct: false, custom_emoji_count: 0 })
 type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean; mute_member: boolean; delete_message: boolean; chat_reasons: string[]; utility_command?: boolean; command_candidate?: string; reason_categories?: string[]; output_reasons?: string[]; advertised_targets?: string[] }
 const { result, run: runPreview, invalidate } = usePreviewResult<{ before: Preview; after: Preview; changed: boolean }>(() => [document.value, sample.value, props.groupId, props.open])
 const dirty = computed(() => !!baseline.value && JSON.stringify(document.value) !== JSON.stringify(baseline.value.document))
-const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value)
+const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value, () => props.open)
 let revision = 0
 async function load() {
   const current = ++revision
@@ -74,7 +74,10 @@ function moveRule(delta: number) {
 }
 async function preview() {
   await safe(async () => {
-    const payload = JSON.stringify({ group_id: props.groupId, document: document.value, ...sample.value })
+    const { custom_emoji_count: count, ...input } = sample.value
+    const payload = JSON.stringify({ group_id: props.groupId, document: document.value, ...input,
+      text: '🔥'.repeat(count) + input.text,
+      entities: Array.from({ length: count }, (_, index) => ({ type: 'custom_emoji', offset: index * 2, length: 2, custom_emoji_id: `preview-${index}` })) })
     await runPreview(() => api('/api/settings/business-policy/preview', { method: 'POST', body: payload }))
   })
 }
@@ -109,6 +112,7 @@ function conclusion(value: Preview) {
       <div class="stage-line"><el-switch v-model="rule.enabled" active-text="启用本条规则" aria-label="启用业务规则"/><el-select v-model="rule.action" aria-label="业务规则处置"><el-option v-for="action in stage.id.startsWith('chat_') ? ['exclude'] : ['delete', 'mute', 'ban']" :key="action" :value="action" :label="actions[action]"/></el-select></div>
       <el-form-item label="命中条件"><ConditionEditor v-model="rule.condition" :document="document"/></el-form-item>
       <el-form-item label="命中说明"><el-input v-model="rule.reason" aria-label="业务规则命中说明" maxlength="500"/></el-form-item>
+      <el-form-item v-if="stage.id === 'message_structure'" label="命中后学习表情包"><el-switch v-model="rule.learn_emoji_packs" aria-label="命中后自动加入表情包黑名单"/></el-form-item>
       <el-form-item label="命中后暂停回复该账号"><el-switch v-model="rule.advertiser_cooldown" aria-label="规则触发账号冷却"/></el-form-item>
       <el-form-item label="说明末尾附加的文本"><el-select :model-value="rule.reason_field || ''" aria-label="命中说明附加文本" @change="$event ? rule.reason_field = $event : delete rule.reason_field"><el-option value="" label="不附加文本"/><el-option v-for="item in document.views" :key="item.id" :value="item.id" :label="item.title"/></el-select></el-form-item>
       <div class="stage-line"><el-button @click="moveRule(-1)">提前检查</el-button><el-button @click="moveRule(1)">延后检查</el-button><el-button @click="removeRule">移除此规则</el-button></div>
@@ -146,6 +150,7 @@ function conclusion(value: Preview) {
 <el-input v-model="sample.sender_name" aria-label="业务规则测试昵称" placeholder="昵称及用户名"/>
 <el-input v-model="sample.text" type="textarea" :rows="3" aria-label="业务规则测试正文" placeholder="测试正文"/>
 <el-input v-model="sample.source_title" aria-label="业务规则测试转发来源" placeholder="转发来源标题，可留空"/>
+<div class="stage-line"><label>试跑自定义表情数量</label><el-input-number v-model="sample.custom_emoji_count" :min="0" :max="1000" :precision="0" aria-label="试跑自定义表情数量"/></div>
 <div class="stage-line"><el-checkbox v-model="sample.direct">用户直接提问</el-checkbox><el-checkbox v-model="sample.contact">附带联系人</el-checkbox><el-input v-if="sample.contact" v-model="sample.contact_name" aria-label="业务规则测试联系人" placeholder="联系人名称"/><el-button :loading="busy" @click="preview">比较规则草稿</el-button></div>
 <div v-if="result" class="preview-columns"><div v-for="(value, name) in { '当前规则': result.before, '草稿规则': result.after }" :key="name"><h4>{{ name }}</h4><p>{{ conclusion(value) }}</p><p>{{ [...value.reasons, ...value.name_reasons, ...value.chat_reasons].filter((reason, index, items) => items.indexOf(reason) === index).join('；') || '未命中规则' }}</p><p v-if="tab === 'reason-policy'">匹配用途：{{ reasonLabels(value.reason_categories) || '未命中' }}</p><template v-if="tab === 'recognition'"><p>{{ value.utility_command ? '识别为直接忽略的功能口令' : '未命中直接忽略的功能口令' }}</p><p>可学习口令：{{ value.command_candidate || '无' }}</p><p>机器人输出限制：{{ value.output_reasons?.join('；') || '未命中' }}</p><p>提取的广告目标：{{ value.advertised_targets?.join('；') || '无' }}</p></template></div></div>
 </section>

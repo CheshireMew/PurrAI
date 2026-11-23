@@ -59,6 +59,8 @@ class FakeTelegram:
         if method in ("send_photo", "send_message", "send_sticker"):
             self.message_id += 1
             return {"message_id": self.message_id}
+        if method == "edit_message_media":
+            return {"message_id": kwargs["message_id"]}
         if method == "get_updates":
             return []
         if method == "get_webhook_info":

@@ -35,7 +35,6 @@ async def test_initial_mute_checks_member_once_before_restriction(env):
     await service.member_event(join())
     await service.run_one_action(include_progress=False)
     assert [(method, args["chat_id"]) for method, args in telegram.calls] == [
-        ("get_chat", 42),  # Public biography check on join, not a group-permission lookup.
         ("get_chat_member", -1001), ("get_chat", -1001), ("restrict_chat_member", -1001),
     ]
 
@@ -49,7 +48,7 @@ async def test_restricted_join_uses_current_permissions_without_group_lookup(env
     await service.member_event(join())
     await service.run_one_action(include_progress=False)
     assert [(method, args["chat_id"]) for method, args in telegram.calls] == [
-        ("get_chat", 42), ("get_chat_member", -1001), ("restrict_chat_member", -1001),
+        ("get_chat_member", -1001), ("restrict_chat_member", -1001),
     ]
     async with database.sessions() as session:
         verification = await session.scalar(select(Verification))
@@ -66,14 +65,14 @@ async def test_reissue_reuses_confirmed_mute_without_restricting_again(env, monk
     )
     await drain(service)
     assert not any(method in ("restrict_chat_member", "get_chat") for method, _ in telegram.calls)
-    assert sum(method == "send_photo" for method, _ in telegram.calls) == 1
+    assert sum(method == "edit_message_media" for method, _ in telegram.calls) == 1
 
 
 @pytest.mark.parametrize("lost", [False, True])
 async def test_photo_delivery_has_separate_timings_and_longer_receipt_timeout(env, monkeypatch, caplog, lost):
     _, database, telegram, _ = env
     if lost:
-        telegram.fail["send_photo"] = 1
+        telegram.fail["edit_message_media"] = 1
     clock = iter([0, 0.01, 0.01, 5.01])
     monkeypatch.setattr("purrai.verification_actions.perf_counter", lambda: next(clock))
     verification = await fixed_challenge(env, monkeypatch)
@@ -85,7 +84,7 @@ async def test_photo_delivery_has_separate_timings_and_longer_receipt_timeout(en
         assert timing["image_seconds"] == 0.01 and timing["send_seconds"] == 5
         assert timing["send_finished_at"] >= timing["send_started_at"]
         assert (await session.get(Member, (-1001, 42))).present
-    photo = next(args for method, args in telegram.calls if method == "send_photo")
+    photo = next(args for method, args in telegram.calls if method == "edit_message_media")
     assert photo["request_timeout"] == 30
     assert "send=5.000s" in caplog.text and action.id in caplog.text
     assert verification.state == "pending"
@@ -109,7 +108,7 @@ async def test_unconfirmed_delivery_retries_past_deadline_and_attempt_limit_then
     from test_verification import enter_code, latest
 
     settings, database, telegram, service = env
-    telegram.fail["send_photo"] = 10
+    telegram.fail["edit_message_media"] = 10
     verification = await fixed_challenge(env, monkeypatch)
     original_hash, original_choices = verification.answer_hash, verification.choices
     for _ in range(9):
@@ -133,8 +132,8 @@ async def test_unconfirmed_delivery_retries_past_deadline_and_attempt_limit_then
     await drain(service)
     verification = await latest(database)
     assert verification.message_id and verification.deadline >= before + 180
-    photos = [args for method, args in telegram.calls if method == "send_photo"]
-    assert len(photos) == 11 and all(p["photo"] == photos[0]["photo"] for p in photos)
+    photos = [args for method, args in telegram.calls if method == "edit_message_media"]
+    assert len(photos) == 11 and all(p["media"]["media"] == photos[0]["media"]["media"] for p in photos)
     assert all(p["reply_markup"] == photos[0]["reply_markup"] for p in photos)
     await enter_code(service, verification, "123456")
     await drain(service)
@@ -155,7 +154,7 @@ async def test_expired_unsent_queue_is_delivered_before_any_timeout_penalty(env,
         row = await session.scalar(select(Verification))
         assert row.state == "pending" and row.message_id and row.deadline > now()
         assert not await session.scalar(select(Action).where(Action.kind == "verification_failure"))
-    assert sum(method == "send_photo" for method, _ in telegram.calls) == 1
+    assert sum(method == "edit_message_media" for method, _ in telegram.calls) == 1
 
 
 async def test_explicit_send_rejection_alerts_without_punishing_member(env, monkeypatch):
@@ -165,7 +164,7 @@ async def test_explicit_send_rejection_alerts_without_punishing_member(env, monk
     original = telegram.call
 
     async def rejected(method, **kwargs):
-        if method == "send_photo":
+        if method == "edit_message_media":
             raise TelegramForbiddenError(method=SendPhoto(chat_id=-1001, photo="test"), message="forbidden")
         return await original(method, **kwargs)
 
@@ -240,7 +239,7 @@ async def test_callback_during_retry_recovers_original_and_cleans_late_duplicate
     entered, finish = asyncio.Event(), asyncio.Event()
 
     async def delayed_retry(method, **kwargs):
-        if method == "send_photo":
+        if method == "edit_message_media":
             entered.set()
             await finish.wait()
         return await original_call(method, **kwargs)
@@ -262,7 +261,7 @@ async def test_callback_during_retry_recovers_original_and_cleans_late_duplicate
     await drain(service)
     assert (await latest(database)).state == "passed"
     deleted = {data["message_id"] for method, data in telegram.calls if method == "delete_message"}
-    assert first_message_id in deleted and first_message_id + 1 in deleted
+    assert deleted == {first_message_id}
     async with database.sessions() as session:
         assert not await session.scalar(select(Action).where(Action.kind == "verification_failure"))
 
@@ -272,7 +271,7 @@ async def test_legacy_queued_timeout_without_delivery_is_cancelled_and_resent(en
     from test_verification import latest
 
     _, database, telegram, service = env
-    telegram.fail["send_photo"] = 1
+    telegram.fail["edit_message_media"] = 1
     verification = await fixed_challenge(env, monkeypatch)
     async with database.transaction() as session:
         (await session.scalar(select(Action).where(Action.kind == "challenge"))).state = "failed"

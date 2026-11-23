@@ -288,6 +288,23 @@ async def test_ai_criteria_reach_model_and_changes_invalidate_inflight_and_pendi
     assert not any(method in ("delete_message", "restrict_chat_member", "ban_chat_member") for method, _ in env[2].calls)
 
 
+async def test_public_income_solicitation_criteria_are_saved_and_used_by_both_model_paths(client, env):
+    import json
+    from importlib.resources import files
+    from purrai.advertisement_review import prompt
+    from purrai.chat_generation import ChatGeneration
+    public = json.loads(files("purrai").joinpath("assets", "public_moderation.json").read_text(encoding="utf-8"))
+    criteria = public["business_rules"]["ai_review_instructions"]
+    document = (await client.get("/api/settings/business-policy")).json()["document"]
+    document["ai_review_instructions"] = criteria
+    await save(client, document)
+    async with env[1].sessions() as session:
+        rules = await effective_rules(session, -1001)
+        assert criteria in prompt(rules)
+        assert criteria in ChatGeneration(None, None).prompt(GroupSettings(), rules=rules)
+        assert "没有引流目标时判非广告" in criteria
+
+
 async def test_old_client_keeps_explicit_cooldown_metadata(client, env):
     current = (await client.get("/api/settings/business-policy")).json()
     entry = next(rule for stage in current["document"]["stages"] for rule in stage["rules"] if rule["advertiser_cooldown"])

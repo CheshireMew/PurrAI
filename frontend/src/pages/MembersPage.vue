@@ -7,15 +7,27 @@ import { useWorkspace } from '../workspace'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import type { Operation, Page, Verification, Violation, Whitelist } from '../types'
 import { route, savedFilters, saveFilters } from '../navigation'
+import { useDraftClose } from '../composables/useDraftClose'
+import { restrictionName } from '../presentation'
 
 type MemberDetail = { user_id: number; current: Record<string, any> | null; current_error: string; checked_at: number | null;
   member: { joined_at: number; join_observed: boolean; passed_at: number; owned_restriction?: Record<string, any> | null } | null;
   whitelist: Whitelist | null; verifications: Page<Verification>; violations: Page<Violation>; actions: Page<Operation> }
 const props = defineProps<{ groupId: number; refreshKey: number }>()
-const { groups, catalog, submitAction } = useWorkspace()
+const { groups, catalog, submitAction, reportError } = useWorkspace()
 const target = ref(''), applied = ref<number | null>(null), detail = ref<MemberDetail | null>(null)
 const action = ref('mute'), reason = ref(''), customDuration = ref(false), duration = ref(30), unit = ref(60)
 const { busy, error, run } = useLatestRequest()
+const submitting = ref(false)
+const snapshot = () => JSON.stringify([action.value, reason.value, customDuration.value, duration.value, unit.value])
+const baseline = ref(snapshot())
+function resetAction() {
+  action.value = 'mute'; reason.value = ''; customDuration.value = false; duration.value = 30; unit.value = 60
+  baseline.value = snapshot()
+}
+const { confirmDiscard } = useDraftClose(() => snapshot() !== baseline.value, resetAction,
+  () => busy.value || submitting.value, () => !!detail.value)
+watch(error, reportError)
 const initial = savedFilters('members')
 target.value = typeof initial.user === 'string' ? initial.user : ''
 let written = route.value.params.get('filter') || ''
@@ -24,11 +36,14 @@ watch(() => props.refreshKey, () => {
   if (applied.value) void run(() => api<MemberDetail>(`/api/groups/${props.groupId}/members/${applied.value}`), result => { detail.value = result })
 })
 async function search(remember = true) {
+  const changingMember = detail.value && Number(target.value.trim()) !== applied.value
+  if (changingMember && !await confirmDiscard()) return
   await run(async () => {
     const id = Number(target.value.trim())
     if (!/^[1-9]\d*$/.test(target.value.trim()) || !Number.isSafeInteger(id)) throw new Error('请填写成员的正数数字 ID')
     return api<MemberDetail>(`/api/groups/${props.groupId}/members/${id}`)
   }, result => {
+    if (result.user_id !== applied.value) resetAction()
     detail.value = result; applied.value = result.user_id
     const value = {section: 'members', user: String(result.user_id)}
     written = JSON.stringify(value); saveFilters(value, !remember)
@@ -51,7 +66,10 @@ async function submit() {
   const context = actionContext(group, action.value, id, undefined, seconds), explanation = reason.value.trim()
   try { await ElMessageBox.confirm(`${describeAction(context, catalog.value!.operations)}\n原因：${explanation}`, '确认成员操作', { confirmButtonText: '确认提交', cancelButtonText: '取消' }) }
   catch { return }
-  await submitAction(`/api/groups/${context.group_id}/members/${id}/actions`, { action: context.action, reason: explanation, ...(context.duration_seconds !== undefined ? { duration_seconds: context.duration_seconds } : {}) }, context)
+  submitting.value = true
+  try {
+    if (await submitAction(`/api/groups/${context.group_id}/members/${id}/actions`, { action: context.action, reason: explanation, ...(context.duration_seconds !== undefined ? { duration_seconds: context.duration_seconds } : {}) }, context)) resetAction()
+  } finally { submitting.value = false }
 }
 </script>
 
@@ -59,19 +77,18 @@ async function submit() {
 <section class="panel" v-loading="busy">
 <h2>查询成员</h2>
 <form class="filterbar" @submit.prevent="search()"><el-input v-model="target" aria-label="成员数字 ID" placeholder="Telegram 用户数字 ID"/><el-button native-type="submit" type="primary">查询成员</el-button></form>
-<el-alert v-if="error" :title="error" type="error" :closable="false"/>
 <template v-if="detail">
 <p>成员 {{ detail.user_id }} · {{ detail.current ? statuses[detail.current.status] || detail.current.status : '当前状态未核实' }} · 核实时间 {{ time(detail.checked_at || 0) }}</p>
 <el-alert v-if="detail.current_error" :title="detail.current_error" type="warning" :closable="false"/>
 <p v-if="detail.member?.join_observed">观察到的入群时间：{{ time(detail.member.joined_at) }}；验证通过：{{ time(detail.member.passed_at) }}</p>
 <p v-else>未保存可靠的入群时间，不能据此判断成员在群时长。</p>
 <p>白名单：{{ detail.whitelist ? `免验证${detail.whitelist.verification ? '是' : '否'}，免自动处罚${detail.whitelist.moderation ? '是' : '否'}` : '未加入' }}</p>
-<p v-if="detail.member?.owned_restriction">PurrAI 记录的限制：{{ detail.member.owned_restriction.kind }}；到期 {{ detail.member.owned_restriction.until_date ? time(detail.member.owned_restriction.until_date) : '永久' }}</p>
+<p v-if="detail.member?.owned_restriction">PurrAI 记录的限制：{{ restrictionName(detail.member.owned_restriction.kind) }}；到期 {{ detail.member.owned_restriction.until_date ? time(detail.member.owned_restriction.until_date) : '永久' }}</p>
 <el-form label-position="top">
 <el-form-item label="成员操作"><el-select v-model="action" aria-label="成员操作"><el-option v-for="item in ['release', 'reissue', 'mute', 'ban', 'unmute', 'unban']" :key="item" :value="item" :label="catalog!.operations[item]"/></el-select></el-form-item>
 <el-form-item v-if="['mute', 'ban'].includes(action)" label="本次处罚时长"><el-checkbox v-model="customDuration">单独设置本次时长</el-checkbox><template v-if="customDuration"><el-input-number v-model="duration" :min="1" :max="2592000" aria-label="本次时长数值"/><el-select v-model="unit" aria-label="时长单位"><el-option :value="1" label="秒"/><el-option :value="60" label="分钟"/><el-option :value="3600" label="小时"/><el-option :value="86400" label="天"/></el-select></template><span v-else>沿用本群设置</span></el-form-item>
 <el-form-item label="处理原因"><el-input v-model="reason" maxlength="300" aria-label="成员处理原因"/></el-form-item>
-<el-button type="primary" @click="submit">核对并提交</el-button>
+<el-button type="primary" :loading="submitting" @click="submit">核对并提交</el-button>
 </el-form>
 </template>
 </section>

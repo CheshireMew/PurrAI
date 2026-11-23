@@ -29,6 +29,10 @@ jobs:
           tests/test_automatic_admin.py tests/test_contact_kick.py tests/test_admin_responsiveness.py
           tests/test_architecture_boundaries.py tests/test_telegram_health.py
           tests/test_migrations.py::test_fresh_install_loads_public_policy_and_existing_install_keeps_edits
+          tests/test_points_trust.py tests/test_bulk_emoji_rules.py tests/test_combined_chat_review.py
+          tests/test_structured_messages.py tests/test_lottery.py tests/test_lottery_migration.py
+          tests/test_notice_expiry.py tests/test_profile_trust.py tests/test_verification_delivery.py
+          tests/test_administrator_exemptions.py
   admin:
     runs-on: windows-latest
     defaults:

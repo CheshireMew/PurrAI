@@ -430,6 +430,37 @@ async def test_bot_emergency_and_backup_plan_only_commit_after_confirmation(env)
         await runtime.admin.ui.close()
 
 
+async def test_bot_backup_fields_use_chinese_controls_and_confirm_before_saving(env):
+    from test_bot_admin import click, deliver, open_group, private, texts
+    _, db, tg, service = env
+    runtime = Runtime(db, tg, service)
+    try:
+        await open_group(runtime, tg)
+        await deliver(runtime, {'message': private('/admin')})
+        await click(runtime, tg, '系统状态与备份')
+        await click(runtime, tg, '备份计划、文件与演练')
+        assert 'hour_beijing' not in texts(tg)[-1]
+        await click(runtime, tg, '修改计划与保留授权')
+        await click(runtime, tg, '北京时间执行小时')
+        assert '0 至 23' in texts(tg)[-1]
+        await deliver(runtime, {'message': private('27')})
+        assert '不能大于 23' in texts(tg)[-1]
+        await deliver(runtime, {'message': private('6')})
+        assert '北京时间执行小时：6' in texts(tg)[-1]
+        async with db.sessions() as session:
+            assert not await session.get(Meta, 'backup:plan')
+        await click(runtime, tg, '确认计划与保留授权')
+        assert (await runtime.management.backups.status(1))['plan']['hour_beijing'] == 6
+        await click(runtime, tg, '修改计划与保留授权')
+        await click(runtime, tg, '定时备份')
+        await click(runtime, tg, '开启')
+        assert not (await runtime.management.backups.status(1))['plan']['enabled']
+        await click(runtime, tg, '确认计划与保留授权')
+        assert (await runtime.management.backups.status(1))['plan']['enabled']
+    finally:
+        await runtime.admin.ui.close()
+
+
 async def test_bot_common_settings_and_rule_edits_use_shared_policy(env):
     from test_bot_admin import click, click_paged, deliver, private
     _, db, tg, service = env

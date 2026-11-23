@@ -130,6 +130,42 @@ class PointsClaim(Base):
     created_at: Mapped[float] = mapped_column(Float, default=now)
 
 
+class Lottery(Base):
+    __tablename__ = "lotteries"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    config: Mapped[dict] = mapped_column(JSON)
+    state: Mapped[str] = mapped_column(String, default="draft", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    participant_count: Mapped[int] = mapped_column(Integer, default=0)
+    draw_count: Mapped[int] = mapped_column(Integer, default=0)
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+    opened_at: Mapped[float] = mapped_column(Float, default=0)
+    finished_at: Mapped[float] = mapped_column(Float, default=0)
+
+
+class LotteryEntry(Base):
+    __tablename__ = "lottery_entries"
+    __table_args__ = (UniqueConstraint("lottery_id", "request_id"),
+                     Index("ix_lottery_entry_user", "lottery_id", "user_id", "day"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    lottery_id: Mapped[str] = mapped_column(ForeignKey("lotteries.id"), index=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    display_name: Mapped[str] = mapped_column(String)
+    request_id: Mapped[str] = mapped_column(String)
+    day: Mapped[str] = mapped_column(String)
+    fee: Mapped[int] = mapped_column(BigInteger, default=0)
+    state: Mapped[str] = mapped_column(String, default="joined", index=True)
+    prize_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prize_label: Mapped[str] = mapped_column(String, default="")
+    reward_points: Mapped[int] = mapped_column(BigInteger, default=0)
+    fulfilled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[float] = mapped_column(Float, default=now)
+
+
 class Group(Base):
     __tablename__ = "groups"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -265,6 +301,7 @@ class Whitelist(Base):
     verification: Mapped[bool] = mapped_column(Boolean, default=True)
     moderation: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[str] = mapped_column(String, default="")
+    administrator_backup: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Violation(Base):

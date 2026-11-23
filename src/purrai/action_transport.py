@@ -34,6 +34,9 @@ class ActionTransport:
     async def call(self, session, action, method, *, before_send=None, **kwargs):
         execution = session.info["action_execution"]
         if not method.startswith("get_"):
+            from purrai.message_events import action_event_current
+            if not await action_event_current(session, action):
+                raise ActionSuperseded(reason="清单或投票中的新增内容已修改或移除，取消旧处理", before_request=True)
             await self.authorize_actor(session, action)
             if action.kind == "channel_unban":
                 from purrai.channel_moderation import latest_ban
@@ -113,7 +116,7 @@ class ActionTransport:
                 return True
             # A sent challenge can finish after an administrator replaced it.
             # Remove that exact stale prompt without writing into the new generation.
-            if (action.kind == "challenge" and method in ("send_photo", "send_message")
+            if (action.kind == "challenge" and method in ("send_photo", "send_message", "edit_message_media")
                     and isinstance(exc.result, dict) and exc.result.get("message_id")):
                 await enqueue(
                     session,

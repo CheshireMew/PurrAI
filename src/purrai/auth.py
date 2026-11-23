@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import secrets
 import asyncio
+from urllib.parse import urlencode
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -76,6 +77,11 @@ def install_auth(app):
     metadata_cache, metadata_expires = None, 0
     metadata_lock = asyncio.Lock()
 
+    def login_failure(request, status, message):
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/?" + urlencode({"login_error": message}), status_code=303)
+        raise HTTPException(status, message)
+
     async def finish_login(request, user_id, *, button_key=None, button_expires=0):
         from urllib.parse import urlencode
 
@@ -131,18 +137,18 @@ def install_auth(app):
     async def login_start(request: Request):
         settings = request.app.state.settings
         if not settings.login_ready:
-            raise HTTPException(503, "尚未配置 Telegram 登录，请完成 OIDC 与会话密钥配置")
+            return login_failure(request, 503, "尚未配置 Telegram 登录，请联系所有者完成登录配置；也可私聊机器人发送 /admin")
         state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
         try:
             metadata = await discovery()
-        except Exception as exc:
-            raise HTTPException(503, "暂时无法连接 Telegram 登录服务，请稍后重试") from exc
+        except Exception:
+            return login_failure(request, 503, "暂时无法连接 Telegram 登录服务，请稍后重新点击登录")
         async with request.app.state.db.transaction() as session:
             from sqlalchemy import delete, func, select
 
             await session.execute(delete(LoginAttempt).where(LoginAttempt.expires_at <= now()))
             if await session.scalar(select(func.count()).select_from(LoginAttempt)) >= 1000:
-                raise HTTPException(429, "登录请求过多，请稍后重试")
+                return login_failure(request, 429, "登录请求过多，请稍后重试")
             session.add(LoginAttempt(state=state, nonce=nonce, verifier=verifier, expires_at=now() + 600))
         client = AsyncOAuth2Client(
             settings.oidc_client_id,

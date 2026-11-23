@@ -47,6 +47,7 @@ ACTION_POLICIES = {
     "owner_alert": ActionPolicySpec(notification=True),
     "auto_reply": ActionPolicySpec(notification=True),
     "points_message": ActionPolicySpec(notification=True),
+    "lottery_notice": ActionPolicySpec(notification=True),
 }
 DEFAULT_POLICY = ActionPolicySpec()
 AUTOMATIC_MEMBER_ACTIONS = tuple(
@@ -95,4 +96,10 @@ class ActionPolicy:
         if action.user_id in self.settings.superadmin_ids:
             return True
         white = await session.get(Whitelist, (action.group_id, action.user_id), populate_existing=True)
-        return bool(white and getattr(white, scope))
+        if white and getattr(white, scope):
+            return True
+        if (action.kind in ("ai_ad_mute", "sample_ad_mute")
+                or any(key in action.payload for key in ("advertisement_evidence", "ai_ad_evidence", "ai_keyword_evidence"))):
+            from purrai.points_trust import member_trust
+            return (await member_trust(session, action.group_id, action.user_id)).advertising
+        return False

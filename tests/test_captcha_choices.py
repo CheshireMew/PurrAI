@@ -62,10 +62,10 @@ async def test_received_answer_survives_timeout_scan_and_delayed_processing(env,
 async def test_new_challenge_sends_six_complete_choices_and_no_progress(env, monkeypatch):
     verification = await fixed_challenge(env, monkeypatch)
     _, db, tg, _ = env
-    prompt = next(args for method, args in tg.calls if method == "send_photo")
+    prompt = next(args for method, args in tg.calls if method == "edit_message_media")
     assert prompt["reply_markup"] == captcha.keyboard(verification.id, verification.nonce, verification.choices)
-    assert "只需选择一次" in prompt["caption"] and "已输入" not in prompt["caption"]
-    assert "键盘" not in prompt["caption"] and "●" not in prompt["caption"]
+    assert "只需选择一次" in prompt["media"]["caption"] and "已输入" not in prompt["media"]["caption"]
+    assert "键盘" not in prompt["media"]["caption"] and "●" not in prompt["media"]["caption"]
     async with db.sessions() as session:
         assert not (await session.scalars(select(Action).where(Action.kind == "progress"))).all()
 

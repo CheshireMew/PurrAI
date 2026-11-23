@@ -77,6 +77,9 @@ class AdvertisingGuard:
             await enqueue(session, "advertisement_check", key, group.id, user_id, payload, priority=1)
 
     async def eligible(self, session, action):
+        from purrai.message_events import event_current
+        if not await event_current(session, action.payload["message"], action.payload.get("update_id", 0)):
+            return None
         group = await session.get(Group, action.group_id)
         member = await session.get(Member, (action.group_id, action.user_id))
         white = await session.get(Whitelist, (action.group_id, action.user_id))

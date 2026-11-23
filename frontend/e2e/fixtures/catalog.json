@@ -4,6 +4,7 @@
       "bio_advertising_enabled": true,
       "bio_cache_seconds": 300,
       "notice_seconds": 30,
+      "admin_submission_notice": false,
       "ai_ad_mute_notice": false,
       "ai_ad_window_hours": 72,
       "ai_ad_limit": 3,
@@ -149,6 +150,11 @@
         "minimum": 5,
         "title": "群内系统提醒保留秒数",
         "type": "integer"
+      },
+      "admin_submission_notice": {
+        "default": false,
+        "title": "在群内显示管理操作提交提示",
+        "type": "boolean"
       },
       "ai_ad_mute_notice": {
         "default": false,
@@ -778,6 +784,7 @@
       "mute_seconds": "手动禁言（秒）"
     },
     "booleans": {
+      "admin_submission_notice": "在群内显示管理操作提交提示",
       "bio_advertising_enabled": "检查用户简介广告",
       "coordinated_enabled": "多账号重复刷屏检测",
       "raid_enabled": "集中入群时自动应急保护",
@@ -802,6 +809,7 @@
       "bio_advertising_enabled": "检查用户简介广告",
       "bio_cache_seconds": "用户简介刷新间隔（秒）",
       "notice_seconds": "群内系统提醒保留秒数",
+      "admin_submission_notice": "在群内显示管理操作提交提示",
       "ai_ad_mute_notice": "在群内发送 AI 广告禁言通知",
       "ai_ad_window_hours": "AI广告累计窗口（小时）",
       "ai_ad_limit": "AI广告累计次数",
@@ -921,6 +929,8 @@
     "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
     "points_message": "积分互动",
+    "lottery_notice": "抽奖公告与结果",
+    "lottery_manage": "抽奖管理",
     "points_policy": "修改积分设置",
     "auto_reply_rule": "修改自动回复规则",
     "group_migration": "群升级数据接续",
@@ -931,7 +941,7 @@
     "ban": "临时封禁",
     "mute": "临时禁言",
     "unmute": "解除 PurrAI 禁言",
-    "unban": "解除 PurrAI 封禁",
+    "unban": "解除 PurrAI 封禁或禁言",
     "revoke_warning": "撤销警告",
     "violation_correction": "误判纠正",
     "delivery_review": "人工核实发送结果",

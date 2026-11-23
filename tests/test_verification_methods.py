@@ -56,7 +56,7 @@ async def test_text_question_retry_other_user_and_correct_answer(env, monkeypatc
     prompts = [args for method, args in tg.calls if method == "send_message"]
     assert len(prompts) == 2 and prompts[0]["text"] == prompts[1]["text"]
     assert prompts[0]["reply_markup"] == prompts[1]["reply_markup"]
-    assert not any(method == "send_photo" for method, _ in tg.calls)
+    assert not any(method == "edit_message_media" for method, _ in tg.calls)
     await enter_code(service, row, "12", user_id=99)
     assert (await latest(db)).state == "pending"
     await enter_code(service, row, "12")
@@ -88,7 +88,7 @@ async def test_existing_subscriber_passes_without_prompt(env, monkeypatch):
     await service.member_event(join())
     await drain(service)
     assert (await latest(db)).state == "passed"
-    assert not any(method in ("send_message", "send_photo") for method, _ in tg.calls)
+    assert not any(method in ("send_message", "edit_message_media") for method, _ in tg.calls)
     assert tg.members[(-1001, 42)]["can_send_messages"] is True
 
 
@@ -258,7 +258,7 @@ async def test_existing_challenge_keeps_method_until_admin_reissues(env, monkeyp
     await drain(service)
     row = await latest(db)
     assert row.method == "image" and row.nonce != original.nonce
-    assert any(method == "send_photo" for method, _ in tg.calls)
+    assert any(method == "edit_message_media" for method, _ in tg.calls)
     assert any(method == "delete_message" and args["message_id"] == original.message_id for method, args in tg.calls)
 
 

@@ -131,7 +131,7 @@ async def test_revocation_during_challenge_cleans_exact_late_message(env, monkey
     original = tg.call
 
     async def slow(method, **kwargs):
-        if method == "send_photo":
+        if method == "edit_message_media":
             entered.set()
             await finish.wait()
         return await original(method, **kwargs)

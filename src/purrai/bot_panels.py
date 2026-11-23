@@ -11,6 +11,7 @@ from purrai.bot_member_panels import MemberPanels
 from purrai.bot_batch_panels import BatchPanels
 from purrai.bot_operations_panels import OperationsPanels
 from purrai.bot_auto_reply_panels import AutoReplyPanels
+from purrai.bot_lottery_panels import LotteryPanels
 
 
 class BotPanels:
@@ -26,6 +27,7 @@ class BotPanels:
         self.batch = BatchPanels(management, ui, state)
         self.operations = OperationsPanels(management, ui, state)
         self.auto_replies = AutoReplyPanels(management, ui, state)
+        self.lottery = LotteryPanels(management, ui, state)
 
     async def choose_groups(self, actor, page=0, message_id=None):
         return await self.group.choose_groups(actor, page, message_id)

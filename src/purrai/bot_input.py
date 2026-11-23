@@ -132,14 +132,18 @@ class BotInput:
             )
         identifiers = result.get("action_ids", [result["id"]] if "id" in result else [])
         await self.management.track(actor, group_id, chat_id, identifiers, request_id)
-        await self.send(
-            chat_id,
-            f"{group.title}\n已提交 {len(identifiers)} 项操作。Telegram 执行后会在此反馈结果；也可在操作记录查看。",
-        )
+        if chat_id != group_id or group.settings.get("admin_submission_notice", False):
+            await self.send(
+                chat_id,
+                f"{group.title}\n已提交 {len(identifiers)} 项操作。Telegram 执行后会在此反馈结果；也可在操作记录查看。",
+                request_id=request_id,
+            )
 
     async def input(self, actor, text, prompt, request_id):
         group_id, data = prompt["group_id"], prompt["data"]
         kind = data["kind"]
+        if kind == "lottery":
+            return await self.panels.lottery.input(actor, group_id, text, data, request_id)
         if kind == "auto_reply":
             return await self.panels.auto_replies.input(actor, group_id, text, data, request_id)
         if kind == "delivery_resolution":

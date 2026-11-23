@@ -21,6 +21,8 @@ class TelegramEvents:
         self.auto_replies = AutoReplies(service.db)
         from purrai.points_bot import PointsBot
         self.points = PointsBot(service.db, service.tg)
+        from purrai.lottery_bot import LotteryBot
+        self.lottery = LotteryBot(service.db, service.tg)
         self.current_update_id = ContextVar("purrai_update_id", default=0)
         self.ack_tasks, self.ack_slots = set(), asyncio.Semaphore(8)
         self.dispatcher = Dispatcher()
@@ -54,6 +56,8 @@ class TelegramEvents:
 
     async def callback(self, event):
         query = telegram_data(event)
+        if await self.lottery.callback(query):
+            return
         if await self.points.callback(query):
             return
         if not await self.admin.callback(query):
@@ -78,18 +82,26 @@ class TelegramEvents:
 
     async def message(self, event):
         message = telegram_data(event)
-        # Commands still pass moderation: pending members cannot evade cleanup with /help.
-        if message["chat"]["type"] != "private":
-            await self.service.message(
-                message, update_id=self.current_update_id.get(), archived_at_receipt=True
-            )
-        if await self.admin.message(message):
-            return
-        if await self.points.observe(message):
-            return
-        if await self.auto_replies.observe(message):
-            return
-        await self.chat.observe(message, update_id=self.current_update_id.get())
+        try:
+            # Commands still pass moderation: pending members cannot evade cleanup with /help.
+            if message["chat"]["type"] != "private":
+                await self.service.message(
+                    message, update_id=self.current_update_id.get(), archived_at_receipt=True, chat_routing=True,
+                )
+            if await self.admin.message(message):
+                return
+            if await self.lottery.observe(message):
+                return
+            if await self.points.observe(message):
+                return
+            if await self.auto_replies.observe(message):
+                return
+            await self.chat.observe(message, update_id=self.current_update_id.get())
+        finally:
+            if message["chat"]["type"] != "private":
+                from purrai.advertisement_routing import finish_routing
+                await finish_routing(self.service.db, message)
+                self.service.advertisement_review.wakeup.set()
 
     async def edited(self, event):
         message = telegram_data(event)

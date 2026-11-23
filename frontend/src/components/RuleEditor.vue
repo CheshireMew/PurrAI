@@ -20,7 +20,7 @@ const dialog = computed({ get: () => props.open, set: value => { if (!value) emi
 const { busy, error, safe } = useTask()
 const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', meaning: '', penalty: 'delete', name_penalty: 'permanent_mute', enabled: true })
 const original = ref('')
-const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => emit('close'), () => busy.value)
+const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => emit('close'), () => busy.value, () => props.open)
 watch(() => [form.kind, form.scope], () => {
   if (form.kind === 'block_emoji_pack') { form.scope = 'message'; form.mode = 'exact' }
   if (form.penalty === 'ai_confirmed_mute' && (form.kind !== 'keyword' || form.scope === 'name_and_message')) form.penalty = 'delete'

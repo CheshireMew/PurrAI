@@ -54,11 +54,12 @@ def transform(value, steps):
 
 
 class BusinessReason(str):
-    def __new__(cls, value, action="", rule_id="", advertiser_cooldown=False, *, contact=False):
+    def __new__(cls, value, action="", rule_id="", advertiser_cooldown=False, *, contact=False, learn_emoji_packs=False):
         result = super().__new__(cls, value)
         result.action, result.rule_id = action, rule_id
         result.advertiser_cooldown = advertiser_cooldown
         result.contact = contact
+        result.learn_emoji_packs = learn_emoji_packs
         return result
 
 
@@ -92,8 +93,10 @@ class BusinessEngine:
         self.conditions = {item["id"]: item for item in self.document["conditions"]}
         self.stages = {item["id"]: item for item in self.document["stages"]}
 
-    def context(self, text, *, source_titles=(), direct=False, urls=()):
-        return Context(self, {"text": text, "source_titles": source_titles, "direct": direct, "urls": urls})
+    def context(self, text, *, source_titles=(), direct=False, urls=(), metrics=None):
+        return Context(self, {"text": text, "source_titles": source_titles, "direct": direct, "urls": urls,
+            "text_length": sum(not char.isspace() for char in text),
+            "custom_emoji_count": 0, "custom_emoji_percent": 0, **(metrics or {})})
 
     def view(self, identifier, text):
         return self.context(text).field(identifier)
@@ -124,6 +127,10 @@ class BusinessEngine:
             return bool(value)
         if operation == "equals":
             return value == expression["value"]
+        if operation == "range":
+            return (type(value) in (int, float)
+                and ("minimum" not in expression or value >= expression["minimum"])
+                and ("maximum" not in expression or value <= expression["maximum"]))
         if operation == "each":
             values = compiled(expression["split"]).split(value) if "split" in expression else value
             return any(self.test(expression["condition"], context.child(**{
@@ -142,8 +149,8 @@ class BusinessEngine:
                 return True
         return False
 
-    def run(self, stage, text, *, source_titles=(), direct=False, urls=()):
-        return self._run(stage, self.context(text, source_titles=source_titles, direct=direct, urls=urls))
+    def run(self, stage, text, *, source_titles=(), direct=False, urls=(), metrics=None):
+        return self._run(stage, self.context(text, source_titles=source_titles, direct=direct, urls=urls, metrics=metrics))
 
     def _run(self, identifier, context):
         stage = self.stages[identifier]
@@ -161,7 +168,7 @@ class BusinessEngine:
                 continue
             reason = rule["reason"] + str(context.field(rule["reason_field"])) if rule.get("reason_field") else rule["reason"]
             found.append(Hit(rule["id"], BusinessReason(reason, rule["action"], rule["id"],
-                rule.get("advertiser_cooldown", False)), rule["action"]))
+                rule.get("advertiser_cooldown", False), learn_emoji_packs=rule.get("learn_emoji_packs", False)), rule["action"]))
             if stage["first_match"]:
                 break
         return found

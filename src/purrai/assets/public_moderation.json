@@ -4,6 +4,7 @@
     "bio_advertising_enabled": true,
     "bio_cache_seconds": 300,
     "notice_seconds": 30,
+    "admin_submission_notice": false,
     "ai_ad_mute_notice": false,
     "ai_ad_window_hours": 72,
     "ai_ad_limit": 1,
@@ -484,6 +485,15 @@
       "value": "赚钱",
       "mode": "pinyin",
       "scope": "either",
+      "meaning": "可能是收益招揽用语。结合本条发言是否在招人、邀请入群或引导联系，以及简介中的推广信息判断。普通收入讨论、求职交流和风险提醒不算广告。",
+      "penalty": "ai_confirmed_mute"
+    },
+    {
+      "kind": "keyword",
+      "value": "黄片",
+      "mode": "pinyin",
+      "scope": "either",
+      "meaning": "通常指色情影片。可能被用作挑衅话术或吸引注意；只有本条发言有推广、招揽或引流依据时才算广告。",
       "penalty": "ai_confirmed_mute"
     },
     {
@@ -1596,6 +1606,32 @@
       }
     ],
     "stages": [
+      {
+        "id": "message_structure",
+        "title": "消息表情数量与占比",
+        "enabled": true,
+        "first_match": true,
+        "before": [],
+        "condition": {"op": "always"},
+        "rules": [
+          {
+            "id": "bulk_custom_emoji",
+            "title": "大量自定义表情拼接广告",
+            "enabled": true,
+            "action": "ban",
+            "reason": "大量自定义表情拼接广告",
+            "advertiser_cooldown": true,
+            "learn_emoji_packs": true,
+            "condition": {
+              "op": "all",
+              "items": [
+                {"op": "range", "input": "custom_emoji_count", "minimum": 20},
+                {"op": "range", "input": "custom_emoji_percent", "minimum": 80}
+              ]
+            }
+          }
+        ]
+      },
       {
         "id": "solicitation",
         "title": "明确业务招揽",
@@ -3299,7 +3335,7 @@
         ]
       }
     ],
-    "ai_review_instructions": "审核每条消息是否为广告、推广、引流或招揽。逐条独立判断，不把别人的推广归到当前发送者。正常讨论、引用举报、求证或反诈提醒不算推广。keyword_hints 仅解释可能词义，不代表广告结论。图片不可见，不猜测图片。scope=text 仅用于正文自身明确招揽、无需依赖昵称或对话就成立的广告；依赖昵称、引用、附件或上下文才成立时 scope=context。",
+    "ai_review_instructions": "审核每条消息是否为广告、推广、引流或招揽。结合当前发送者的昵称、简介和正文理解语义，以本条正文是否在宣传或引流作为判断依据。正文主动介绍产品功能、优势或服务属于推广，无需同时出现购买或联系口令。高收益招揽必须同时有本条发言的招揽意图和可核实的引流目标，例如正文或该作者资料中的具体项目、平台、群组、账号、联系方式或链接，或明确邀请读者联系当前作者；reason 必须说明目标和引导关系。仅叙述收入、收益金额、盈亏、过去经历或回答收益问题，没有引流目标时判非广告；不得因收益高而臆测存在项目、联系方式或招揽意图。简介中只有联系方式或项目介绍，而正文是正常聊天时也不算广告。逐条独立判断，不把别人的推广或引用对象当作当前发送者的引流目标。正常讨论、引用举报、求证或反诈提醒不算推广。keyword_hints 仅解释可能词义，不代表广告结论。图片不可见，不猜测图片。scope=text 仅用于正文自身成立的广告；依赖昵称、引用、附件或上下文理解时使用 scope=context。reason 用自己的话解释判定依据。",
     "recognition": {
       "utility_patterns": [
         {

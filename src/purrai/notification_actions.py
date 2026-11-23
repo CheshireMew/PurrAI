@@ -56,6 +56,10 @@ class NotificationActions:
         await self.delete_action_message(session, action)
 
     async def notify(self, session, action, group, verification, member):
+        if "text" in action.payload:
+            await deliver_once(self.action_call, session, action, "send_message",
+                chat_id=action.payload["chat_id"], text=action.payload["text"][:4000])
+            return
         sources = [await session.get(Action, identifier) for identifier in action.payload["action_ids"]]
         if any(item and item.state == "pending" for item in sources):
             action.available_at = now() + 2
@@ -65,6 +69,8 @@ class NotificationActions:
             if source:
                 target = f" · 用户 {source.user_id}" if source.user_id is not None else ""
                 reason = source.error
+                if reason and source.state == "failed" and action.payload["chat_id"] == action.group_id:
+                    reason = "请在后台操作记录查看具体原因。"
                 if not reason and source.payload.get("outcome") == "already_restricted":
                     reason = "已有相同或更严格的禁言，保留当前成员权限"
                 lines.append(
@@ -127,3 +133,7 @@ class NotificationActions:
     async def points_message(self, session, action, group, verification, member):
         from purrai.points_bot import process_message
         return await process_message(self.action_call, session, action, group)
+
+    async def lottery_notice(self, session, action, group, verification, member):
+        from purrai.lottery_bot import process_notice
+        return await process_notice(self.action_call, session, action, group)
