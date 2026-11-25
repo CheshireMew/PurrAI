@@ -85,13 +85,15 @@ class PointsSettings(PointsModel):
     @model_validator(mode="after")
     def valid_commands(self):
         import unicodedata
+        from purrai.command_text import normalized_command
         required = {"signin", "balance", "ranking", "packet"}
         optional = {"add", "subtract", "lookup"}
         if not required <= set(self.commands) or set(self.commands) - required - optional:
             raise ValueError("需要签到、余额、排行和红包口令，可配置增减积分和回复查询口令")
         self.commands = {**dict.fromkeys(optional, []), **self.commands}
         seen = set()
-        for aliases in self.commands.values():
+        operations = {}
+        for operation, aliases in self.commands.items():
             if len(aliases) > 10:
                 raise ValueError("每组最多 10 个口令")
             for phrase in aliases:
@@ -99,6 +101,10 @@ class PointsSettings(PointsModel):
                 if not key or len(key) > 30 or any(c.isspace() for c in key) or key in seen:
                     raise ValueError("口令须为不含空格的 1–30 个字符，且不能重复")
                 seen.add(key)
+                equivalent = normalized_command(phrase)
+                if equivalent in operations and operations[equivalent] != operation:
+                    raise ValueError("简繁体等价的口令不能绑定不同积分操作")
+                operations[equivalent] = operation
         return self
 
 

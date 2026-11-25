@@ -48,6 +48,7 @@ ACTION_POLICIES = {
     "auto_reply": ActionPolicySpec(notification=True),
     "points_message": ActionPolicySpec(notification=True),
     "lottery_notice": ActionPolicySpec(notification=True),
+    "group_menu": ActionPolicySpec(notification=True),
 }
 DEFAULT_POLICY = ActionPolicySpec()
 AUTOMATIC_MEMBER_ACTIONS = tuple(

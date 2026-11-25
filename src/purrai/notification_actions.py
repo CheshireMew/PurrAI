@@ -137,3 +137,7 @@ class NotificationActions:
     async def lottery_notice(self, session, action, group, verification, member):
         from purrai.lottery_bot import process_notice
         return await process_notice(self.action_call, session, action, group)
+
+    async def group_menu(self, session, action, group, verification, member):
+        from purrai.group_menu import send_menu
+        return await send_menu(self.action_call, session, action, group)

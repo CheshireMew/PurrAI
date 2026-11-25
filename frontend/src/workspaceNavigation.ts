@@ -26,6 +26,7 @@ export const workspacePages: WorkspacePage[] = [
   { id: 'points', name: '积分管理', section: 'interaction', requiresGroup: true },
   { id: 'lotteries', name: '抽奖管理', section: 'interaction', requiresGroup: true },
   { id: 'auto-replies', name: '自动回复', section: 'interaction', requiresGroup: true },
+  { id: 'group-menu', name: '底部菜单', section: 'interaction', requiresGroup: true },
   { id: 'violations', name: '违规记录', section: 'records', requiresGroup: true },
   { id: 'messages', name: '消息归档', section: 'records', requiresGroup: true },
   { id: 'operations', name: '操作记录', section: 'records', requiresGroup: true },

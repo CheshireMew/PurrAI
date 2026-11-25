@@ -19,6 +19,7 @@ import GroupsPage from './pages/GroupsPage.vue'
 import VerificationsPage from './pages/VerificationsPage.vue'
 import RulesPage from './pages/RulesPage.vue'
 import AutoRepliesPage from './pages/AutoRepliesPage.vue'
+import GroupMenuPage from './pages/GroupMenuPage.vue'
 import PointsPage from './pages/PointsPage.vue'
 import LotteriesPage from './pages/LotteriesPage.vue'
 import ViolationsPage from './pages/ViolationsPage.vue'
@@ -43,7 +44,7 @@ const mutations = reactive(new MutationRequests())
 const sectionIcons: Record<string, Component> = { overview: Grid, groups: Setting, members: UserIcon, interaction: ChatDotRound, records: Document }
 const pageComponents: Record<string, Component> = { groups: GroupsPage, members: MembersPage, points: PointsPage,
   lotteries: LotteriesPage, operations: OperationsPage, chat: ChatDiagnosticsPage, verifications: VerificationsPage,
-  rules: RulesPage, 'auto-replies': AutoRepliesPage, messages: MessageArchive, violations: ViolationsPage,
+  rules: RulesPage, 'auto-replies': AutoRepliesPage, 'group-menu': GroupMenuPage, messages: MessageArchive, violations: ViolationsPage,
   whitelist: WhitelistPage, admins: PermissionsPage, system: SystemPage }
 const availablePages = computed(() => workspacePages.filter(item => me.value?.root || !item.rootOnly))
 const navigation = workspaceSections.filter(item => item.id !== 'system')

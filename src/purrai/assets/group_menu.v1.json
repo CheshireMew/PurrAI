@@ -1,0 +1,7 @@
+{
+  "rows": [[
+    {"text": "签到", "action": "signin", "style": "success"},
+    {"text": "积分", "action": "balance", "style": "danger"},
+    {"text": "抽奖", "action": "lottery", "style": "primary"}
+  ]]
+}

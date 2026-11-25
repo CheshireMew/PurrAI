@@ -35,6 +35,8 @@ from purrai.schemas import (
 
 
 def install_api(app):
+    from purrai.group_menu_api import install_group_menu_api
+    install_group_menu_api(app)
     from purrai.lottery_api import install_lottery_api
     install_lottery_api(app)
     from purrai.advertisement_api import install_advertisement_api

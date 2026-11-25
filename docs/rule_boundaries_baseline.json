@@ -1454,7 +1454,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "35b6f283fbf0eca31ce31e3fa98344bbcec28f9c6480f50a625f347299ec65d6",
+      "digest": "f58d2e8a9cc8fd52518229864d86dbc32ba22bc4512cfd6fe30426738025538f",
       "line": 37,
       "examples": [
         "AI广告永久禁言",
@@ -1463,7 +1463,7 @@
         "临时禁言",
         "人工核实发送结果"
       ],
-      "review": "2026-11-23: Requested unban to cover mute removal. OPERATIONS only displays operation names in administrator interfaces and receipts; it never matches advertisement content."
+      "review": "2026-11-23: Requested unban to cover mute removal. OPERATIONS only displays operation names in administrator interfaces and receipts; it never matches advertisement content. 2026-11-25: User-requested bottom menu adds group_menu and group_menu_settings display names only; button routing reads saved group configuration, and these labels never inspect message text."
     },
     {
       "path": "src/purrai/bot_lottery_panels.py",

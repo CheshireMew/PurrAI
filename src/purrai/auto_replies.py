@@ -1,11 +1,11 @@
 """Match configured replies and queue one durable response per incoming message."""
 
-import unicodedata
 
 from sqlalchemy import select
 
 from purrai.action_delivery import deliver_once
 from purrai.action_queue import enqueue
+from purrai.command_text import normalized_command
 from purrai.chat_state import anonymous_admin, blocked_message, chat_sender
 from purrai.models import Action, ArchivedMessage, AutoReply, Group, now
 from purrai.record_versions import record_version
@@ -13,7 +13,7 @@ from purrai.serialization import row_dict
 
 
 def normalized(value):
-    return unicodedata.normalize("NFKC", value).strip().casefold()
+    return normalized_command(value)
 
 
 def matching_reply(text, rules):

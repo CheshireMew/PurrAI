@@ -82,6 +82,7 @@ class ActionRunner:
             "auto_reply": ActionHandler(self.notifications.auto_reply, self.notifications.prepare, False),
             "points_message": ActionHandler(self.notifications.points_message, self.notifications.prepare, False),
             "lottery_notice": ActionHandler(self.notifications.lottery_notice, self.notifications.prepare, False),
+            "group_menu": ActionHandler(self.notifications.group_menu, self.notifications.prepare, False),
             "owner_alert": ActionHandler(self.notifications.owner_alert, self.notifications.prepare, False),
         }
 
@@ -124,6 +125,8 @@ class ActionRunner:
                             continue
                         if cleanup_only:
                             scope = ("cleanup", action.id)
+                        elif action.kind == "group_menu":
+                            scope = ("group_menu", action.group_id)
                         elif action.kind in NOTIFICATION_ACTIONS:
                             scope = (
                                 "notification",
@@ -232,7 +235,7 @@ class ActionRunner:
                     action.state = "failed"
                 await self.report_error(session, action)
             action.updated_at = now()
-            if action.kind in ("warn", "admin_notify"):
+            if action.kind in ("warn", "admin_notify", "group_menu"):
                 # A send can be confirmed even if a concurrent member update cancelled the action.
                 from purrai.notice_cleanup import schedule_notice_cleanup
                 await schedule_notice_cleanup(session, action)

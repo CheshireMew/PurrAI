@@ -10,6 +10,7 @@ from purrai.schemas import GroupSettings
 from purrai.rules import normalize
 from purrai.message_identity import profile_name
 from purrai.recognition_policy import matches
+from purrai.command_text import normalized_command
 from purrai.shared_policy import effective_rules
 
 WINDOW = GroupSettings().chat_evidence_hours * 3600  # Initial-policy compatibility export.
@@ -20,11 +21,11 @@ BOT_COMMAND = re.compile(r"/?([a-z][a-z0-9_]*)(?:\s+[a-z0-9_.:-]+)*", re.I)
 
 
 def canonical(text):
-    return "".join(normalize(text).split())
+    return "".join(normalized_command(normalize(text)).split())
 
 
 def utility_command(text, bot_username="", *, rules=None):
-    value = normalize(text)
+    value = normalized_command(normalize(text))
     if matches(rules, "utility_patterns", value) or matches(rules, "utility_patterns", canonical(value)):
         return True
     match = OTHER_BOT.fullmatch(value)
@@ -47,7 +48,9 @@ def candidate(text, rules=None):
 
 
 def ad_key(text):
-    return hashlib.sha256(canonical(text).encode()).hexdigest()
+    # Historical advertising evidence keeps its original fingerprint. Script
+    # equivalence is for command recognition, not a rewrite of saved ad keys.
+    return hashlib.sha256("".join(normalize(text).split()).encode()).hexdigest()
 
 
 def known_ad(data, text, sender_id=None, sender_name="", *, rules=None):

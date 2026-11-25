@@ -1,6 +1,5 @@
 """Legacy command aliases come from editable points policy, never ad-matching code."""
 import html
-import unicodedata
 
 from sqlalchemy import func, select
 
@@ -9,6 +8,8 @@ from purrai.action_queue import enqueue
 from purrai.advertisement_store import latest_reviews
 from purrai.chat_state import blocked_message
 from purrai.errors import ManagementError
+from purrai.command_text import normalized_command
+from purrai.group_menu import matched_action
 from purrai.models import Action, ArchivedMessage, Group, PointsAccount, PointsClaim, PointsPacket, now
 from purrai.points_policy import get_policy
 from purrai.points_rewards import claim_packet, create_packet, earn, user_account
@@ -16,10 +17,10 @@ from purrai.points_commands import adjust_from_reply, lookup_from_reply
 
 
 def command(text, policy):
-    words = unicodedata.normalize("NFKC", text).strip().casefold().split()
+    words = normalized_command(text).split()
     if not words:
         return None, []
-    aliases = [(kind, unicodedata.normalize("NFKC", phrase).strip().casefold())
+    aliases = [(kind, normalized_command(phrase))
                for kind, phrases in policy.commands.items() for phrase in phrases]
     for kind, phrase in aliases:
         if words[0] == phrase:
@@ -35,6 +36,13 @@ def command(text, policy):
             if amount.isascii() and amount.isdecimal():
                 return kind, [amount]
     return None, []
+
+
+async def resolved_command(session, group_id, text, policy):
+    operation = await matched_action(session, group_id, text)
+    if operation in ("signin", "balance"):
+        return operation, []
+    return command(text, policy)
 
 
 async def ranking(session, group_id, page=1):
@@ -72,9 +80,10 @@ class PointsBot:
             if not group or not group.approved:
                 return False
             policy = await get_policy(session, group.id)
-            if not policy.enabled:
+            menu_operation = await matched_action(session, group.id, message["text"])
+            if not policy.enabled and menu_operation not in ("signin", "balance"):
                 return False
-            kind, arguments = command(message["text"], policy)
+            kind, arguments = await resolved_command(session, group.id, message["text"], policy)
             if await session.scalar(select(blocked_message(group.id, message["message_id"], user["id"]))):
                 return bool(kind)
             if not kind and (not policy.chat_points or message["text"].lstrip().startswith("/")):
@@ -83,7 +92,8 @@ class PointsBot:
             if not await session.scalar(select(Action.id).where(Action.dedupe_key == key)):
                 action = await enqueue(session, "points_message", key, group.id, user["id"],
                     {"message": message, "operation": kind or "chat", "arguments": arguments,
-                     "message_id": message["message_id"], "expires_at": message["date"] + 120})
+                     "message_id": message["message_id"], "expires_at": message["date"] + 120,
+                     **({"menu_operation": menu_operation} if menu_operation in ("signin", "balance") else {})})
                 if not kind:
                     action.available_at = now() + 5
             return bool(kind)
@@ -138,6 +148,13 @@ async def process_message(call, session, action, group):
         return
     message = action.payload["message"]
     policy = await get_policy(session, group.id)
+    if action.payload.get("menu_operation"):
+        if await matched_action(session, group.id, message["text"]) != action.payload["menu_operation"]:
+            action.state, action.error = "cancelled", "底部菜单已更新或清除，取消旧按钮任务"
+            return
+        if not policy.enabled:
+            reply = "本群暂未开启积分功能，请联系群管理员。"
+            action.payload = {**action.payload, "reply": reply, "keyboard": None}
     if "reply" not in action.payload:
         chat_reward = action.payload["operation"] == "chat"
         if (not policy.enabled or await session.scalar(select(blocked_message(group.id, message["message_id"], action.user_id)))):
@@ -173,7 +190,7 @@ async def process_message(call, session, action, group):
         if source and source.text != message["text"]:
             action.state = "cancelled"
             return
-        kind, arguments = command(message["text"], policy)
+        kind, arguments = await resolved_command(session, group.id, message["text"], policy)
         if ((kind or "chat") != action.payload["operation"]
                 or kind and arguments != action.payload["arguments"]):
             action.state = "cancelled"

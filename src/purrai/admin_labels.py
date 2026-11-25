@@ -43,6 +43,8 @@ OPERATIONS = {
     "lottery_notice": "抽奖公告与结果",
     "lottery_manage": "抽奖管理",
     "points_policy": "修改积分设置",
+    "group_menu": "更新或清除底部菜单",
+    "group_menu_settings": "底部菜单设置",
     "auto_reply_rule": "修改自动回复规则",
     "group_migration": "群升级数据接续",
     "emergency": "临时应急保护",

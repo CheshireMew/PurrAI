@@ -33,6 +33,8 @@ jobs:
           tests/test_structured_messages.py tests/test_lottery.py tests/test_lottery_migration.py
           tests/test_notice_expiry.py tests/test_profile_trust.py tests/test_verification_delivery.py
           tests/test_administrator_exemptions.py
+          tests/test_group_menu.py tests/test_group_menu_migration.py tests/test_bio_blacklisted_targets.py
+          tests/test_traditional_commands.py
   admin:
     runs-on: windows-latest
     defaults:
@@ -50,3 +52,4 @@ jobs:
       - run: npm test
       - run: npx playwright install chromium
       - run: node node_modules/@playwright/test/cli.js test admin.spec.ts --grep '群聊天口令计数|昵称谐音规则'
+      - run: node node_modules/@playwright/test/cli.js test group-menu.spec.ts

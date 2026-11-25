@@ -4,6 +4,7 @@ from sqlalchemy import select
 from purrai.action_delivery import deliver_once
 from purrai.action_queue import enqueue
 from purrai.errors import ManagementError
+from purrai.group_menu import matched_action
 from purrai.lottery import ENTRY_STATES, outcome, participate, remaining_prizes, require_row
 from purrai.lottery_messages import keyboard, public_result, public_rules
 from purrai.models import Group, Lottery, LotteryEntry, now
@@ -15,10 +16,6 @@ class LotteryBot:
 
     async def observe(self, message):
         words = message.get("text", "").strip().split()
-        if len(words) != 1 or words[0].split("@", 1)[0].lower() != "/lottery":
-            return False
-        if "@" in words[0] and words[0].split("@", 1)[1].casefold() != getattr(self.tg, "username", "").casefold():
-            return False
         chat, user = message.get("chat", {}), message.get("from", {})
         if (chat.get("type") not in ("group", "supergroup") or not user.get("id") or user.get("is_bot")
                 or message.get("sender_chat") or now() - message.get("date", 0) > 120):
@@ -27,8 +24,16 @@ class LotteryBot:
             group = await session.get(Group, chat["id"])
             if not group or not group.approved:
                 return False
+            menu_operation = await matched_action(session, group.id, message.get("text", ""))
+            if menu_operation != "lottery":
+                if menu_operation or len(words) != 1 or words[0].split("@", 1)[0].lower() != "/lottery":
+                    return False
+                if "@" in words[0] and words[0].split("@", 1)[1].casefold() != getattr(self.tg, "username", "").casefold():
+                    return False
+            elif message.get("via_bot") or message.get("forward_origin"):
+                return False
             await enqueue(session, "lottery_notice", f"lottery-list:{group.id}:{message['message_id']}", group.id,
-                payload={"phase": "list"})
+                payload={"phase": "list", **({"menu_text": message["text"]} if menu_operation else {})})
         return True
 
     async def callback(self, query):
@@ -80,6 +85,10 @@ async def process_notice(call, session, action, group):
         return
     phase = action.payload["phase"]
     if phase == "list":
+        if ("menu_text" in action.payload
+                and await matched_action(session, group.id, action.payload["menu_text"]) != "lottery"):
+            action.state, action.error = "cancelled", "底部菜单已更新或清除，取消旧按钮任务"
+            return
         rows = (await session.scalars(select(Lottery).where(Lottery.group_id == group.id,
             Lottery.state == "open").order_by(Lottery.created_at.desc()).limit(10))).all()
         text = "本群进行中的抽奖\n点击活动查看完整规则后再参与。" if rows else "本群暂时没有进行中的抽奖。"

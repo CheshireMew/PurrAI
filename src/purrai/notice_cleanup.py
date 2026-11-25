@@ -9,9 +9,12 @@ from purrai.schemas import GroupSettings
 
 
 async def schedule_notice_cleanup(session, action):
+    # A published keyboard is a functional message, not an expiring operation receipt.
+    if action.kind == "group_menu" and action.payload.get("operation") == "publish":
+        return
     delivery = action.payload.get("delivery", {})
     message_id = delivery.get("result", {}).get("message_id")
-    if (action.kind not in ("warn", "admin_notify") or not action.group_id or delivery.get("state") != "confirmed"
+    if (action.kind not in ("warn", "admin_notify", "group_menu") or not action.group_id or delivery.get("state") != "confirmed"
             or delivery.get("method") != "send_message" or type(message_id) is not int or message_id <= 0):
         return
     if action.payload.get("chat_id", action.group_id) != action.group_id:
@@ -40,7 +43,7 @@ class NoticeCleanup:
         async with self.db.transaction() as session:
             notices = (await session.scalars(select(notice).outerjoin(cleanup,
                 cleanup.dedupe_key == "cleanup:notice:" + notice.id).where(
-                    notice.kind.in_(("warn", "admin_notify")), notice.group_id.is_not(None),
+                    notice.kind.in_(("warn", "admin_notify", "group_menu")), notice.group_id.is_not(None),
                     notice.updated_at >= now() - 48 * 3600,
                     notice.payload["delivery"]["state"].as_string() == "confirmed",
                     notice.payload["delivery"]["method"].as_string() == "send_message",

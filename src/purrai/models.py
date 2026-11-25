@@ -561,6 +561,15 @@ class LoginAttempt(Base):
     expires_at: Mapped[float] = mapped_column(Float)
 
 
+class GroupMenu(Base):
+    __tablename__ = "group_menus"
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
+    config: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    active_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_action_id: Mapped[str] = mapped_column(String, default="")
+
+
 class Meta(Base):
     __tablename__ = "meta"
     key: Mapped[str] = mapped_column(String, primary_key=True)

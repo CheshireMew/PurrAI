@@ -201,12 +201,15 @@ def assess(
 
 
 def assess_biography(value, rules, settings):
-    # Only a rule deliberately configured for biographies can directly penalize one.
+    # Biography keywords have their own scope; blocked destinations apply to
+    # the sender's own biography as well as their authored message.
     selected = with_rules(rules, [{**rule, "scope": "message"} for rule in rules
                                   if rule["kind"] == "keyword" and rule.get("scope") == "bio"])
-    if not selected:
-        return [], []
     result = assess(value, [], selected, {**settings, "advertising_ban": False, "newcomer_wallets": False})
+    from purrai.promotion_targets import blacklist_reasons
+    targets = blacklist_reasons({"text": value}, rules, settings=settings)
+    result["reasons"].extend(targets)
+    result["rule_ids"].extend(reason.rule_id for reason in targets if reason.rule_id)
     reasons = []
     for reason in result["reasons"] + result["name_reasons"]:
         reasons.append(BusinessReason("用户简介：" + str(reason), getattr(reason, "action", "") or "delete",
