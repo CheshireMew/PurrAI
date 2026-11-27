@@ -406,3 +406,38 @@ async def test_admin_config_disabled_during_permission_check(client, env):
     await PointsBot(db,tg).observe(user_message(140,"添加积分 20",user_id=1,reply_to_message=target_reply()))
     await drain(service)
     assert await balance(db,43) is None
+
+
+@pytest.mark.parametrize("unchanged", [True, False])
+async def test_ranking_callback_completes_unchanged_page_but_retries_real_edit_errors(client, env, monkeypatch, unchanged):
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import EditMessageText
+    from purrai.models import Inbox
+
+    _, db, tg, service = env
+    await configure(client)
+    runtime = Runtime(db, tg, service)
+    original = tg.call
+    error = "message is not modified" if unchanged else "message to edit not found"
+
+    async def edit_error(method, **kwargs):
+        if method == "edit_message_text":
+            raise TelegramBadRequest(method=EditMessageText(**kwargs), message=error)
+        return await original(method, **kwargs)
+
+    monkeypatch.setattr(tg, "call", edit_error)
+    query = {"id": "ranking-repeat", "chat_instance": "test", "data": "pts:rank:1",
+             "from": {"id": 42, "is_bot": False, "first_name": "Test"},
+             "message": {"message_id": 90, "date": int(now()),
+                         "chat": {"id": -1001, "type": "supergroup"}}}
+    try:
+        await runtime.persist([{"update_id": 9001, "callback_query": query}])
+        assert await runtime.process_one("messages")
+        async with db.sessions() as session:
+            event = await session.get(Inbox, 9001)
+            assert event.state == ("done" if unchanged else "pending")
+            assert not event.error if unchanged else error in event.error
+            assert await session.scalar(select(func.count()).select_from(PointsEntry)) == 0
+        assert any(method == "answer_callback_query" for method, _ in tg.calls) == unchanged
+    finally:
+        await runtime.stop()

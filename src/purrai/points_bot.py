@@ -1,6 +1,7 @@
 """Legacy command aliases come from editable points policy, never ad-matching code."""
 import html
 
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import func, select
 
 from purrai.action_delivery import deliver_once
@@ -119,8 +120,12 @@ class PointsBot:
                 if not (await get_policy(session, group_id)).enabled:
                     return True
                 text, keyboard = await ranking(session, group_id, int(parts[2]))
-                await self.tg.call("edit_message_text", chat_id=group_id, message_id=message["message_id"],
-                                   text=text, parse_mode="HTML", reply_markup=keyboard)
+                try:
+                    await self.tg.call("edit_message_text", chat_id=group_id, message_id=message["message_id"],
+                                       text=text, parse_mode="HTML", reply_markup=keyboard)
+                except TelegramBadRequest as exc:
+                    if "message is not modified" not in str(exc).lower():
+                        raise
                 await self.answers.send(query["id"])
                 return True
             packet = await session.get(PointsPacket, parts[2]) if len(parts) == 3 and parts[1] == "claim" else None
