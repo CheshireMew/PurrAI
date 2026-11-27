@@ -4,6 +4,7 @@ from fastapi import Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from purrai.admin_catalog import admin_catalog
+from purrai import response_models as responses
 from purrai.auth import Identity, identity, root_identity
 from purrai.business_schemas import BusinessPolicyInput, BusinessPreviewInput
 from purrai.auto_reply_schemas import AutoReplyInput, AutoReplyPreview
@@ -44,58 +45,58 @@ def install_api(app):
     from purrai.points_api import install_points_api
     install_points_api(app)
 
-    @app.get("/api/groups/{identifier}/auto-replies")
+    @app.get("/api/groups/{identifier}/auto-replies", response_model=responses.Page[responses.AutoReply], response_model_exclude_unset=True)
     async def auto_replies(identifier: int, request: Request, user: Identity = Depends(identity),
                            query: str = Query("", max_length=250), page_number: int = Query(1, ge=1)):
         return await request.app.state.management.auto_replies.page(user.id, identifier, query=query, page_number=page_number)
 
-    @app.post("/api/groups/{identifier}/auto-replies/preview")
+    @app.post("/api/groups/{identifier}/auto-replies/preview", response_model=responses.AutoReplyPreview, response_model_exclude_unset=True)
     async def preview_auto_reply(identifier: int, body: AutoReplyPreview, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.auto_replies.preview(user.id, identifier, body)
 
-    @app.post("/api/groups/{identifier}/auto-replies")
+    @app.post("/api/groups/{identifier}/auto-replies", response_model=responses.AutoReply, response_model_exclude_unset=True)
     async def create_auto_reply(identifier: int, body: AutoReplyInput, request: Request,
                                 request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
                                 user: Identity = Depends(identity)):
         return await request.app.state.management.auto_replies.save(user.id, identifier, body, request_id=request_id)
 
-    @app.put("/api/groups/{identifier}/auto-replies/{reply_id}")
+    @app.put("/api/groups/{identifier}/auto-replies/{reply_id}", response_model=responses.AutoReply, response_model_exclude_unset=True)
     async def update_auto_reply(identifier: int, reply_id: str, body: AutoReplyInput, request: Request,
                                 request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
                                 version: Annotated[str, Header(alias="If-Match")], user: Identity = Depends(identity)):
         return await request.app.state.management.auto_replies.save(user.id, identifier, body, reply_id, request_id, version)
 
-    @app.get("/api/settings/business-policy")
+    @app.get("/api/settings/business-policy", response_model=responses.BusinessPolicy, response_model_exclude_unset=True)
     async def business_policy(request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.business_rules.read(user.id)
 
-    @app.put("/api/settings/business-policy")
+    @app.put("/api/settings/business-policy", response_model=responses.BusinessPolicy, response_model_exclude_unset=True)
     async def save_business_policy(body: BusinessPolicyInput, request: Request,
                                    version: Annotated[str, Header(alias="If-Match")],
                                    user: Identity = Depends(root_identity)):
         return await request.app.state.management.business_rules.save(user.id, body, version)
 
-    @app.post("/api/settings/business-policy/preview")
+    @app.post("/api/settings/business-policy/preview", response_model=responses.BusinessPreview, response_model_exclude_unset=True)
     async def preview_business_policy(body: BusinessPreviewInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.business_rules.preview(user.id, body)
 
-    @app.get("/api/groups/{identifier}/emergency")
+    @app.get("/api/groups/{identifier}/emergency", response_model=responses.Emergency, response_model_exclude_unset=True)
     async def emergency(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.protection.status(user.id, identifier)
 
-    @app.post("/api/groups/{identifier}/emergency")
+    @app.post("/api/groups/{identifier}/emergency", response_model=responses.Emergency, response_model_exclude_unset=True)
     async def change_emergency(identifier: int, body: EmergencyInput, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.protection.change(user.id, identifier, body)
 
-    @app.get("/api/settings/defaults")
+    @app.get("/api/settings/defaults", response_model=responses.SharedPolicy, response_model_exclude_unset=True)
     async def shared_policy(request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.configuration.shared(user.id)
 
-    @app.patch("/api/settings/defaults")
+    @app.patch("/api/settings/defaults", response_model=responses.SharedPolicy, response_model_exclude_unset=True)
     async def update_shared_policy(body: SharedPolicyPatch, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.configuration.shared(user.id, body)
 
-    @app.get("/api/me")
+    @app.get("/api/me", response_model=responses.User, response_model_exclude_unset=True)
     async def me(request: Request, user: Identity = Depends(identity)):
         return {
             "id": user.id,
@@ -105,11 +106,11 @@ def install_api(app):
             **({"local_dev": True} if getattr(request.app.state, "local_dev", False) else {}),
         }
 
-    @app.get("/api/catalog")
+    @app.get("/api/catalog", response_model=responses.Catalog, response_model_exclude_unset=True)
     async def catalog(user: Identity = Depends(identity)):
         return admin_catalog()
 
-    @app.get("/api/groups")
+    @app.get("/api/groups", response_model=list[responses.Group], response_model_exclude_unset=True)
     async def groups(request: Request, response: Response, user: Identity = Depends(identity)):
         management = request.app.state.management
         rows = await management.groups(user.id)
@@ -117,71 +118,71 @@ def install_api(app):
             response.headers["X-PurrAI-Groups-Partial"] = "true"
         return rows
 
-    @app.post("/api/groups/{identifier}/access")
+    @app.post("/api/groups/{identifier}/access", response_model=responses.Group, response_model_exclude_unset=True)
     async def group_access(
         identifier: int, body: GroupAccessInput, request: Request, user: Identity = Depends(root_identity)
     ):
         return await request.app.state.management.group_access(user.id, identifier, body.approved)
 
-    @app.post("/api/groups")
+    @app.post("/api/groups", response_model=responses.Group, response_model_exclude_unset=True)
     async def admit_group(
         body: GroupAdmissionInput, request: Request, user: Identity = Depends(root_identity)
     ):
         return await request.app.state.management.admit_group(user.id, body.group_id)
 
-    @app.post("/api/groups/{identifier}/activate")
+    @app.post("/api/groups/{identifier}/activate", response_model=responses.Permissions, response_model_exclude_unset=True)
     async def activate(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.permissions(user.id, identifier, activate=True)
 
-    @app.post("/api/groups/{identifier}/permissions")
+    @app.post("/api/groups/{identifier}/permissions", response_model=responses.Permissions, response_model_exclude_unset=True)
     async def check_permissions(identifier: int, request: Request, user: Identity = Depends(identity)):
         result = await request.app.state.management.permissions(user.id, identifier)
         return result["permissions"]
 
-    @app.post("/api/groups/{identifier}/join-link")
+    @app.post("/api/groups/{identifier}/join-link", response_model=responses.Action, response_model_exclude_unset=True)
     async def join_link(
         identifier: int, body: ActionInput, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.join_link(user.id, identifier, body.request_id)
 
-    @app.patch("/api/groups/{identifier}/settings")
+    @app.patch("/api/groups/{identifier}/settings", response_model=responses.Group, response_model_exclude_unset=True)
     async def update_settings(
         identifier: int, body: SettingsPatch, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.settings_patch(user.id, identifier, body)
 
-    @app.get("/api/groups/{identifier}/settings/inheritance")
+    @app.get("/api/groups/{identifier}/settings/inheritance", response_model=responses.Inheritance, response_model_exclude_unset=True)
     async def inherited_settings(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.configuration.inheritance(user.id, identifier)
 
-    @app.post("/api/groups/{identifier}/emoji-status-packs")
+    @app.post("/api/groups/{identifier}/emoji-status-packs", response_model=responses.PackChange, response_model_exclude_unset=True)
     async def change_status_packs(
         identifier: int, body: EmojiPackChange, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.change_status_packs(user.id, identifier, body)
 
-    @app.get("/api/dashboard")
+    @app.get("/api/dashboard", response_model=responses.Dashboard, response_model_exclude_unset=True)
     async def dashboard(request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.queries.dashboard(user.id)
 
-    @app.get("/api/groups/{identifier}/chat")
+    @app.get("/api/groups/{identifier}/chat", response_model=responses.ChatStatus, response_model_exclude_unset=True)
     async def chat_status(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.chat_status(user.id, identifier)
 
-    @app.post("/api/groups/{identifier}/chat/reset")
-    async def reset_chat(identifier: int, request: Request, user: Identity = Depends(identity)):
-        from purrai.models import uid
+    @app.post("/api/groups/{identifier}/chat/reset", response_model=responses.Empty, response_model_exclude_unset=True)
+    async def reset_chat(identifier: int, request: Request,
+                         request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
+                         user: Identity = Depends(identity)):
+        return await request.app.state.management.reset_chat(user.id, identifier, request_id)
 
-        return await request.app.state.management.reset_chat(user.id, identifier, uid())
-
-    @app.get("/api/groups/{identifier}/chat/diagnostics")
+    @app.get("/api/groups/{identifier}/chat/diagnostics", response_model=responses.ChatDiagnostics, response_model_exclude_unset=True)
     async def chat_diagnostics(identifier: int, request: Request, topic_id: int | None = None, state: str = "",
                                page_number: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                                user: Identity = Depends(identity)):
         return await request.app.state.management.chat_admin.diagnostics(user.id, identifier, topic_id=topic_id,
             state=state, page_number=page_number, size=size)
 
-    @app.get("/api/groups/{identifier}/messages")
+    @app.get("/api/groups/{identifier}/messages", response_model=responses.ArchivePage, response_model_exclude_unset=True)
     async def archived_messages(
         identifier: int,
         request: Request,
@@ -192,7 +193,7 @@ def install_api(app):
             user.id, identifier, filters, filters.page_number, filters.size
         )
 
-    @app.get("/api/groups/{identifier}/messages/export")
+    @app.get("/api/groups/{identifier}/messages/export", response_class=StreamingResponse, responses={200: {"content": {"application/x-ndjson": {"schema": {"type": "string", "description": "One archived-message JSON object per line"}}}}})
     async def export_messages(
         identifier: int,
         request: Request,
@@ -210,23 +211,23 @@ def install_api(app):
             },
         )
 
-    @app.get("/api/groups/{identifier}/archive/capacity")
+    @app.get("/api/groups/{identifier}/archive/capacity", response_model=responses.ArchiveCapacity, response_model_exclude_unset=True)
     async def archive_capacity(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.archive_management.capacity(user.id, identifier)
 
-    @app.patch("/api/groups/{identifier}/archive/capacity")
+    @app.patch("/api/groups/{identifier}/archive/capacity", response_model=responses.ArchiveQuota, response_model_exclude_unset=True)
     async def archive_quota(identifier: int, body: ArchiveQuotaInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.archive_management.quota(user.id, identifier, body)
 
-    @app.get("/api/groups/{identifier}/archive/exports")
+    @app.get("/api/groups/{identifier}/archive/exports", response_model=list[responses.ArchiveExport], response_model_exclude_unset=True)
     async def archive_exports(identifier: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.archive_management.exports(user.id, identifier)
 
-    @app.post("/api/groups/{identifier}/archive/purge")
+    @app.post("/api/groups/{identifier}/archive/purge", response_model=responses.ArchivePurge, response_model_exclude_unset=True)
     async def archive_purge(identifier: int, body: ArchivePurgeInput, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.archive_management.purge(user.id, identifier, body)
 
-    @app.get("/api/groups/{identifier}/messages/{message_id}")
+    @app.get("/api/groups/{identifier}/messages/{message_id}", response_model=responses.ArchivedMessage, response_model_exclude_unset=True)
     async def archived_message(
         identifier: int,
         message_id: str,
@@ -235,7 +236,7 @@ def install_api(app):
     ):
         return await request.app.state.management.archived_message(user.id, identifier, message_id)
 
-    @app.get("/api/groups/{identifier}/verifications")
+    @app.get("/api/groups/{identifier}/verifications", response_model=responses.Page[responses.Verification], response_model_exclude_unset=True)
     async def verifications(
         identifier: int,
         request: Request,
@@ -259,34 +260,34 @@ def install_api(app):
             size=size,
         )
 
-    @app.post("/api/verifications/{identifier}/actions")
+    @app.post("/api/verifications/{identifier}/actions", response_model=responses.Action, response_model_exclude_unset=True)
     async def verification_action(
         identifier: str, body: ActionInput, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.verification_action(user.id, identifier, body)
 
-    @app.get("/api/groups/{identifier}/members/{user_id}")
+    @app.get("/api/groups/{identifier}/members/{user_id}", response_model=responses.MemberDetail, response_model_exclude_unset=True)
     async def member_detail(identifier: int, user_id: int, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.member_queries.detail(user.id, identifier, user_id)
 
-    @app.post("/api/groups/{identifier}/members/{user_id}/actions")
+    @app.post("/api/groups/{identifier}/members/{user_id}/actions", response_model=responses.Action, response_model_exclude_unset=True)
     async def member_action(identifier: int, user_id: int, body: ActionInput, request: Request,
                             user: Identity = Depends(identity)):
         return await request.app.state.management.member_action(user.id, identifier, user_id, body.action,
             body.request_id, body.reason, body.duration_seconds)
 
-    @app.post("/api/groups/{identifier}/release-pending")
+    @app.post("/api/groups/{identifier}/release-pending", response_model=responses.BatchReceipt, response_model_exclude_unset=True)
     async def release_pending(
         identifier: int, body: ReleasePendingInput, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.release_pending(user.id, identifier, body)
 
-    @app.post("/api/groups/{identifier}/release-pending/preview")
+    @app.post("/api/groups/{identifier}/release-pending/preview", response_model=responses.ReleasePreview, response_model_exclude_unset=True)
     async def preview_release(identifier: int, body: ReleaseSelectionInput, request: Request,
                               user: Identity = Depends(identity)):
         return await request.app.state.management.members.release_preview(user.id, identifier, body)
 
-    @app.get("/api/groups/{identifier}/actions")
+    @app.get("/api/groups/{identifier}/actions", response_model=responses.Page[responses.Action], response_model_exclude_unset=True)
     async def group_actions(
         identifier: int,
         request: Request,
@@ -314,13 +315,13 @@ def install_api(app):
             kind=kind, query=query, after=after, before=before,
         )
 
-    @app.get("/api/groups/{identifier}/rules")
+    @app.get("/api/groups/{identifier}/rules", response_model=list[responses.Rule], response_model_exclude_unset=True)
     async def rules(identifier: int, request: Request, user: Identity = Depends(identity)):
         return (await request.app.state.management.queries.page(user.id, identifier, "rule", size=None))[
             "items"
         ]
 
-    @app.get("/api/groups/{identifier}/rules/query")
+    @app.get("/api/groups/{identifier}/rules/query", response_model=responses.Page[responses.Rule], response_model_exclude_unset=True)
     async def query_rules(identifier: int, request: Request, query: str = Query("", max_length=250),
                           kind: str = "", enabled: bool | None = None, source: str = "",
                           page_number: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
@@ -328,11 +329,11 @@ def install_api(app):
         return await request.app.state.management.rule_queries.page(user.id, identifier, query=query,
             kind=kind, enabled=enabled, source=source, page_number=page_number, size=size)
 
-    @app.post("/api/groups/{identifier}/rules/batch")
+    @app.post("/api/groups/{identifier}/rules/batch", response_model=responses.CountResult, response_model_exclude_unset=True)
     async def batch_rules(identifier: int, body: RuleBatchInput, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.rule_queries.batch(user.id, identifier, body)
 
-    @app.post("/api/groups/{identifier}/rules")
+    @app.post("/api/groups/{identifier}/rules", response_model=responses.Rule, response_model_exclude_unset=True)
     async def add_rule(
         identifier: int, body: RuleInput, request: Request,
         request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
@@ -340,7 +341,7 @@ def install_api(app):
     ):
         return await request.app.state.management.rule(user.id, identifier, body, request_id=request_id)
 
-    @app.put("/api/groups/{identifier}/rules/{rule_id}")
+    @app.put("/api/groups/{identifier}/rules/{rule_id}", response_model=responses.Rule, response_model_exclude_unset=True)
     async def edit_rule(
         identifier: int, rule_id: str, body: RuleInput, request: Request,
         request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
@@ -348,29 +349,29 @@ def install_api(app):
     ):
         return await request.app.state.management.rule(user.id, identifier, body, rule_id, request_id, version)
 
-    @app.post("/api/groups/{identifier}/rules/preview")
+    @app.post("/api/groups/{identifier}/rules/preview", response_model=responses.Preview, response_model_exclude_unset=True)
     async def preview(
         identifier: int, body: PreviewInput, request: Request, user: Identity = Depends(identity)
     ):
         return await request.app.state.management.preview(user.id, identifier, body)
 
-    @app.post("/api/groups/{identifier}/rules/preview-archive")
+    @app.post("/api/groups/{identifier}/rules/preview-archive", response_model=responses.ArchivePreview, response_model_exclude_unset=True)
     async def preview_archive(identifier: int, body: ArchivePreviewInput, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.archive_preview.run(user.id, identifier, body)
 
-    @app.post("/api/groups/{identifier}/rules/{rule_id}/inherit")
+    @app.post("/api/groups/{identifier}/rules/{rule_id}/inherit", response_model=responses.Rule, response_model_exclude_unset=True)
     async def inherit_rule(identifier: int, rule_id: str, request: Request,
                            request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
                            version: Annotated[str, Header(alias="If-Match")], user: Identity = Depends(identity)):
         return await request.app.state.management.rules.inherit(user.id, identifier, rule_id, version, request_id)
 
-    @app.get("/api/groups/{identifier}/whitelist")
+    @app.get("/api/groups/{identifier}/whitelist", response_model=list[responses.Whitelist], response_model_exclude_unset=True)
     async def whitelist(identifier: int, request: Request, user: Identity = Depends(identity)):
         return (await request.app.state.management.queries.page(user.id, identifier, "whitelist", size=None))[
             "items"
         ]
 
-    @app.put("/api/groups/{identifier}/whitelist")
+    @app.put("/api/groups/{identifier}/whitelist", response_model=responses.Whitelist, response_model_exclude_unset=True)
     async def save_whitelist(
         identifier: int, body: WhitelistInput, request: Request,
         request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
@@ -378,7 +379,7 @@ def install_api(app):
     ):
         return await request.app.state.management.whitelist(user.id, identifier, body, request_id, expected_version=version)
 
-    @app.delete("/api/groups/{identifier}/whitelist/{user_id}")
+    @app.delete("/api/groups/{identifier}/whitelist/{user_id}", response_model=responses.WhitelistRemoval, response_model_exclude_unset=True)
     async def remove_whitelist(
         identifier: int, user_id: int, request: Request,
         request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
@@ -388,7 +389,7 @@ def install_api(app):
             user.id, identifier, WhitelistInput(user_id=user_id), request_id, remove=True, expected_version=version
         )
 
-    @app.get("/api/groups/{identifier}/violations")
+    @app.get("/api/groups/{identifier}/violations", response_model=responses.Page[responses.Violation], response_model_exclude_unset=True)
     async def violations(
         identifier: int,
         request: Request,
@@ -410,7 +411,7 @@ def install_api(app):
             size=size,
         )
 
-    @app.post("/api/groups/{identifier}/violations/{violation_id}/actions")
+    @app.post("/api/groups/{identifier}/violations/{violation_id}/actions", response_model=responses.Action, response_model_exclude_unset=True)
     async def violation_action(
         identifier: int,
         violation_id: str,
@@ -420,17 +421,17 @@ def install_api(app):
     ):
         return await request.app.state.management.violation_action(user.id, identifier, violation_id, body)
 
-    @app.get("/api/groups/{identifier}/violations/{violation_id}/correction")
+    @app.get("/api/groups/{identifier}/violations/{violation_id}/correction", response_model=responses.CorrectionPreview, response_model_exclude_unset=True)
     async def correction_preview(identifier: int, violation_id: str, request: Request,
                                  user: Identity = Depends(identity)):
         return await request.app.state.management.corrections.preview(user.id, identifier, violation_id)
 
-    @app.post("/api/groups/{identifier}/violations/{violation_id}/correction")
+    @app.post("/api/groups/{identifier}/violations/{violation_id}/correction", response_model=responses.Correction, response_model_exclude_unset=True)
     async def correct_violation(identifier: int, violation_id: str, body: ViolationCorrectionInput,
                                 request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.corrections.apply(user.id, identifier, violation_id, body)
 
-    @app.get("/api/admins")
+    @app.get("/api/admins", response_model=responses.Admins, response_model_exclude_unset=True)
     async def admins(request: Request, user: Identity = Depends(root_identity)):
         return {
             "items": [],
@@ -438,11 +439,11 @@ def install_api(app):
             "access_mode": "telegram_group_admin",
         }
 
-    @app.put("/api/admins")
+    @app.put("/api/admins", response_model=responses.Empty, response_model_exclude_unset=True)
     async def save_admin(body: AdminInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.admin(user.id, body)
 
-    @app.get("/api/actions")
+    @app.get("/api/actions", response_model=responses.ActionStatuses, response_model_exclude_unset=True)
     async def action_statuses(
         request: Request,
         identifiers: Annotated[list[str], Query(min_length=1, max_length=50)],
@@ -450,11 +451,11 @@ def install_api(app):
     ):
         return await request.app.state.management.queries.action_statuses(user.id, identifiers)
 
-    @app.get("/api/actions/{identifier}")
+    @app.get("/api/actions/{identifier}", response_model=responses.Action, response_model_exclude_unset=True)
     async def action(identifier: str, request: Request, user: Identity = Depends(identity)):
         return await request.app.state.management.queries.action(user.id, identifier)
 
-    @app.get("/api/system")
+    @app.get("/api/system", response_model=responses.SystemStatus, response_model_exclude_unset=True)
     async def system(request: Request, user: Identity = Depends(root_identity)):
         return {
             **await request.app.state.management.queries.system(user.id),
@@ -465,40 +466,62 @@ def install_api(app):
             **request.app.state.runtime.status(),
         }
 
-    @app.get("/api/system/failures")
+    @app.get("/api/system/failures", response_model=responses.Page[responses.FailedEvent | responses.Action], response_model_exclude_unset=True)
     async def failed_page(request: Request, event: bool = False, page_number: int = Query(1, ge=1),
                            size: int = Query(20, ge=1, le=100), user: Identity = Depends(root_identity)):
         return await request.app.state.management.queries.failed_page(user.id, event=event, page_number=page_number, size=size)
 
-    @app.post("/api/actions/{identifier}/retry")
-    async def retry_action(identifier: str, request: Request, user: Identity = Depends(root_identity)):
-        return await request.app.state.management.retry(user.id, identifier)
+    @app.post("/api/actions/{identifier}/retry", response_model=responses.Retry, response_model_exclude_unset=True)
+    async def retry_action(identifier: str, request: Request,
+                           request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
+                           user: Identity = Depends(root_identity)):
+        return await request.app.state.management.retry(user.id, identifier, request_id=request_id)
 
-    @app.post("/api/actions/{identifier}/resolve")
+    @app.post("/api/actions/{identifier}/resolve", response_model=responses.DeliveryResolution, response_model_exclude_unset=True)
     async def resolve_delivery(identifier: str, body: DeliveryResolutionInput, request: Request,
                                 user: Identity = Depends(root_identity)):
         return await request.app.state.management.system_admin.resolve_delivery(user.id, identifier, body)
 
-    @app.post("/api/events/{identifier}/retry")
-    async def retry_event(identifier: int, request: Request, user: Identity = Depends(root_identity)):
-        return await request.app.state.management.retry(user.id, identifier, event=True)
+    @app.post("/api/events/{identifier}/retry", response_model=responses.Retry, response_model_exclude_unset=True)
+    async def retry_event(identifier: int, request: Request,
+                          request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
+                          user: Identity = Depends(root_identity)):
+        return await request.app.state.management.retry(user.id, identifier, event=True, request_id=request_id)
 
-    @app.post("/api/system/backup")
-    async def backup(request: Request, user: Identity = Depends(root_identity)):
-        return await request.app.state.management.backup(user.id)
+    @app.post("/api/system/backup", response_model=responses.BackupReceipt, response_model_exclude_unset=True)
+    async def backup(request: Request,
+                     request_id: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=80)],
+                     user: Identity = Depends(root_identity)):
+        return await request.app.state.management.backup(user.id, request_id)
 
-    @app.get("/api/system/backups")
+    @app.get("/api/system/backups", response_model=responses.Backups, response_model_exclude_unset=True)
     async def backup_list(request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.backups.status(user.id)
 
-    @app.patch("/api/system/backups/plan")
+    @app.get("/api/system/model-diagnostics", response_model=responses.Diagnostics, response_model_exclude_unset=True)
+    async def model_diagnostics(request: Request, response: Response, page_number: int = Query(1, ge=1),
+                                user: Identity = Depends(root_identity)):
+        import asyncio
+        from purrai.model_diagnostics import ModelDiagnostics
+        response.headers["Cache-Control"] = "no-store"
+        return await asyncio.to_thread(ModelDiagnostics(request.app.state.settings).page, page_number)
+
+    @app.get("/api/system/model-diagnostics/{identifier}", response_model=responses.Diagnostic, response_model_exclude_unset=True)
+    async def model_diagnostic(request: Request, response: Response, identifier: str,
+                               user: Identity = Depends(root_identity)):
+        import asyncio
+        from purrai.model_diagnostics import ModelDiagnostics
+        response.headers["Cache-Control"] = "no-store"
+        return await asyncio.to_thread(ModelDiagnostics(request.app.state.settings).read, identifier)
+
+    @app.patch("/api/system/backups/plan", response_model=responses.BackupPlan, response_model_exclude_unset=True)
     async def backup_plan(body: BackupPlanInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.backups.plan(user.id, body)
 
-    @app.post("/api/system/backups/exercise")
+    @app.post("/api/system/backups/exercise", response_model=responses.BackupExercise, response_model_exclude_unset=True)
     async def backup_exercise(body: BackupExerciseInput, request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.management.backups.exercise(user.id, body)
 
-    @app.get("/api/system/alerts")
+    @app.get("/api/system/alerts", response_model=list[responses.Alert], response_model_exclude_unset=True)
     async def runtime_alerts(request: Request, user: Identity = Depends(root_identity)):
         return await request.app.state.runtime.alerts.status()

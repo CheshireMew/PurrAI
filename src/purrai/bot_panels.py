@@ -4,6 +4,7 @@ from purrai.bot_archive_panels import ArchivePanels
 from purrai.bot_configuration_panels import ConfigurationPanels
 from purrai.bot_group_panels import GroupPanels
 from purrai.bot_record_panels import RecordPanels
+from purrai.bot_rule_panels import RulePanels
 from purrai.bot_system_panels import SystemPanels
 from purrai.bot_policy_panels import PolicyPanels
 from purrai.bot_review_panels import ReviewPanels
@@ -20,6 +21,7 @@ class BotPanels:
         self.configuration = ConfigurationPanels(management, ui, state)
         self.archive = ArchivePanels(management, ui, state)
         self.record = RecordPanels(management, ui, state)
+        self.rules = RulePanels(management, ui, self.record)
         self.system_views = SystemPanels(management, ui, state)
         self.policy = PolicyPanels(management, ui, state)
         self.review = ReviewPanels(management, ui, state)
@@ -28,6 +30,47 @@ class BotPanels:
         self.operations = OperationsPanels(management, ui, state)
         self.auto_replies = AutoReplyPanels(management, ui, state)
         self.lottery = LotteryPanels(management, ui, state)
+        self.action_handlers, self.input_handlers = {}, {}
+        domains = (
+            (self.group, True),
+            (self.configuration, True),
+            (self.archive, False),
+            (self.record, True),
+            (self.rules, True),
+            (self.members, True),
+            (self.system_views, False),
+        )
+        for panel, clear_prompt in domains:
+            self.register(self.action_handlers, panel.ACTIONS, panel.route)
+            kinds = getattr(panel, "INPUTS", ())
+            if kinds:
+                self.register(self.input_handlers, kinds, (panel.input, clear_prompt))
+        self.register(self.input_handlers, ("lottery",), (self.lottery.input, False))
+        self.register(self.input_handlers, ("auto_reply",), (self.auto_replies.input, False))
+        self.register(self.input_handlers, ("batch_reason",), (self.batch.input, False))
+        self.action_prefixes = (
+            ("lottery_", self.lottery.route, False),
+            ("autoreply_", self.auto_replies.route, False),
+            ("ops_", self.operations.route, False),
+            ("batch_", self.batch.route, False),
+            ("review_", self.review.route, True),
+            ("policy_", self.policy.route, True),
+        )
+        self.input_prefixes = (
+            ("ops_", self.operations.input, False),
+            ("review_", self.review.input, False),
+            ("policy_", self.policy.input, False),
+            ("archive_", self.archive.input, False),
+        )
+
+    @staticmethod
+    def register(handlers, names, handler):
+        names = tuple(names)
+        overlap = handlers.keys() & set(names)
+        duplicates = overlap or {name for name in names if names.count(name) > 1}
+        if duplicates:
+            raise ValueError(f"Duplicate Telegram handlers: {sorted(duplicates)}")
+        handlers.update(dict.fromkeys(names, handler))
 
     async def choose_groups(self, actor, page=0, message_id=None):
         return await self.group.choose_groups(actor, page, message_id)

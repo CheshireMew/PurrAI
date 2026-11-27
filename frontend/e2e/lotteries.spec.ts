@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import catalog from './fixtures/catalog.json' with { type: 'json' }
+import { newLottery } from '../src/lottery'
 
 async function mockApi(page: import('@playwright/test').Page) {
   const rows: any[] = [{ id: 'past', group_id: -1001, state: 'drawn', version: 3, participant_count: 12, draw_count: 12,
@@ -51,6 +52,44 @@ async function mockApi(page: import('@playwright/test').Page) {
   })
   return requests
 }
+
+test('抽奖列表和参与记录翻页失败恢复原页码，重试成功才显示新页', async ({ page }) => {
+  await mockApi(page)
+  let listFailure = true, detailFailure = true
+  const activity = { id: 'paging', group_id: -1001, state: 'open', version: 1, created_at: 1795300000,
+    participant_count: 51, draw_count: 0, config: { ...newLottery(), title: '分页活动' } }
+  await page.route('**/api/groups/*/lotteries?*', async route => {
+    const number = new URL(route.request().url()).searchParams.get('page_number') || '1'
+    if (number === '2' && listFailure) return route.fulfill({ status: 503, json: { detail: '活动第二页暂不可用' } })
+    await route.fulfill({ json: { items: [{ ...activity, config: { ...activity.config, title: `第${number}页活动` } }], total: 21 } })
+  })
+  await page.route('**/api/groups/*/lotteries/paging?*', async route => {
+    const number = new URL(route.request().url()).searchParams.get('page_number') || '1'
+    if (number === '2' && detailFailure) return route.fulfill({ status: 503, json: { detail: '参与记录第二页暂不可用' } })
+    await route.fulfill({ json: { ...activity, remaining: [1], total_entries: 51, deliveries: [],
+      entries: [{ id: `entry-${number}`, user_id: 42, display_name: `第${number}页成员`, state: 'joined', created_at: 1795300000, prize_label: '', fulfilled: false, cost: 0 }] } })
+  })
+  await page.goto('/#/lotteries?group=-1001')
+  await expect(page.getByRole('heading', { name: '第1页活动', exact: true })).toBeVisible()
+  const pagination = page.locator('.el-pagination').first()
+  await pagination.locator('.btn-next').click()
+  await expect(page.getByText('活动第二页暂不可用', { exact: true })).toBeVisible()
+  await expect(pagination.locator('.el-pager .is-active')).toHaveText('1')
+  await expect(page.getByRole('heading', { name: '第1页活动', exact: true })).toBeVisible()
+  listFailure = false
+  await pagination.locator('.btn-next').click()
+  await expect(page.getByRole('heading', { name: '第2页活动', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '查看活动', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '分页活动', exact: true })
+  await expect(dialog.getByText('第1页成员', { exact: true })).toBeVisible()
+  await dialog.locator('.el-pagination .btn-next').click()
+  await expect(dialog.getByText('参与记录第二页暂不可用', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.el-pager .is-active')).toHaveText('1')
+  await expect(dialog.getByText('第1页成员', { exact: true })).toBeVisible()
+  detailFailure = false
+  await dialog.locator('.el-pagination .btn-next').click()
+  await expect(dialog.getByText('第2页成员', { exact: true })).toBeVisible()
+})
 
 test('往期抽奖可复用为新草稿，核对时间、参与门槛后发布', async ({ page }, testInfo) => {
   const requests = await mockApi(page)

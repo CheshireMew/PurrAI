@@ -117,7 +117,7 @@ class ReviewPanels:
         await self.panel(actor, f"搜索规则：{query or '全部'} · 共 {result['total']} 条", buttons, group_id, message_id,
                          resume={"action": "review_search", "data": {"query": query, "page": page}})
 
-    async def input(self, actor, group_id, text, data):
+    async def input(self, actor, group_id, text, data, request_id=None):
         await self.management.authorize(actor, group_id, write=True)
         if data["kind"] == "review_search":
             await self.search(actor, group_id, "" if text == "-" else text[:250])

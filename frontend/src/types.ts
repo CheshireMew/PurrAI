@@ -1,37 +1,27 @@
+import type * as Api from './adminApi'
 import type { GroupSettings } from './groupSettings'
 export type { GroupSettings } from './groupSettings'
 
-export interface User { id: number; root: boolean; csrf: string; local_dev?: boolean }
-export interface Group { id: number; title: string; type: string; status: string; approved: boolean; enabled: boolean; settings: GroupSettings; setting_overrides?: string[]; previous_ids?: number[] }
-export interface Rule { id?: string; version?: string; inherited?: boolean; inherited_from?: string; kind: string; value: string; mode: string; scope: string; context_value: string; meaning?: string; penalty: string; name_penalty?: string; enabled: boolean; kind_label?: string; matching_label?: string; scope_label?: string; consequence?: string; consequence_short?: string; origin?: string; hit_count?: number; last_hit_at?: number; sources?: {group_id: number; message_id: number; origin_group_id?: number; origin_message_id?: number; created_at: number; withdrawn: boolean}[] }
-export interface SharedPolicy { settings: GroupSettings; rules: Rule[] }
-export interface Whitelist { user_id: number; version?: string; verification: boolean; moderation: boolean; note: string }
-export interface Verification { allowed_operations: string[]; id: string; user_id: number; user_name: string; state: string; deadline: number; attempts: number; failure_action: string; error: string }
-export interface Operation { id: string; kind: string; state: string; created_at: number; actor_id: number | null; reason: string; error: string; user_id?: number | null; payload?: Record<string, any>; can_review_delivery?: boolean; manual_review?: { outcome: string; reason: string; actor_id: number; reviewed_at: number } | null }
-export interface Violation { allowed_operations: string[]; permanent_ban: boolean; id: string; user_id: number; created_at: number; sender_name: string; sender_chat: boolean; excerpt: string; reasons: string[]; actions: Operation[]; warning_active: boolean; profile_violation: boolean; rule_mute: boolean; correction?: { reason: string; actor_id: number } | null }
-export interface Budget { group_calls: number; group_call_limit: number; group_tokens: number; group_token_limit: number; global_calls: number; global_call_limit: number; global_tokens: number; global_token_limit: number }
-export interface WorkerStatus { name: string; state: string; error: string; restarts: number }
-export interface StickerStatus { ready: number; total: number; emoji_count: number; unavailable: string[]; error: string }
-export interface ChatStatus { configured: boolean; model: string; pending: number; error: string; budget?: Budget; stickers?: StickerStatus; commands?: { enabled: boolean; threshold: number; minimum_users: number; window_days: number; items: { text: string; count: number; users: number; ignored: boolean }[] } }
-export interface TelegramProblem { method: string; label: string; seconds: number; consecutive_failures: number; last_failure: number; purpose?: string }
-export interface SystemStatus { connected: boolean; bot_configured: boolean; login_configured: boolean; pending_actions: number; last_poll: number; last_backup: string | null; last_error: string; archive_status: string; failed_actions: Operation[]; failed_events: {id: number; error: string}[]; chat_budget?: Budget; poll_stalled?: boolean; telegram_health?: { degraded: boolean; problems: TelegramProblem[]; warnings?: TelegramProblem[] }; source_checks?: { delayed: number; next_retry_at: number } }
-export interface Page<T> { items: T[]; total: number; page: number; size: number }
-export interface ArchiveRecording { state: string; reason: string }
-export interface ArchivedMessage {
-  origin_group_id?: number
-  origin_message_id?: number
-  id: string; message_id: number; sender_id: number | null; sender_name: string; username: string;
-  sender_type: string; message_type: string; text: string; caption: string; sent_at: number;
-  source: string; revision_count: number; original_observed: boolean;
-  recording_gap?: { omitted_at_least: number; first_skipped_at: number; last_skipped_at: number; reason: string; latest_not_recorded: boolean };
-  deletion_state: string; deletion_error: string; violation?: { reasons: string[] } | null;
-}
-export interface ArchivedDetail extends ArchivedMessage {
-  revisions: { id: number; is_edit: boolean; event_at: number; reasons: string[]; display_text?: string;
-    payload: Record<string, unknown> & { text?: string; caption?: string } }[]
-}
-export interface ArchivePage extends Page<ArchivedMessage> { recording: ArchiveRecording }
-export interface PreviewInput { text: string; sender_name: string; sender_bio?: string; newcomer: boolean; contact: boolean; forwarded: boolean; repeats: number; similar: number; burst: number; message_emoji_packs?: string[] }
-export interface PreviewResult { reasons: string[]; notes?: string[]; kick_member?: boolean; ban_member?: boolean; mute_member?: boolean; delete_message?: boolean }
+export type User = Pick<Api.User, 'id' | 'root' | 'csrf' | 'local_dev'>
+export type Group = Pick<Api.Group, 'id' | 'title' | 'type' | 'status' | 'approved' | 'enabled' | 'settings' | 'previous_ids'> & { setting_overrides?: string[] }
+export type Rule = Omit<Api.Rule, 'id' | 'version' | 'kind' | 'mode' | 'scope' | 'penalty'> & { id?: string; version?: string; kind: string; mode: string; scope: string; penalty: string } & Required<Pick<Api.Rule, 'value' | 'context_value' | 'enabled'>>
+export type SharedPolicy = Omit<Api.SharedPolicy, 'rules'> & { rules: Rule[] }
+export type Whitelist = Pick<Api.Whitelist, 'user_id' | 'verification' | 'moderation' | 'note'> & { version?: string }
+export type Verification = Pick<Api.Verification, 'id' | 'user_id' | 'user_name' | 'state' | 'deadline' | 'attempts' | 'failure_action' | 'error'> & { allowed_operations: NonNullable<Api.Verification['allowed_operations']> }
+export type Operation = Pick<Api.Action, 'id' | 'kind' | 'state' | 'created_at' | 'actor_id' | 'reason' | 'error' | 'can_review_delivery' | 'manual_review'> & Partial<Pick<Api.Action, 'user_id'>> & { payload?: Api.Action['payload'] & { invite_link?: string } }
+export type Violation = Pick<Api.Violation, 'id' | 'user_id' | 'created_at' | 'sender_name' | 'sender_chat' | 'excerpt' | 'reasons' | 'warning_active' | 'profile_violation' | 'rule_mute'> & { allowed_operations: NonNullable<Api.Violation['allowed_operations']>; permanent_ban: NonNullable<Api.Violation['permanent_ban']>; actions: Operation[]; correction?: Pick<Api.Correction, 'reason' | 'actor_id'> | null }
+export type Budget = Pick<Api.Budget, 'group_calls' | 'group_call_limit' | 'group_tokens' | 'group_token_limit' | 'global_calls' | 'global_call_limit' | 'global_tokens' | 'global_token_limit'>
+export type WorkerStatus = Pick<Api.Worker, 'name' | 'state' | 'error' | 'restarts'>
+export type StickerStatus = Api.StickerStatus
+export type ChatStatus = Api.ChatStatus
+export type TelegramProblem = Pick<Api.TelegramMethod, 'method' | 'label' | 'seconds' | 'consecutive_failures' | 'last_failure' | 'purpose'>
+export type SystemStatus = Api.SystemStatus
+export type Page<T> = Pick<Api.Page_Action_, 'total'> & { items: T[]; page: number; size: number }
+export type ArchiveRecording = Api.ArchiveRecording
+export type ArchivedMessage = Pick<Api.ArchivedMessage, 'id' | 'message_id' | 'sender_id' | 'sender_name' | 'username' | 'sender_type' | 'message_type' | 'text' | 'caption' | 'sent_at' | 'source' | 'revision_count' | 'original_observed' | 'recording_gap' | 'deletion_state' | 'deletion_error' | 'origin_group_id' | 'origin_message_id'> & { violation?: Pick<Api.Violation, 'reasons'> | null }
+export type ArchivedDetail = ArchivedMessage & { revisions: Api.Revision[] }
+export type ArchivePage = Page<ArchivedMessage> & Pick<Api.ArchivePage, 'recording'>
+export type PreviewInput = Required<Pick<Api.PreviewInput, 'text' | 'sender_name' | 'newcomer' | 'contact' | 'forwarded' | 'repeats' | 'similar' | 'burst'>> & Pick<Api.PreviewInput, 'sender_bio' | 'message_emoji_packs'>
+export type PreviewResult = Api.Preview
 export interface FieldSchema { minimum?: number; maximum?: number; minLength?: number; maxLength?: number; type: string }
-export interface AdminCatalog { settings: {defaults: GroupSettings; fields: Record<keyof GroupSettings, FieldSchema>; numbers: Record<string, string>; booleans: Record<string, string>; labels?: Record<string, string>}; states: Record<string, string>; operations: Record<string, string>; failure_actions: Record<string, string>; active_verifications: string[]; rules?: {kinds: Record<string, string>; modes: Record<string, string>; scopes: Record<string, string>} }
+export type AdminCatalog = Omit<Api.Catalog, 'settings' | 'rules'> & { settings: Pick<Api.SettingsCatalog, 'defaults' | 'numbers' | 'booleans'> & Partial<Pick<Api.SettingsCatalog, 'labels'>> & { fields: Record<keyof GroupSettings, FieldSchema> }; rules?: Api.RuleCatalog }

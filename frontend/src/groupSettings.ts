@@ -4,6 +4,7 @@ export interface GroupSettings {
   bio_cache_seconds: number
   notice_seconds: number
   admin_submission_notice: boolean
+  linked_channel_auto_unpin: boolean
   ai_ad_mute_notice: boolean
   ai_ad_window_hours: number
   ai_ad_limit: number

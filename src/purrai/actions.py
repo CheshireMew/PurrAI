@@ -1,10 +1,12 @@
 """Durable action scheduling and dispatch to cohesive handlers."""
 
 import asyncio
+import json
 import logging
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter, TelegramNetworkError
-from sqlalchemy import and_, literal_column, select
+from sqlalchemy import and_, func, literal_column, or_, select, tuple_
+from sqlalchemy.orm import aliased
 
 from purrai.action_execution import ActionExecution, ActionSuperseded, ChallengeDeliveryRetry, MemberStateChanged, RestrictionPreserved
 from purrai.action_policy import NOTIFICATION_ACTIONS, ActionPolicy
@@ -13,6 +15,7 @@ from purrai.action_transport import ActionTransport
 from purrai.deletion_effects import deletion_result
 from purrai.automatic_actions import AutomaticActions
 from purrai.channel_moderation import ChannelActions
+from purrai.channel_pins import ChannelPinActions
 from purrai.diagnostics import failure
 from purrai.member_restrictions import MemberRestrictions
 from purrai.models import (
@@ -43,6 +46,7 @@ class ActionRunner:
         verification_actions = VerificationActions(transport, verification, restrictions, administration)
         automatic = AutomaticActions(restrictions)
         channels = ChannelActions(transport)
+        channel_pins = ChannelPinActions(transport)
         async def identity_check(session, action, group, verification, member):
             return await identity_protection.execute(session, action, group, verification, member, restrictions)
         self.notifications = NotificationActions(db, transport)
@@ -50,6 +54,7 @@ class ActionRunner:
         self.report_error = verification_actions.record_error
         self.preserve_restriction = verification_actions.preserve_restriction
         self.handlers = {
+            "linked_channel_unpin": ActionHandler(channel_pins.unpin, channel_pins.prepare, False),
             "channel_ad_ban": ActionHandler(channels.ban, channels.prepare, False),
             "channel_unban": ActionHandler(channels.unban, channels.prepare, False),
             "identity_check": ActionHandler(identity_check, automatic.prepare, False),
@@ -97,54 +102,45 @@ class ActionRunner:
             return await self._run_one_action(include_progress=False, cleanup_only=True)
 
     async def claim_action(self, *, include_progress, cleanup_only, lane):
-        cleanup = and_(Action.kind == "delete", Action.dedupe_key.startswith("cleanup:"))
-        query = select(Action).where(
-            Action.state == "pending", cleanup if cleanup_only else ~cleanup
-        )
-        if not include_progress:
-            query = query.where(Action.kind.not_in(("progress", "emoji_status_check", "advertisement_check")))
-        if lane == "member":
-            query = query.where(Action.kind.not_in(NOTIFICATION_ACTIONS))
-        elif lane == "notification":
-            query = query.where(Action.kind.in_(NOTIFICATION_ACTIONS))
-        async with self.action_claims.lock:
+        def conditions(model):
+            cleanup = and_(model.kind == "delete", model.dedupe_key.startswith("cleanup:"))
+            result = [model.state == "pending", cleanup if cleanup_only else ~cleanup]
+            if not include_progress:
+                result.append(model.kind.not_in(("progress", "emoji_status_check", "advertisement_check")))
+            if lane == "member":
+                result.append(model.kind.not_in(NOTIFICATION_ACTIONS))
+            elif lane == "notification":
+                result.append(model.kind.in_(NOTIFICATION_ACTIONS))
+            return result
+
+        async with self.action_claims.selecting():
             async with self.db.sessions() as session:
-                offset, blocked = 0, set()
-                while True:
-                    rows = (
-                        await session.scalars(
-                            query.order_by(Action.priority, Action.created_at, literal_column("actions.rowid"))
-                            .offset(offset)
-                            .limit(100)
-                        )
-                    ).all()
-                    if not rows:
-                        return None
-                    for action in rows:
-                        if action.payload.get("automatic_restore") and action.available_at > now():
-                            continue
-                        if cleanup_only:
-                            scope = ("cleanup", action.id)
-                        elif action.kind == "group_menu":
-                            scope = ("group_menu", action.group_id)
-                        elif action.kind in NOTIFICATION_ACTIONS:
-                            scope = (
-                                "notification",
-                                action.group_id,
-                                action.actor_id or action.payload.get("chat_id") or action.user_id,
-                            )
-                        elif action.user_id:
-                            scope = ("member", action.group_id, action.user_id)
-                        else:
-                            scope = ("action", action.id)
-                        if scope in blocked:
-                            continue
-                        blocked.add(scope)
-                        if action.available_at > now():
-                            continue
-                        if self.action_claims.claim(action.id, scope):
-                            return action.id, action.kind, scope
-                    offset += len(rows)
+                stamp = now()
+                order = (Action.priority, Action.created_at, literal_column("actions.rowid"))
+                query = select(Action).where(*conditions(Action), Action.available_at <= stamp)
+                if self.action_claims.identifiers:
+                    query = query.where(Action.id.not_in(self.action_claims.identifiers))
+                if not cleanup_only:
+                    if self.action_claims.scopes:
+                        scopes = [json.dumps(scope, separators=(",", ":"), ensure_ascii=False)
+                                  for scope in self.action_claims.scopes]
+                        query = query.where(Action.queue_scope.not_in(scopes))
+                    earlier = aliased(Action, name="earlier_action")
+                    predecessor = select(earlier.id).where(
+                        *conditions(earlier), earlier.queue_scope == Action.queue_scope,
+                        tuple_(earlier.priority, earlier.created_at, literal_column("earlier_action.rowid")) < tuple_(*order),
+                        # Future automatic restores do not reserve a member's stream.
+                        or_(earlier.available_at <= stamp,
+                            ~func.coalesce(earlier.payload["automatic_restore"].as_boolean(), False)),
+                    ).correlate(Action).exists()
+                    query = query.where(~predecessor)
+                action = await session.scalar(query.order_by(*order).limit(1))
+                if action is None:
+                    return None
+                scope = ("cleanup", action.id) if cleanup_only else tuple(json.loads(action.queue_scope))
+                if self.action_claims.claim(action.id, scope):
+                    return action.id, action.kind, scope
+                return None
 
     async def _run_one_action(self, *, include_progress=True, cleanup_only=False, lane=None) -> bool:
         claimed = await self.claim_action(

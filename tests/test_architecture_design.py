@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from conftest import drain
@@ -100,9 +101,13 @@ async def test_single_and_batch_settings_updates_share_validation_conflict_and_r
     management = Management(db, tg, service, settings)
     changed = await management.setting(1, -1001, "repeat_count", 7, "shared-setting")
     replayed = await management.settings_patch(
-        1, -1001, SettingsPatch(settings={"repeat_count": 8}), "shared-setting"
+        1, -1001, SettingsPatch(settings={"repeat_count": 7}), "shared-setting"
     )
     assert changed == replayed and replayed["settings"]["repeat_count"] == 7
+    from purrai.errors import ManagementError
+    with pytest.raises(ManagementError) as conflict:
+        await management.settings_patch(1, -1001, SettingsPatch(settings={"repeat_count": 8}), "shared-setting")
+    assert conflict.value.status == 409
     await management.settings_patch(1, -1001, SettingsPatch(settings={"similar_count": 6}))
     async with db.sessions() as session:
         group = await session.get(Group, -1001)

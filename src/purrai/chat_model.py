@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from purrai.model_diagnostics import ModelDiagnostics
+
 
 @dataclass(frozen=True)
 class ChatReply:
@@ -22,6 +24,7 @@ class ChatModelError(Exception):
     def __init__(self, message, retryable=False):
         super().__init__(message)
         self.retryable = retryable
+        self.request_id = None
 
 
 class ChatModel:
@@ -55,12 +58,26 @@ class ChatModel:
             body["max_tokens"] = max_tokens or settings.chat_max_tokens
         if self.client is None:
             self.client = httpx.AsyncClient(timeout=settings.chat_timeout, transport=self.transport)
+        request = self.client.build_request("POST", url, headers={"Authorization": f"Bearer {settings.chat_api_key}"}, json=body)
+        diagnostics = ModelDiagnostics(settings)
+        record = await diagnostics.begin(request)
+        response, error = None, None
         try:
-            response = await self.client.post(
-                url, headers={"Authorization": f"Bearer {settings.chat_api_key}"}, json=body
-            )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise ChatModelError("聊天 API 连接超时或暂时不可用", retryable=True) from exc
+            try:
+                response = await self.client.send(request)
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                raise ChatModelError("聊天 API 连接超时或暂时不可用", retryable=True) from exc
+            return self._parse(response, retry_invalid)
+        except BaseException as exc:
+            error = exc
+            if isinstance(exc, ChatModelError) and record:
+                exc.request_id = record["id"]
+            raise
+        finally:
+            await diagnostics.finish(record, response, error)
+
+    @staticmethod
+    def _parse(response, retry_invalid):
         if response.is_error:
             code = response.status_code
             reasons = {401: "API Key 无效", 403: "API 无权访问", 404: "API 地址或模型不存在", 429: "API 限流或额度不足"}

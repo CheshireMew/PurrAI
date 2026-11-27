@@ -113,7 +113,8 @@ async def test_high_points_skip_advertising_model_and_sample_matching_before_dis
     runtime = Runtime(env[1], env[2], env[3])
     def unexpected(*args, **kwargs):
         pytest.fail("高积分成员不应进入广告样本匹配")
-    monkeypatch.setattr("purrai.advertisement_review.rank", unexpected)
+    monkeypatch.setattr("purrai.advertisement_intake.rank", unexpected)
+    monkeypatch.setattr("purrai.advertisement_decisions.rank", unexpected)
     try:
         await runtime.events.message(Message.model_validate(user_message(71, "青岚软件支持生成报表，欢迎交流合作")))
         assert not await worker.run_one()

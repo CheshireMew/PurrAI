@@ -4,13 +4,11 @@ import json
 import re
 from contextlib import suppress
 
-from sqlalchemy import func, or_, select
-
-from purrai.models import Action, ArchivedMessage, Meta, Verification, Violation
+from purrai.models import Meta
 from purrai.sender_identity import sender_name
 from purrai.stickers import sticker_text
 from purrai.telegram_sources import channel_sources
-from purrai.verification_state import ACTIVE as ACTIVE_VERIFICATIONS
+from purrai.message_eligibility import blocked_message as blocked_message
 
 from purrai.schemas import GroupSettings
 
@@ -120,41 +118,6 @@ def human_message(message, ignored_texts=(), *, bot_username="", rules=None):
         and not message.get("forward_from", {}).get("is_bot")
         and not origin.get("sender_user", {}).get("is_bot")
         and not any(message.get(key) for key in ("new_chat_members", "left_chat_member", "pinned_message"))
-    )
-
-
-def blocked_message(group_id, message_id, sender_id):
-    """The same current moderation/deletion facts gate both inputs and history."""
-    return or_(
-        select(Verification.id)
-        .where(
-            Verification.group_id == group_id,
-            Verification.user_id == sender_id,
-            Verification.state.in_(ACTIVE_VERIFICATIONS),
-        )
-        .exists(),
-        select(Violation.id)
-        .where(
-            Violation.group_id == group_id,
-            Violation.message_id == message_id,
-        )
-        .exists(),
-        select(Action.id)
-        .where(
-            Action.group_id == group_id,
-            Action.kind == "delete",
-            Action.state != "cancelled",
-            func.coalesce(Action.payload["chat_id"].as_integer(), Action.group_id) == group_id,
-            Action.target_message_id == message_id,
-        )
-        .exists(),
-        select(ArchivedMessage.id)
-        .where(
-            ArchivedMessage.group_id == group_id,
-            ArchivedMessage.message_id == message_id,
-            ArchivedMessage.deletion_state != "not_requested",
-        )
-        .exists(),
     )
 
 

@@ -7,17 +7,16 @@ from purrai.models import GroupMenu
 
 
 class GroupMenuAdmin:
-    def __init__(self, management):
-        self.management = management
-        self.context = AdminContext(management.db, management.tg, management.settings, management.access)
+    def __init__(self, context: AdminContext):
+        self.context = context
 
     async def get(self, actor, group_id):
-        await self.management.authorize(actor, group_id)
+        await self.context.access.authorize(actor, group_id)
         async with self.context.db.sessions() as session:
             return await menu_document(session, group_id)
 
     async def change(self, actor, group_id, body, request_id, *, save=False):
-        await self.management.authorize(actor, group_id, write=True)
+        await self.context.access.authorize(actor, group_id, write=True)
         intent = {"operation": "menu_save" if save else "menu_operate", "group_id": group_id, **body.model_dump()}
         async with self.context.access.group_transaction(group_id) as session:
             previous = await self.context.previous(session, actor, request_id, intent)

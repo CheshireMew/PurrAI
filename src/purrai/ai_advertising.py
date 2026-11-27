@@ -11,6 +11,7 @@ from purrai.message_identity import profile_name
 from purrai.rules import ai_keyword_rules
 from purrai.schemas import GroupSettings
 from purrai.shared_policy import effective_rules
+from purrai.policy_work import policy_work
 
 # Compatibility exports for callers inspecting the initial policy, never used
 # to decide live moderation.
@@ -57,9 +58,10 @@ async def keyword_penalty_applies(session, action, group):
         return False
     rules = await effective_rules(session, group.id)
     sender_name = evidence.get("sender_name", "")
+    matched = await policy_work(session, ai_keyword_rules, text, rules, sender_name, evidence.get("bio", ""))
     if not any(rule.get("id") in evidence.get("rule_ids", [])
                and ("rule_versions" not in evidence or evidence["rule_versions"].get(rule["id"]) == rule.get("version"))
-               for rule in ai_keyword_rules(text, rules, sender_name, evidence.get("bio", ""))):
+               for rule in matched):
         return False
     return independent or await unchanged_message(session, action, evidence)
 
@@ -96,7 +98,7 @@ async def unchanged_message(session, action, evidence):
     return recorded
 
 
-async def record_ai_advertisement(session, group, user_id, message_id, text, user_name, *, protected_ids=(), independent_evidence=None, criteria=None, sender_bio="", profile_event=False):
+async def record_ai_advertisement(session, group, user_id, message_id, text, user_name, *, protected_ids=(), independent_evidence=None, criteria=None, sender_bio="", profile_event=False, matched_rules=None):
     if (type(user_id) is not int or user_id <= 0 or user_id in protected_ids or not group.enabled
             or not independent_evidence and not GroupSettings.model_validate(group.settings).chat_advertiser_cooldown):
         return
@@ -107,6 +109,8 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         .where(Violation.group_id == group.id, Violation.message_id == message_id))
     if corrected:
         return
+    matched = matched_rules if matched_rules is not None else await policy_work(
+        session, ai_keyword_rules, text, await effective_rules(session, group.id), user_name, sender_bio)
     key = f"ai_advertising:{group.id}:{user_id}"
     cfg = GroupSettings.model_validate(group.settings)
     row = await session.get(Meta, key)
@@ -121,7 +125,6 @@ async def record_ai_advertisement(session, group, user_id, message_id, text, use
         row.value = json.dumps(data, ensure_ascii=False)
     else:
         session.add(Meta(key=key, value=json.dumps(data, ensure_ascii=False)))
-    matched = ai_keyword_rules(text, await effective_rules(session, group.id), user_name, sender_bio)
     mute = bool(matched or cfg.ai_ad_penalty == "permanent_mute" and len(data["messages"]) >= cfg.ai_ad_limit)
     member = await session.get(Member, (group.id, user_id))
     if member is None:

@@ -65,7 +65,7 @@ async def public_result(session, row):
         pending = await session.scalar(select(LotteryEntry.id).where(
             LotteryEntry.lottery_id == row.id, LotteryEntry.state == "refund_pending").limit(1))
         if pending:
-            lines.append("个别账户余额已达上限，退款将保留并在余额降低后自动补发。")
+            lines.append("退款正在分批处理；余额达到上限的账户，会在余额降低后自动补发。")
     elif row.config["mode"] == "raffle":
         winners = await session.scalars(select(LotteryEntry).where(
             LotteryEntry.lottery_id == row.id, LotteryEntry.state == "won").order_by(LotteryEntry.prize_index, LotteryEntry.id))

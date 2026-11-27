@@ -19,7 +19,7 @@ class GroupConfiguration:
         self.context = context
 
     async def settings_patch(self, actor, group_id, body: SettingsPatch, request_id=""):
-        return await self.update(actor, group_id, body, request_id, "修改群配置")
+        return await self.update(actor, group_id, body, body.request_id or request_id, "修改群配置")
 
     async def inheritance(self, actor, group_id):
         group = await self.context.access.authorize(actor, group_id)
@@ -39,7 +39,14 @@ class GroupConfiguration:
         )
 
     async def update(self, actor, group_id, body, request_id, reason, *, validate_unchanged_packs=False):
+        intent = {"operation": "settings", "group_id": group_id,
+                  "body": body.model_dump(exclude={"request_id"})}
         current = await self.context.access.authorize(actor, group_id, write=True)
+        if request_id:
+            async with self.context.db.sessions() as session:
+                previous = await self.context.previous(session, actor, request_id, intent)
+                if previous is not None:
+                    return previous
         changes = body.settings or {}
         if "emoji_status_blocked_packs" in changes and (
             validate_unchanged_packs
@@ -54,10 +61,13 @@ class GroupConfiguration:
                                              and changes["verification_channel"] != current.settings.get("verification_channel"))
         if changes.get("join_requests") or "join_requests" in body.reset and reset_defaults.get("join_requests"):
             await self.context.access.require_join_right(group_id)
+        if (changes.get("linked_channel_auto_unpin") or "linked_channel_auto_unpin" in body.reset
+                and reset_defaults.get("linked_channel_auto_unpin")):
+            await self.context.access.require_pin_right(group_id)
         if body.enabled is True:
             raise ManagementError(422, "启用保护请使用群接入检查操作")
         async with self.context.access.group_transaction(group_id) as session:
-            previous = await self.context.previous(session, actor, request_id)
+            previous = await self.context.previous(session, actor, request_id, intent)
             if previous is not None:
                 return previous
             group = await session.get(Group, group_id)
@@ -70,6 +80,9 @@ class GroupConfiguration:
                     for key, value in intended.items()
                     if key not in body.baseline or current_values[key] not in (body.baseline[key], value)
                 ]
+                if body.baseline_overrides is not None:
+                    conflicts.extend(key for key in intended if
+                        (key in (group.setting_overrides or [])) != (key in body.baseline_overrides))
                 if conflicts:
                     raise ManagementError(
                         409, "这些设置已被其他管理员修改，请重新打开群设置后再保存：" + "、".join(conflicts)
@@ -86,7 +99,7 @@ class GroupConfiguration:
                     raise ManagementError(422, exc.errors()[0]["msg"]) from exc
             group.setting_overrides = sorted((set(group.setting_overrides or []) | changes.keys()) - set(body.reset))
             return await self.context.record(
-                session, actor, group_id, "settings", reason, row_dict(group), request_id
+                session, actor, group_id, "settings", reason, row_dict(group), request_id, intent
             )
 
     async def change_status_packs(self, actor, group_id, body: EmojiPackChange):
@@ -178,6 +191,12 @@ class GroupConfiguration:
             for group in groups:
                 if "join_requests" not in (group.setting_overrides or []):
                     await self.context.access.require_join_right(group.id)
+        if body.settings and body.settings.get("linked_channel_auto_unpin"):
+            async with self.context.db.sessions() as session:
+                groups = (await session.scalars(select(Group).where(Group.approved.is_(True)))).all()
+            for group in groups:
+                if "linked_channel_auto_unpin" not in (group.setting_overrides or []):
+                    await self.context.access.require_pin_right(group.id)
         if body.settings and {"verification_method", "verification_channel"} & body.settings.keys():
             async with self.context.db.sessions() as session:
                 defaults = (await policy(session)).settings

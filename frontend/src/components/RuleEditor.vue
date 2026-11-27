@@ -4,7 +4,8 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import type { Rule, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { usePreview } from '../composables/usePreview'
 import { useDraftClose } from '../composables/useDraftClose'
 import ArchiveRulePreviewDialog from './ArchiveRulePreviewDialog.vue'
@@ -15,9 +16,10 @@ const { me, mutations } = useWorkspace()
 const sharedBaseline = ref<SharedPolicy | null>(null)
 const samplesOpen = ref(false)
 const previewPack = ref('')
-let revision = 0
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
-const { busy, error, safe } = useTask()
+const actions = useTask(), reads = useLatestRequest(), safe = actions.safe
+const { busy } = actions
+const { error } = combineTasks(actions, reads)
 const form = reactive<Rule>({ kind: 'keyword', value: '', mode: 'contains', scope: 'message', context_value: '', meaning: '', penalty: 'delete', name_penalty: 'permanent_mute', enabled: true })
 const original = ref('')
 const { requestClose } = useDraftClose(() => JSON.stringify(form) !== original.value, () => emit('close'), () => busy.value, () => props.open)
@@ -28,7 +30,7 @@ watch(() => [form.kind, form.scope], () => {
 const { input: previewInput, reasons: previewReasons, preview, invalidate } = usePreview(() => props.groupId, () => [form, props.open])
 watch(previewPack, invalidate)
 watch(() => props.open, async open => {
-  const current = ++revision
+  reads.cancel()
   sharedBaseline.value = null
   if (!open) return
   samplesOpen.value = false
@@ -36,12 +38,9 @@ watch(() => props.open, async open => {
   original.value = JSON.stringify(form)
   invalidate(); previewInput.text = ''; previewInput.sender_name = ''; previewInput.sender_bio = ''; previewPack.value = ''; error.value = ''
   if (me.value?.root) {
-    try {
-      const baseline = await api<SharedPolicy>('/api/settings/defaults')
-      if (current === revision) sharedBaseline.value = baseline
-    } catch (reason) { if (current === revision) error.value = (reason as Error).message }
+    await reads.run(() => api<SharedPolicy>('/api/settings/defaults'), baseline => { sharedBaseline.value = baseline })
   }
-})
+}, {flush: 'sync'})
 async function previewDraft() {
   previewInput.message_emoji_packs = form.kind === 'block_emoji_pack' && previewPack.value.trim() ? [previewPack.value.trim()] : []
   await safe(() => preview(undefined, { ...form }))

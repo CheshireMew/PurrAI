@@ -5,6 +5,8 @@ from purrai.bot_common import button, clock
 
 
 class RecordPanels:
+    ACTIONS = ("list", "detail")
+
     def __init__(self, management, ui, state):
         self.management, self.panel, self.send = management, ui.panel, ui.send
         self.tg, self.remember = ui.tg, state.remember
@@ -194,3 +196,9 @@ class RecordPanels:
             message_id,
             resume={"action": "detail", "data": {"kind": kind, "id": identifier}},
         )
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "list":
+            await self.list_panel(actor, group_id, data["kind"], data.get("page", 0), message_id)
+        elif action == "detail":
+            await self.detail(actor, group_id, data["kind"], data["id"], message_id)

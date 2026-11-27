@@ -1,11 +1,17 @@
 """Telegram panels for system panels."""
 
+from purrai.errors import ManagementError
+from purrai.schemas import DeliveryResolutionInput
+
 from purrai.bot_common import button
 from purrai.action_delivery import uncertain_delivery
 from purrai.models import now
 
 
 class SystemPanels:
+    ACTIONS = ("system", "failures", "retry", "delivery_resolution", "backup")
+    INPUTS = ("delivery_resolution",)
+
     def __init__(self, management, ui, state):
         self.management, self.panel, self.send = management, ui.panel, ui.send
         self.tg, self.remember = ui.tg, state.remember
@@ -73,3 +79,42 @@ class SystemPanels:
             "data": {"kind": "delivery_resolution", "id": identifier}, "expires": now() + 900})
         await self.send(actor, "请先在 Telegram 核实，再发送：已完成 核实说明，或 未完成 核实说明。\n"
             "仅登记人工结果并移出待处理失败列表，不自动重发、不改写原始错误或成员状态。发送 /cancel 取消。")
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "system":
+            await self.system(actor, message_id)
+        elif action == "failures":
+            await self.failures(actor, data.get("event", False), data.get("page", 0), message_id)
+        elif action == "retry":
+            event = data.get("event", False)
+            await self.management.retry(actor, data["id"], event, request_id)
+            if not event:
+                row = await self.management.queries.action(actor, data["id"])
+                if row["group_id"]:
+                    await self.management.track(actor, row["group_id"], actor, [row["id"]], request_id)
+            await self.send(actor, "重试已受理。可返回系统状态查看实际处理结果。")
+            await self.failures(actor, event, message_id=message_id)
+        elif action == "delivery_resolution":
+            await self.resolution_prompt(actor, data["id"])
+        elif action == "backup":
+            result = await self.management.backup(actor, request_id)
+            await self.send(actor, f"一致性备份已保存：{result['file']}")
+
+    async def input(self, actor, group_id, text, data, request_id):
+        kind = data["kind"]
+        if kind == "delivery_resolution":
+            parts = text.split(maxsplit=1)
+            if len(parts) != 2 or parts[0] not in ("已完成", "未完成"):
+                raise ManagementError(422, "请发送：已完成 核实说明，或 未完成 核实说明")
+            await self.management.system_admin.resolve_delivery(
+                actor,
+                data["id"],
+                DeliveryResolutionInput(
+                    request_id=request_id,
+                    outcome="completed" if parts[0] == "已完成" else "not_completed",
+                    reason=parts[1],
+                ),
+            )
+            await self.remember(f"bot_prompt:{actor}", None)
+            await self.send(actor, "人工核实结果已登记，未自动重发；可在操作记录查看。")
+            return

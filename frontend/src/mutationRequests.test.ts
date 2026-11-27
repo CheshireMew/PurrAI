@@ -8,6 +8,21 @@ function storage() {
 }
 
 describe('编辑请求确认', () => {
+  it('备份响应丢失后，重新打开仍沿用同一请求身份', async () => {
+    const saved = storage(), files = new Map<string, unknown>()
+    const send = vi.fn(async (_path: string, init: RequestInit) => {
+      const key = (init.headers as Record<string, string>)['Idempotency-Key']!
+      if (!files.has(key)) { files.set(key, {file: 'one-backup.sqlite3'}); throw new ApiError(0, 'response lost') }
+      return files.get(key)
+    })
+    const before = new MutationRequests(saved, send as any); before.useUser(1)
+    await expect(before.submit('/api/system/backup', 'POST', {}, undefined, '备份')).rejects.toThrow('response lost')
+    const after = new MutationRequests(saved, send as any); after.useUser(1)
+    await expect(after.submit('/api/system/backup', 'POST', {}, undefined, '备份')).resolves.toEqual({file: 'one-backup.sqlite3'})
+    expect(send.mock.calls[0]?.[1]).toEqual(send.mock.calls[1]?.[1])
+    expect(files.size).toBe(1)
+  })
+
   it('写入成功但回执丢失，刷新后仍使用原编号、内容和版本', async () => {
     const saved = storage(), results = new Map<string, unknown>()
     const send = vi.fn(async (_path: string, init: RequestInit) => {

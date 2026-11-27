@@ -12,6 +12,7 @@ class GroupSettings(BaseModel):
     bio_cache_seconds: int = Field(default=300, ge=30, le=3600, title="用户简介刷新间隔（秒）")
     notice_seconds: int = Field(default=30, ge=5, le=3600, title="群内系统提醒保留秒数")
     admin_submission_notice: bool = Field(default=False, title="在群内显示管理操作提交提示")
+    linked_channel_auto_unpin: bool = Field(default=False, title="取消关联频道自动置顶")
     ai_ad_mute_notice: bool = Field(default=False, title="在群内发送 AI 广告禁言通知")
     ai_ad_window_hours: int = Field(default=72, ge=1, le=720, title="AI广告累计窗口（小时）")
     ai_ad_limit: int = Field(default=3, ge=1, le=100, title="AI广告累计次数")
@@ -201,9 +202,11 @@ class EmergencyInput(BaseModel):
 
 
 class SettingsPatch(BaseModel):
+    request_id: str = Field(default="", max_length=80)
     enabled: bool | None = None
     settings: dict | None = None
     baseline: dict | None = None
+    baseline_overrides: list[str] | None = None
     reset: list[str] = Field(default_factory=list)
 
     @field_validator("reset")
@@ -453,6 +456,7 @@ class ArchivePurgeInput(BaseModel):
 
 class BackupPlanInput(BaseModel):
     request_id: str = Field(min_length=8, max_length=80)
+    version: str = Field(default="missing", min_length=1, max_length=80, exclude=True)
     enabled: bool = False
     hour_beijing: int = Field(default=3, ge=0, le=23)
     interval_days: int = Field(default=1, ge=1, le=30)

@@ -20,6 +20,9 @@ from purrai.violation_correction import ViolationCorrection
 from purrai.coordinated_protection import CoordinatedProtection
 from purrai.business_admin import BusinessAdministration
 from purrai.auto_reply_admin import AutoReplyAdministration
+from purrai.group_menu_admin import GroupMenuAdmin
+from purrai.lottery_admin import LotteryAdmin
+from purrai.points_admin import PointsAdministration
 
 
 class Management:
@@ -34,6 +37,9 @@ class Management:
         self.members = MemberAdministration(context)
         self.rules = RuleAdministration(context)
         self.auto_replies = AutoReplyAdministration(context)
+        self.group_menu = GroupMenuAdmin(context)
+        self.lotteries = LotteryAdmin(context)
+        self.points = PointsAdministration(context)
         self.business_rules = BusinessAdministration(context)
         self.rule_queries = RuleQueries(context)
         self.archives = ArchiveAdministration(context)

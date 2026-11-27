@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+from sqlalchemy import func, select
+
 from purrai.diagnostics import failure
 from purrai.group_link_identity import remember_update_links
 from purrai.models import Inbox, Meta, now
@@ -22,16 +24,41 @@ class UpdateReceiver:
         self.menu_configured = False
         self.control_limit = RateLimit(per_key=120, total=600)
 
-    async def persist(self, updates: list[dict]):
+    async def persist(self, updates: list[dict], *, reset_offset=False):
         if not updates:
             return
         received_at = now()
         async with self.db.transaction() as session:
+            # SAVEPOINT must belong to an actual outer SQLite transaction;
+            # otherwise releasing the first savepoint can commit on its own.
+            connection = await session.connection()
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
             previous_offset = await session.get(Meta, "poll_offset")
+            checkpoint = await session.get(Meta, "poll_offset_at")
             highwater = int(previous_offset.value) if previous_offset else -1
+            batch_offset = max(item["update_id"] for item in updates) + 1
+            if checkpoint is None:
+                last_input = await session.scalar(select(func.max(Inbox.received_at)))
+            else:
+                last_input = float(checkpoint.value)
+            new_epoch = reset_offset or (batch_offset < highwater and
+                (last_input is None or received_at - last_input >= 7 * 86400))
+            if new_epoch:
+                highwater = -1
             for payload in updates:
-                from purrai.group_migration import receive_migration
-                if await receive_migration(session, payload):
+                if await session.get(Inbox, payload["update_id"]):
+                    continue
+                message = payload.get("message") or payload.get("edited_message") or {}
+                if message.get("migrate_to_chat_id") or message.get("migrate_from_chat_id"):
+                    from purrai.group_migration import receive_migration
+                    try:
+                        async with session.begin_nested():
+                            await receive_migration(session, payload)
+                    except ValueError as exc:
+                        # A business conflict belongs to this input. Storage errors
+                        # still abort the whole receipt/offset transaction.
+                        session.add(Inbox(id=payload["update_id"], payload=payload, state="failed",
+                            received_at=received_at, error=str(exc), attempts=0, available_at=received_at))
                     continue
                 received_event = next((payload[field] for field in (
                     "message", "edited_message", "chat_member", "my_chat_member", "chat_join_request"
@@ -50,6 +77,9 @@ class UpdateReceiver:
                     continue
                 await remember_update_links(session, payload)
                 message = payload.get("message") or payload.get("edited_message") or {}
+                if message.get("is_automatic_forward") or message.get("pinned_message"):
+                    from purrai.channel_pins import observe
+                    await observe(session, message, edited="edited_message" in payload)
                 callback = payload.get("callback_query") or {}
                 if message.get("chat", {}).get("type") == "private" or callback.get("data", "").startswith("a:"):
                     actor = (message.get("from") or callback.get("from") or {}).get("id")
@@ -72,11 +102,15 @@ class UpdateReceiver:
                         )
                     )
             offset = await session.get(Meta, "poll_offset")
-            value = str(max(item["update_id"] for item in updates) + 1)
+            value = str(max(highwater, batch_offset))
             if offset:
-                offset.value = str(max(int(offset.value), int(value)))
+                offset.value = value
             else:
                 session.add(Meta(key="poll_offset", value=value))
+            if checkpoint:
+                checkpoint.value = str(received_at)
+            else:
+                session.add(Meta(key="poll_offset_at", value=str(received_at)))
         for event in self.ready_events.values():
             event.set()
 
@@ -101,10 +135,15 @@ class UpdateReceiver:
                 async with self.db.sessions() as session:
                     offset = await session.get(Meta, "poll_offset")
                     value = int(offset.value) if offset else None
+                    checkpoint = await session.get(Meta, "poll_offset_at")
+                    last_input = float(checkpoint.value) if checkpoint else await session.scalar(select(func.max(Inbox.received_at)))
+                reset_offset = value is not None and (last_input is None or now() - last_input >= 7 * 86400)
+                if reset_offset:
+                    value = None  # Discover a new Telegram update-number epoch.
                 updates = await self.tg.call(
                     "get_updates", offset=value, timeout=25, allowed_updates=ALLOWED_UPDATES
                 )
-                await self.persist(telegram_data(updates))
+                await self.persist(telegram_data(updates), reset_offset=reset_offset)
                 self.last_poll = now()
                 self.last_error = ""
             except asyncio.CancelledError:

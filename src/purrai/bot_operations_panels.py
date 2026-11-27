@@ -100,7 +100,7 @@ class OperationsPanels:
         await self.remember(f"bot_prompt:{actor}", {"group_id": group_id, "data": data, "expires": now() + 900})
         return await self.send(actor, instruction + "\n发送 /cancel 取消。")
 
-    async def input(self, actor, group_id, text, data):
+    async def input(self, actor, group_id, text, data, request_id=None):
         if data["kind"] == "ops_emergency":
             body = EmergencyInput(active=data["active"], reason=text.strip(), request_id="preview-only")
             buttons = [button("确认调整应急保护", "ops_emergency_commit", **body.model_dump(exclude={"request_id"})),
@@ -135,7 +135,8 @@ class OperationsPanels:
 
     async def preview_backup(self, actor, changes):
         await self.management.principal(actor, root=True)
-        current = (await self.management.backups.status(actor))["plan"]
+        status = await self.management.backups.status(actor)
+        current = status["plan"]
         plan = BackupPlanInput(**{**current, **changes}, request_id="preview-only")
         title = "核对备份计划：\n" + backup_summary(plan.model_dump())
         if plan.prune_enabled:
@@ -144,5 +145,5 @@ class OperationsPanels:
             title += "\n自动整理关闭，不会按计划删除备份。"
         await self.remember(f"bot_prompt:{actor}", None)
         return await self.panel(actor, title,
-            [button("确认计划与保留授权", "ops_backup_commit", **plan.model_dump(exclude={"request_id"})),
+            [button("确认计划与保留授权", "ops_backup_commit", **plan.model_dump(exclude={"request_id"}), version=status["version"]),
              button("取消", "ops_backups")], resume={"action": "ops_backups", "data": {}})

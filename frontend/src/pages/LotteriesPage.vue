@@ -2,7 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { api, time } from '../api'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefresh } from '../composables/useRefresh'
 import { useWorkspace } from '../workspace'
 import { useDraftClose } from '../composables/useDraftClose'
@@ -10,35 +11,40 @@ import { beijingInput, entryStates, lotteryStates, newLottery, type Lottery, typ
 
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const { mutations } = useWorkspace()
-const { busy, error, safe } = useTask()
+const actions = useTask(), listing = useLatestRequest(), details = useLatestRequest(), safe = actions.safe
+const { busy, error } = combineTasks(actions, listing, details)
 const base = () => `/api/groups/${props.groupId}/lotteries`
 const rows = ref<Lottery[]>([]), total = ref(0), page = ref(1)
 const loaded = ref(false), loadError = ref(''), notice = ref('')
+let acceptedPage = 1
 const editor = ref(false), editing = ref<Lottery | null>(null), detail = ref<LotteryDetail | null>(null)
 const entryPage = ref(1), entryState = ref('')
+let acceptedEntries = { id: '', page: 1, state: '' }, restoringEntries = false
+function restoreEntries(number: number, state: string) {
+  restoringEntries = true
+  entryPage.value = number; entryState.value = state
+  restoringEntries = false
+}
 const form = reactive<LotteryConfig>(newLottery()), endTime = ref('')
 const draftSnapshot = () => JSON.stringify([form, endTime.value])
 const draftBaseline = ref('')
 const { requestClose: closeEditor } = useDraftClose(() => draftSnapshot() !== draftBaseline.value,
   () => { editor.value = false }, () => busy.value, () => editor.value)
 const weightTotal = computed(() => form.prizes.reduce((sum, prize) => sum + (prize.weight || 0), 0))
-let listGeneration = 0, detailGeneration = 0
 async function load() {
-  const generation = ++listGeneration
+  const number = page.value
   loadError.value = ''
-  const success = await safe(async () => {
-    const data = await api<{ items: Lottery[]; total: number }>(`${base()}?page_number=${page.value}`)
-    if (generation === listGeneration) { rows.value = data.items; total.value = data.total; loaded.value = true }
-  }, () => generation === listGeneration)
-  if (!success && generation === listGeneration) loadError.value = error.value
+  await listing.run(() => api<{ items: Lottery[]; total: number }>(`${base()}?page_number=${number}`), data => {
+    rows.value = data.items; total.value = data.total; loaded.value = true
+    acceptedPage = number
+  }, () => { loadError.value = listing.error.value; page.value = acceptedPage })
 }
 async function showDetail(id: string, reset = true) {
-  if (reset) { entryPage.value = 1; entryState.value = '' }
-  const generation = ++detailGeneration
-  await safe(async () => {
-    const data = await api<LotteryDetail>(`${base()}/${id}?page_number=${entryPage.value}&entry_state=${entryState.value}`)
-    if (generation === detailGeneration) detail.value = data
-  }, () => generation === detailGeneration)
+  if (reset) restoreEntries(1, '')
+  const candidate = { id, page: entryPage.value, state: entryState.value }
+  await details.run(() => api<LotteryDetail>(`${base()}/${id}?${new URLSearchParams({page_number: String(candidate.page), entry_state: candidate.state})}`),
+    data => { detail.value = data; acceptedEntries = candidate },
+    () => { if (detail.value?.id === acceptedEntries.id) restoreEntries(acceptedEntries.page, acceptedEntries.state) })
 }
 function edit(row: Lottery | null = null) {
   notice.value = ''
@@ -96,7 +102,7 @@ function schedule(row: Lottery) {
   return row.config.draw_mode === 'time' ? `${time(row.config.ends_at)} ${row.config.mode === 'raffle' ? '开奖' : '结束'}`
     : row.config.draw_mode === 'participants' ? `满 ${row.config.participant_target} 人开奖` : row.config.mode === 'raffle' ? '手动开奖' : '手动结束'
 }
-watch([entryPage, entryState], () => { if (detail.value) void showDetail(detail.value.id, false) })
+watch([entryPage, entryState], () => { if (!restoringEntries && detail.value) void showDetail(detail.value.id, false) }, { flush: 'sync' })
 useRefresh(async () => { await load(); if (detail.value) await showDetail(detail.value.id, false) }, () => props.refreshKey)
 </script>
 
@@ -155,7 +161,7 @@ useRefresh(async () => { await load(); if (detail.value) await showDetail(detail
     </template>
   </el-dialog>
 
-  <el-dialog :model-value="!!detail" :title="detail?.config.title || '抽奖详情'" class="form-dialog" width="min(1000px, 96vw)" @close="detail = null; detailGeneration++">
+  <el-dialog :model-value="!!detail" :title="detail?.config.title || '抽奖详情'" class="form-dialog" width="min(1000px, 96vw)" @close="detail = null; details.cancel()">
     <template v-if="detail">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon/>
       <el-alert v-if="notice" :title="notice" type="success" @close="notice = ''"/>

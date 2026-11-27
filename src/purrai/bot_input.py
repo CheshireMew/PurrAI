@@ -1,24 +1,16 @@
 """Telegram input parsing, confirmations and command submission."""
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from purrai.admin_labels import CHAT_FIELDS, NUMBERS, OPERATIONS
-from purrai.bot_common import button, duration_reason
+from purrai.bot_common import button, duration_reason, user_note
 from purrai.errors import ManagementError
 from purrai.models import now
 from purrai.pack_names import DEFAULT_BLOCKED_PACKS
 from purrai.schemas import (
     ActionInput,
-    ArchiveFilter,
-    EmojiPackChange,
     GroupSettings,
-    GroupAdmissionInput,
-    PreviewInput,
     ReleasePendingInput,
     ReleaseSelectionInput,
-    DeliveryResolutionInput,
-    RuleInput,
     WhitelistInput,
 )
 
@@ -27,6 +19,9 @@ class BotInput:
     def __init__(self, management, ui, state, panels):
         self.management, self.panels = management, panels
         self.send, self.panel, self.remember = ui.send, ui.panel, state.remember
+        self.handlers = dict(panels.input_handlers)
+        panels.register(self.handlers, ("member",), (self.member_input, True))
+        self.prefix_handlers = panels.input_prefixes
 
     async def admission_prompt(self, actor):
         await self.management.principal(actor, root=True)
@@ -142,176 +137,18 @@ class BotInput:
     async def input(self, actor, text, prompt, request_id):
         group_id, data = prompt["group_id"], prompt["data"]
         kind = data["kind"]
-        if kind == "lottery":
-            return await self.panels.lottery.input(actor, group_id, text, data, request_id)
-        if kind == "auto_reply":
-            return await self.panels.auto_replies.input(actor, group_id, text, data, request_id)
-        if kind == "delivery_resolution":
-            parts = text.split(maxsplit=1)
-            if len(parts) != 2 or parts[0] not in ("已完成", "未完成"):
-                raise ManagementError(422, "请发送：已完成 核实说明，或 未完成 核实说明")
-            await self.management.system_admin.resolve_delivery(actor, data["id"], DeliveryResolutionInput(
-                request_id=request_id, outcome="completed" if parts[0] == "已完成" else "not_completed", reason=parts[1]))
+        handler, clear_prompt = self.handlers.get(kind, (None, True))
+        if handler is None:
+            for prefix, candidate, clear in self.prefix_handlers:
+                if kind.startswith(prefix):
+                    handler, clear_prompt = candidate, clear
+                    break
+        if handler:
+            await handler(actor=actor, group_id=group_id, text=text, data=data, request_id=request_id)
+        if clear_prompt:
             await self.remember(f"bot_prompt:{actor}", None)
-            await self.send(actor, "人工核实结果已登记，未自动重发；可在操作记录查看。")
-            return
-        if kind == "batch_reason":
-            return await self.panels.batch.input(actor, group_id, text, data)
-        if kind.startswith("ops_"):
-            return await self.panels.operations.input(actor, group_id, text, data)
-        if kind.startswith("review_"):
-            return await self.panels.review.input(actor, group_id, text, data)
-        if kind.startswith("policy_"):
-            return await self.panels.policy.input(actor, text, data, request_id)
-        if kind == "group_admission":
-            await self.management.principal(actor, root=True)
-            if not text.startswith("-") or not text[1:].isascii() or not text[1:].isdecimal():
-                raise ManagementError(422, "请发送群的负数数字 ID，例如 -1001234567890")
-            body = GroupAdmissionInput(group_id=int(text))
-            result = await self.management.admit_group(actor, body.group_id)
-            await self.send(actor, f"已接入：{result['title']}\n群 ID：{body.group_id}")
-            await self.panels.group_panel(actor, body.group_id)
-        elif kind == "chat_setting":
-            key = data["key"]
-            if key not in CHAT_FIELDS:
-                raise ManagementError(422, "聊天配置项不存在")
-            value = text
-            if key in ("chat_history", "chat_interval", "chat_sticker_interval", "chat_antifraud_interval", "chat_command_threshold"):
-                if not text.isdecimal():
-                    raise ManagementError(422, "请发送有效的整数")
-                value = int(text)
-            elif key in ("chat_sticker_packs", "chat_antifraud_packs"):
-                import re
 
-                value = [] if text.strip() == "-" else re.split(r"[\s,，]+", text.strip())
-            elif key == "chat_no_reply_user_ids":
-                values = [] if text.strip() == "-" else text.split()
-                if any(not value.isascii() or not value.isdecimal() or int(value) <= 0 for value in values):
-                    raise ManagementError(422, "请填写用户的正数数字 ID，每行一个")
-                value = [int(item) for item in values]
-            elif key in ("chat_ignored_texts", "chat_command_exceptions"):
-                value = [] if text.strip() == "-" else text.splitlines()
-            await self.management.setting(actor, group_id, key, value, request_id)
-            await self.panels.chat_panel(actor, group_id)
-        elif kind == "member_lookup":
-            if not text.isdecimal() or int(text) <= 0:
-                raise ManagementError(422, "请发送成员的正数数字 ID")
-            await self.panels.members.detail(actor, group_id, int(text))
-        elif kind.startswith("archive_"):
-            filters = dict(data.get("filters", {}))
-            if kind == "archive_query":
-                filters["query"] = "" if text == "-" else text
-            elif kind == "archive_sender":
-                try:
-                    filters["sender_id"] = None if text == "-" else int(text)
-                except ValueError as exc:
-                    raise ManagementError(422, "请发送有效的数字 ID，或发送 - 清除") from exc
-            elif kind == "archive_dates":
-                if text == "-":
-                    filters.update(after=0, before=0)
-                else:
-                    try:
-                        start, end = text.split("/", 1)
-                        filters.update(
-                            after=datetime.strptime(start.strip(), "%Y-%m-%d %H:%M")
-                            .replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-                            .timestamp(),
-                            before=datetime.strptime(end.strip(), "%Y-%m-%d %H:%M")
-                            .replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-                            .timestamp(),
-                        )
-                    except ValueError as exc:
-                        raise ManagementError(
-                            422, "时间格式示例：2026-10-01 00:00 / 2026-10-20 00:00"
-                        ) from exc
-            ArchiveFilter.model_validate(filters)
-            await self.remember(f"bot_prompt:{actor}", None)
-            await self.panels.archive_panel(actor, group_id, filters)
-        elif kind == "emoji_packs":
-            import re
-
-            if text.strip() == "-":
-                raise ManagementError(
-                    422, "这里只新增，不会清空名单。请发送 /cancel 后在黑名单面板点击清空。"
-                )
-            body = EmojiPackChange(
-                packs=[item for item in re.split(r"[\s,，]+", text.strip()) if item], request_id=request_id
-            )
-            result = await self.management.change_status_packs(actor, group_id, body)
-            await self.send(
-                actor,
-                f"已新增 {len(result['added'])} 个表情包，原名单已保留。"
-                if result["added"]
-                else "这些表情包已在黑名单中，无需重复添加。",
-            )
-            await self.panels.emoji_packs_panel(actor, group_id)
-        elif kind == "telegram_links":
-            values = [] if text.strip() == "-" else text.split()
-            await self.management.setting(actor, group_id, "telegram_allowed_links", values, request_id)
-            await self.send(actor, "允许链接名单已保存。")
-            await self.panels.settings_panel(actor, group_id, "moderation")
-        elif kind == "verification_channel":
-            await self.management.setting(actor, group_id, "verification_channel", "" if text.strip() == "-" else text, request_id)
-            await self.send(actor, "订阅验证频道已保存。")
-            await self.panels.settings_panel(actor, group_id, "verification")
-        elif kind == "setting":
-            if not text.isdecimal():
-                raise ManagementError(422, "请发送有效的非负整数；发送 /cancel 可取消")
-            await self.management.setting(actor, group_id, data["key"], int(text), request_id)
-            await self.send(actor, "群设置已保存。")
-            await self.panels.settings_panel(actor, group_id, data["section"])
-        elif kind == "rule":
-            if data.get("id"):
-                await self.management.rules.patch_rule(
-                    actor, group_id, data["id"], {"value": text}, request_id, data.get("version"),
-                )
-            else:
-                await self.management.rule(actor, group_id, RuleInput(kind=data["rule_kind"], value=text), request_id=request_id)
-            await self.send(actor, "规则已保存。")
-            await self.panels.list_panel(actor, group_id, "rule")
-        elif kind == "preview":
-            name, body = "", text
-            if text.startswith("昵称:") or text.startswith("昵称："):
-                first, _, body = text.partition("\n")
-                name = first[3:]
-            result = await self.management.preview(actor, group_id, PreviewInput(text=body, sender_name=name))
-            await self.send(
-                actor,
-                "规则测试结果：\n"
-                + ("；".join(result["reasons"]) or "未命中当前规则")
-                + f"\n将禁言：{'是' if result['mute_member'] else '否'}；将删消息：{'是' if result['delete_message'] else '否'}"
-                + f"；将踢出：{'是' if result['kick_member'] else '否'}"
-                + f"；将禁止重新加入：{'需核实链接' if result.get('notes') and not result['ban_member'] else '是' if result['ban_member'] else '否'}"
-                + ("\n" + "\n".join(result["notes"]) if result.get("notes") else ""),
-            )
-        elif kind == "rule_context":
-            await self.management.rules.patch_rule(
-                actor, group_id, data["id"], {"scope": "name_and_message", "context_value": text},
-                request_id, data.get("version"),
-            )
-            await self.panels.detail(actor, group_id, "rule", data["id"])
-        elif kind in ("member", "whitelist"):
-            parts = text.split(maxsplit=1)
-            if not parts or not parts[0].isdecimal() or int(parts[0]) <= 0:
-                raise ManagementError(422, "请发送数字形式的 Telegram 用户 ID")
-            target, note = int(parts[0]), parts[1] if len(parts) > 1 else ""
-            if kind == "whitelist":
-                await self.management.whitelist(
-                    actor, group_id, WhitelistInput(user_id=target, note=note), request_id, expected_version="missing"
-                )
-                await self.send(actor, "已加入本群白名单。")
-                await self.panels.list_panel(actor, group_id, "whitelist")
-            else:
-                seconds, note = duration_reason(note, data["operation"])
-                await self.confirmation(
-                    actor,
-                    group_id,
-                    {"kind": "member", "operation": data["operation"], "user_id": target, "reason": note,
-                     "duration_seconds": seconds},
-                )
-        elif kind == "white_note":
-            await self.management.rules.patch_whitelist(
-                actor, group_id, int(data["id"]), {"note": text}, request_id, data.get("version"),
-            )
-            await self.panels.detail(actor, group_id, "whitelist", data["id"])
-        await self.remember(f"bot_prompt:{actor}", None)
+    async def member_input(self, actor, group_id, text, data, request_id):
+        target, note = user_note(text)
+        seconds, note = duration_reason(note, data['operation'])
+        await self.confirmation(actor, group_id, {'kind': 'member', 'operation': data['operation'], 'user_id': target, 'reason': note, 'duration_seconds': seconds})

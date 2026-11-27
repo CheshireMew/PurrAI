@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage, type TableInstance } from 'element-plus'
 import type { Verification, Operation, Page } from '../types'
 import { useRecords } from '../composables/useRecords'
+import { combineTasks } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
@@ -16,7 +18,9 @@ const props = defineProps<{ groupId: number; refreshKey: number }>()
 const selected = computed(() => props.groupId)
 const { catalog, groups, confirmAction: submitAction } = useWorkspace()
 const operationNames = computed(() => catalog.value!.operations)
-const { rows, total, pagination, statusFilter, userFilter, dates, busy, error, safe, load: loadRecords, filters, appliedFilters } = useRecords<Verification>(() => props.groupId, 'verifications')
+const { rows, total, pagination, statusFilter, userFilter, dates, busy: recordsBusy, error: recordsError, load: loadRecords, filters, appliedFilters } = useRecords<Verification>(() => props.groupId, 'verifications')
+const historyReads = useLatestRequest()
+const { busy, error } = combineTasks({ busy: recordsBusy, error: recordsError }, historyReads)
 const history = ref<Operation[]>([])
 const chosen = ref<Verification[]>([]), batchSelection = ref<Record<string, unknown> | null>(null)
 const table = ref<TableInstance>(), polling = ref(false)
@@ -36,13 +40,9 @@ function previewBatch(mode: string) {
       after: Number(query.get('after') || 0), before: Number(query.get('before') || 0) }
   } else batchSelection.value = {}
 }
-let version = 0
 async function load(change: boolean | number = false) {
-  const current = ++version
-  await Promise.all([loadRecords(change), safe(async () => {
-    const result = await api<Page<Operation>>(`/api/groups/${props.groupId}/actions`)
-    if (current === version) history.value = result.items
-  })])
+  await Promise.all([loadRecords(change), historyReads.run(() => api<Page<Operation>>(`/api/groups/${props.groupId}/actions`),
+    result => { history.value = result.items })])
 }
 async function confirmAction(row: Verification, action: string, title: string) {
   const group = groups.value.find(item => item.id === props.groupId)

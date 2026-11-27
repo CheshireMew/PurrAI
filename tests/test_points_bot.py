@@ -60,7 +60,7 @@ async def test_chat_reward_waits_for_independent_ad_review(client, env, advertis
 
 @pytest.mark.parametrize("learned_late", [False, True])
 async def test_local_only_review_settles_reward_once_window_closes(client, env, monkeypatch, learned_late):
-    from purrai import advertisement_review
+    from purrai import advertisement_decisions, advertisement_intake, advertisement_review
     from test_advertisement_review import add_sample
     _, db, tg, service = env
     await configure(client)
@@ -71,7 +71,8 @@ async def test_local_only_review_settles_reward_once_window_closes(client, env, 
     assert not await balance(db)
     if learned_late:
         await add_sample(env, msg["text"])
-    monkeypatch.setattr(advertisement_review, "now", lambda: msg["date"] + 47 * 3600 + 1)
+    for module in (advertisement_review, advertisement_intake, advertisement_decisions):
+        monkeypatch.setattr(module, "now", lambda: msg["date"] + 47 * 3600 + 1)
     assert await service.advertisement_review.run_one()
     await drain(service)
     assert (await balance(db) or 0) == (0 if learned_late else 1)

@@ -1,10 +1,15 @@
 """Member summaries from the same read model as the web console."""
 
+from purrai.errors import ManagementError
+
 from purrai.admin_labels import OPERATIONS, STATE
 from purrai.bot_common import button, clock
 
 
 class MemberPanels:
+    ACTIONS = ("members", "member_detail")
+    INPUTS = ("member_lookup",)
+
     def __init__(self, management, ui):
         self.management, self.panel = management, ui.panel
 
@@ -30,3 +35,26 @@ class MemberPanels:
         buttons += [button("刷新成员状态", "member_detail", user_id=user_id), button("返回群管理", "group", id=group_id)]
         await self.panel(actor, text[:3900], buttons, group_id, message_id,
                          resume={"action": "member_detail", "data": {"user_id": user_id}})
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "members":
+            await self.panel(
+                actor,
+                "选择成员操作。下一步输入用户 ID 并核对确认。",
+                [
+                    button(OPERATIONS[k], "prompt", kind="member", operation=k)
+                    for k in ("release", "reissue", "mute", "ban", "unmute", "unban")
+                ]
+                + [button("返回群管理", "group", id=group_id)],
+                group_id,
+                message_id,
+            )
+        elif action == "member_detail":
+            await self.detail(actor, group_id, data["user_id"], message_id)
+
+    async def input(self, actor, group_id, text, data, request_id):
+        kind = data["kind"]
+        if kind == "member_lookup":
+            if not text.isdecimal() or int(text) <= 0:
+                raise ManagementError(422, "请发送成员的正数数字 ID")
+            await self.detail(actor, group_id, int(text))

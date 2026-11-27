@@ -1,3 +1,4 @@
+from purrai.policy_work import PolicyExecution
 import pytest
 from sqlalchemy import select
 
@@ -46,7 +47,7 @@ async def test_cached_ad_is_reassessed_but_duplicate_model_result_does_not_add_j
     assert await chat.run_one()
     await chat.observe(message(2, text))
     assert await chat.run_one()
-    async with chat.db.transaction() as session:
+    async with PolicyExecution(chat.db) as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 1, text, "成员")
         assert await advertisement_count(session, -1001, 42) == 2
@@ -56,7 +57,7 @@ async def test_cached_ad_is_reassessed_but_duplicate_model_result_does_not_add_j
 @pytest.mark.parametrize("exemption", ["administrator", "whitelist", "disabled", "off"])
 async def test_ai_limit_respects_existing_protections_and_current_switch(env, exemption):
     _, db, tg, svc = env
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         if exemption == "whitelist":
             session.add(Whitelist(group_id=-1001, user_id=42, moderation=True))
@@ -84,7 +85,7 @@ async def test_ai_counters_are_per_group_and_disabled_mode_does_not_count(env):
 
 async def test_two_judgments_in_one_group_and_one_in_another_do_not_mute(env):
     _, db, tg, _ = env
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         first = await session.get(Group, -1001)
         second = Group(id=-1002, approved=True, enabled=True, settings=first.settings)
         session.add(second)
@@ -99,14 +100,14 @@ async def test_two_judgments_in_one_group_and_one_in_another_do_not_mute(env):
 
 async def test_reenabling_after_cancelled_threshold_waits_for_a_new_actual_verdict(env):
     _, db, tg, svc = env
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         for identifier in (1, 2, 3):
             await record_ai_advertisement(session, group, 42, identifier, "广告内容", "成员")
         group.settings = {**group.settings, "chat_advertiser_cooldown": False}
     await drain(svc)
     assert not any(method == "restrict_chat_member" for method, _ in tg.calls)
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         group.settings = {**group.settings, "chat_advertiser_cooldown": True}
         await record_ai_advertisement(session, group, 42, 4, "新的广告内容", "成员")
@@ -118,16 +119,16 @@ async def test_three_day_window_expires_each_old_judgment_individually(env, monk
     _, db, _, _ = env
     instant = [ai_advertising.now()]
     monkeypatch.setattr(ai_advertising, "now", lambda: instant[0])
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 1, "广告甲", "成员")
     instant[0] += 2 * 86400
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 2, "广告乙", "成员")
         assert await advertisement_count(session, -1001, 42) == 2
     instant[0] += 86400
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         assert await advertisement_count(session, -1001, 42) == 1
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 3, "广告丙", "成员")
@@ -142,7 +143,7 @@ async def test_expired_threshold_cancels_penalty_waiting_in_queue(env, monkeypat
     _, db, tg, svc = env
     instant = [ai_advertising.now()]
     monkeypatch.setattr(ai_advertising, "now", lambda: instant[0])
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         group = await session.get(Group, -1001)
         for identifier in (1, 2, 3):
             await record_ai_advertisement(session, group, 42, identifier, "广告内容", "成员")
@@ -189,7 +190,7 @@ async def test_keyword_and_first_actual_ai_verdict_delete_and_mute_once(env, cli
     await chat.observe(incoming)
     assert not await chat.run_one() and not model.calls
     assert await worker.run_one() and len(moderation_model.calls) == 1
-    async with chat.db.transaction() as session:
+    async with PolicyExecution(chat.db) as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 201, text, "成员")
         assert await advertisement_count(session, -1001, 42) == 1

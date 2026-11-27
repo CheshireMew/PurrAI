@@ -5,6 +5,23 @@ import businessSeed from '../../src/purrai/assets/business_rules.v2.json' with {
 import recognitionSeed from '../../src/purrai/assets/recognition_policy.v1.json' with { type: 'json' }
 import reasonSeed from '../../src/purrai/assets/reason_policy.v1.json' with { type: 'json' }
 
+test('群列表启动读取失败保留原始原因并可重试恢复', async ({ page }) => {
+  await mock(page)
+  let fail = true
+  await page.route('**/api/groups', async route => {
+    if (fail) return route.fulfill({ status: 503, json: { detail: '启动群列表核实失败' } })
+    await route.fulfill({ json: [{ id: -1001, title: '启动恢复测试群', approved: true, enabled: true,
+      status: 'active', settings: catalog.settings.defaults }] })
+  })
+  await page.goto('/#/groups?group=-1001')
+  await expect(page.getByRole('heading', { name: '暂时无法加载管理后台', exact: true })).toBeVisible()
+  await expect(page.getByText('启动群列表核实失败', { exact: true })).toBeVisible()
+  fail = false
+  await page.getByRole('button', { name: '重试连接', exact: true }).click()
+  await expect(page.getByRole('button', { name: '编辑设置', exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: '暂时无法加载管理后台', exact: true })).not.toBeVisible()
+})
+
 for (const width of [1440, 390]) {
   test(`审核处置、历史判定与聊天时限可保存 ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
@@ -473,11 +490,11 @@ test('超级管理员可按数字 ID 接入私密群，列表立即更新', asyn
   await dialog.getByRole('button', { name: '确认接入' }).click()
   await expect(dialog).toContainText('请填写群的负数数字 ID')
   expect(submissions).toHaveLength(0)
-  await dialog.getByLabel('群 ID').fill('-1003792975859')
+  await dialog.getByLabel('群 ID').fill('-1009000000002')
   await dialog.getByRole('button', { name: '确认接入' }).click()
   await expect(dialog).not.toBeVisible()
   await expect(page.getByRole('table').getByText('新接入的私密群', { exact: true })).toBeVisible()
-  expect(submissions).toEqual([{ group_id: -1003792975859 }])
+  expect(submissions).toEqual([{ group_id: -1009000000002 }])
   await page.screenshot({ path: testInfo.outputPath('group-admitted.png'), fullPage: true })
 })
 
@@ -491,10 +508,10 @@ test('接入群失败时保留输入并在弹窗内说明原因', async ({ page 
   await groupAdministration(page)
   await page.getByRole('button', { name: '接入群组', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('群 ID').fill('-1003792975859')
+  await dialog.getByLabel('群 ID').fill('-1009000000002')
   await dialog.getByRole('button', { name: '确认接入' }).click()
   await expect(dialog).toContainText('无法访问此群')
-  await expect(dialog.getByLabel('群 ID')).toHaveValue('-1003792975859')
+  await expect(dialog.getByLabel('群 ID')).toHaveValue('-1009000000002')
 })
 
 test('普通群管理员没有接入任意群的入口', async ({ page }) => {
@@ -1104,6 +1121,26 @@ test('正文关键词可保存删消息并永久禁言并在预览显示', async
   await expect(page.getByText('正文命中删除消息并永久禁言', { exact: true })).toBeVisible()
 })
 
+test('关联频道自动置顶可单独关闭并保留手动置顶', async ({ page }) => {
+  await mock(page)
+  let saved: any = null
+  await page.route('**/api/groups/-1001/settings', async route => {
+    saved = route.request().postDataJSON().settings
+    await route.fulfill({ json: { ...groups[0], settings: { ...catalog.settings.defaults, ...saved } } })
+  })
+  await page.goto('/#/groups')
+  await page.getByRole('button', { name: '编辑设置', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('tab', { name: '防广告', exact: true }).click()
+  const toggle = dialog.getByRole('switch', { name: '取消关联频道自动置顶', exact: true })
+  await expect(toggle).not.toBeChecked()
+  await toggle.press('Space')
+  await expect(dialog.getByText('关联频道的新同步消息会自动取消置顶，手动置顶仍保留。机器人须有置顶消息权限。', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(saved.linked_channel_auto_unpin).toBe(true)
+})
+
 test('带按钮消息可单独开启删除并永久封禁', async ({ page }) => {
   await mock(page); await page.goto('/')
   await openPage(page, '群管理')
@@ -1153,7 +1190,7 @@ test('发图文字门槛默认三条并可以逐群关闭', async ({ page }) => 
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: '防广告', exact: true }).click()
   const field = dialog.locator('.el-form-item').filter({ hasText: '发图及表情前独立文字条数' }).getByRole('spinbutton')
-  await expect(dialog.getByText('发图门槛仅限有可靠入群记录的新成员', { exact: false })).toBeVisible()
+  await expect(dialog.getByText('仅限有可靠入群记录的新成员', { exact: false })).toBeVisible()
   await expect(dialog.getByText('或入群满 15 天即解除', { exact: false })).toBeVisible()
   await expect(field).toHaveValue('3')
   await field.fill('0'); await field.press('Tab')
@@ -1526,8 +1563,11 @@ test('功能完善：地址刷新和前进后退恢复规则查询与所选群',
   const search = page.getByRole('textbox', {name: '搜索规则', exact: true})
   await search.fill('保留已应用的规则筛选')
   await page.getByRole('button', {name: '查询规则', exact: true}).click()
-  await expect.poll(() => requested.at(-1)).toContain('query=')
-  await expect(page).toHaveURL(/filter=/)
+  await expect.poll(() => requested.at(-1)).toContain(`query=${encodeURIComponent('保留已应用的规则筛选')}`)
+  await expect(page).toHaveURL(url => {
+    const params = new URLSearchParams(url.hash.split('?')[1])
+    return JSON.parse(params.get('filter') || '{}').extra?.query === '保留已应用的规则筛选'
+  })
   const saved = page.url()
   await page.reload()
   await expect(search).toHaveValue('保留已应用的规则筛选')
@@ -1634,7 +1674,7 @@ test('功能完善：备份计划明确保留授权并可查看恢复演练结�
   await mock(page)
   let plan = {enabled: false, hour_beijing: 3, interval_days: 1, retention_days: 30, retention_count: 10, max_total_mb: 2048, prune_enabled: false, exercise_after_backup: true}
   let exercise = false, saved: any
-  await page.route('**/api/system/backups', route => route.fulfill({json: {plan, free_bytes: 10485760000, schedule: {}, items: [{
+  await page.route('**/api/system/backups', route => route.fulfill({json: {plan, pending: [], free_bytes: 10485760000, schedule: {}, items: [{
     file: 'purrai-20261110-000000-000000.sqlite3', bytes: 1048576, created_at: 1794300000, revision: '0025', managed: true,
     ...(exercise ? {exercise: {integrity_ok: true, foreign_keys_ok: true, compatible: true, checked_at: 1794300000, counts: {groups: 2}}} : {}),
   }]}}))

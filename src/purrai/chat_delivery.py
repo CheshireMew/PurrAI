@@ -15,8 +15,9 @@ from purrai.chat_retraction import finish_receipt
 from purrai.models import ChatTurn, now
 from purrai.schemas import GroupSettings
 from purrai.stickers import emoji_key
-from purrai.rules import ai_keyword_hints
+from purrai.rules import ai_keyword_hints, ai_keyword_rules
 from purrai.advertisement_store import latest_reviews
+from purrai.policy_work import PolicyExecution, policy_work
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class ChatDelivery:
     async def send(self, turn, cfg, original, sender_id, generated):
         result, fingerprint = generated.result, generated.fingerprint
         selected_sticker, text_message_id = generated.selected_sticker, generated.text_message_id
-        async with self.db.transaction() as session:
+        async with PolicyExecution(self.db) as session:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
                 if current.state not in ("retracting", "retracted", "retraction_failed"):
@@ -66,7 +67,7 @@ class ChatDelivery:
             if result.is_advertisement and generated.review_criteria is not None and generated.review_criteria != criteria_version(await effective_rules(session, turn.group_id)):
                 current.state, current.error = "skipped", "AI 审核标准已修改，取消旧广告判断"
                 return True
-            if result.is_advertisement and generated.keyword_hints is not None and generated.keyword_hints != ai_keyword_hints(
+            if result.is_advertisement and generated.keyword_hints is not None and generated.keyword_hints != await policy_work(session, ai_keyword_hints,
                 target.get("text", ""), await effective_rules(session, turn.group_id), target.get("name", "")
             ):
                 current.state, current.error = "skipped", "关键词或词义说明已修改，取消旧广告判断"
@@ -76,16 +77,18 @@ class ChatDelivery:
                     current.state, current.error = "done", "已有文字已发送，本次停止剩余发送"
                     finish_receipt(current)
                     return True
-                current.state = "silent"
                 if result.is_advertisement and not await latest_reviews(session, turn.group_id, [turn.message_id]):
                     cfg = GroupSettings.model_validate(group.settings)
                     target = next((row for row in generated.context if row["id"] == turn.message_id), {})
+                    matched = await policy_work(session, ai_keyword_rules, original,
+                        await effective_rules(session, turn.group_id), target.get("name", ""))
                     await remember_ad(session, turn.group_id, turn.message_id, original, sender_id=sender_id,
                                       sender_name=target.get("name", ""),
                                       cooldown=cfg.chat_advertiser_cooldown)
                     await record_ai_advertisement(session, group, sender_id, turn.message_id, original,
                         target.get("name", ""), protected_ids=self.receipts.settings.superadmin_ids,
-                        criteria=generated.review_criteria)
+                        criteria=generated.review_criteria, matched_rules=matched)
+                current.state = "silent"
                 current.error = "模型判断为广告，保持静默" if result.is_advertisement else (
                     "模型判断无需回复" if not result.should_reply else "模型未生成可发送内容")
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
@@ -114,7 +117,7 @@ class ChatDelivery:
                 current.error = "没有匹配的可发送贴纸"
                 logger.info("聊天未发送 turn=%s group=%s reason=%s", turn.id, turn.group_id, current.error)
             return True
-        async with self.db.transaction() as session:
+        async with PolicyExecution(self.db) as session:
             current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
             if not valid:
                 if current.state not in ("retracting", "retracted", "retraction_failed"):
@@ -124,7 +127,7 @@ class ChatDelivery:
                 return True
             latest_cfg = GroupSettings.model_validate(group.settings)
             rules = await effective_rules(session, turn.group_id)
-            reasons = output_reasons(
+            reasons = await policy_work(session, output_reasons,
                 result.text,
                 rules,
                 group.settings,
@@ -190,7 +193,7 @@ class ChatDelivery:
                 current.response = json.dumps(cached, ensure_ascii=False)
                 current.state = "generating"
         if selected_sticker:
-            async with self.db.transaction() as session:
+            async with PolicyExecution(self.db) as session:
                 current, group, valid = await self.context.valid_turn(session, turn, original, sender_id, generated.context)
                 if not valid:
                     if current.state not in ("retracting", "retracted", "retraction_failed"):

@@ -22,6 +22,7 @@ from purrai.verification_state import ACTIVE as ACTIVE
 class Service:
     def __init__(self, db, telegram, settings):
         self.db, self.tg, self.settings = db, telegram, settings
+        db.settings = settings
         self.access = GroupAccess(db, telegram, settings)
         self.trust = MemberTrust(settings)
         self.verification = VerificationService(db, telegram, settings)
@@ -60,6 +61,10 @@ class Service:
         return result
 
     async def message(self, message, edited=False, update_id=0, archived_at_receipt=False, chat_routing=False):
+        if message.get("is_automatic_forward") or message.get("pinned_message"):
+            from purrai.channel_pins import observe
+            async with self.db.transaction() as session:
+                await observe(session, message, edited=edited)
         result = await self.moderation.message(message, edited, update_id, archived_at_receipt)
         await self.advertisement_review.observe(message, edited, update_id, chat_routing=chat_routing)
         from purrai.message_identity import message_sender, sender_chat

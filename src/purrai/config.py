@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     chat_api_extra: dict = Field(default_factory=dict)
     chat_reply_api_extra: dict = Field(default_factory=dict)
     chat_reply_max_tokens: int | None = Field(default=None, ge=100, le=4096)
+    model_diagnostics_enabled: bool = False
+    model_diagnostics_retention_hours: int = Field(default=24, ge=1, le=168)
+    model_diagnostics_max_mb: int = Field(default=64, ge=1, le=1024)
+    review_payload_max_mb: int = Field(default=64, ge=1, le=4096)
+    review_payload_retention_hours: int = Field(default=48, ge=48, le=720)
+    review_history_retention_days: int = Field(default=30, ge=30, le=3650)
     chat_daily_calls: int = Field(default=2500, ge=1, le=100000)
     chat_group_daily_calls: int = Field(default=1000, ge=1, le=100000)
     chat_user_daily_calls: int = Field(default=300, ge=1, le=100000)

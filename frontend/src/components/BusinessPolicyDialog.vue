@@ -5,7 +5,8 @@ import { api } from '../api'
 import type { BusinessDocument, BusinessPolicy, BusinessRule } from '../businessPolicy'
 import { actions, expression } from '../businessPolicy'
 import { useWorkspace } from '../workspace'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useDraftClose } from '../composables/useDraftClose'
 import { usePreviewResult } from '../composables/usePreviewResult'
 import ConditionEditor from './ConditionEditor.vue'
@@ -20,7 +21,8 @@ const props = defineProps<{ open: boolean; groupId: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const dialog = computed({ get: () => props.open, set: value => { if (!value) emit('close') } })
 const { mutations } = useWorkspace()
-const { busy, error, safe } = useTask()
+const tasks = useTask(), reads = useLatestRequest(), safe = tasks.safe
+const { busy, error } = combineTasks(tasks, reads)
 const baseline = ref<BusinessPolicy | null>(null), document = ref<BusinessDocument | null>(null)
 const tab = ref('rules'), stageId = ref('advertising'), ruleId = ref(''), conditionId = ref(''), viewId = ref('')
 const stage = computed(() => document.value?.stages.find(item => item.id === stageId.value))
@@ -32,19 +34,15 @@ type Preview = { reasons: string[]; name_reasons: string[]; ban_member: boolean;
 const { result, run: runPreview, invalidate } = usePreviewResult<{ before: Preview; after: Preview; changed: boolean }>(() => [document.value, sample.value, props.groupId, props.open])
 const dirty = computed(() => !!baseline.value && JSON.stringify(document.value) !== JSON.stringify(baseline.value.document))
 const { requestClose } = useDraftClose(() => dirty.value, () => emit('close'), () => busy.value, () => props.open)
-let revision = 0
 async function load() {
-  const current = ++revision
-  await safe(async () => {
-    const response = await api<BusinessPolicy>('/api/settings/business-policy')
-    if (current !== revision || !props.open) return
+  await reads.run(() => api<BusinessPolicy>('/api/settings/business-policy'), response => {
     baseline.value = response; document.value = structuredClone(response.document)
     stageId.value = response.document.stages.find(item => item.id === 'advertising')?.id || response.document.stages[0]?.id || ''
     conditionId.value = response.document.conditions[0]?.id || ''; viewId.value = response.document.views[0]?.id || ''
     ruleId.value = stage.value?.rules[0]?.id || ''; invalidate()
   })
 }
-watch(() => props.open, open => { if (open) { baseline.value = null; document.value = null; error.value = ''; tab.value = 'rules'; void load() } else revision++ })
+watch(() => props.open, open => { if (open) { baseline.value = null; document.value = null; error.value = ''; tab.value = 'rules'; void load() } else reads.cancel() }, {flush: 'sync'})
 watch(stageId, () => { ruleId.value = stage.value?.rules[0]?.id || '' })
 function addRule() {
   if (!stage.value) return

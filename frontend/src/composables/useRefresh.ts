@@ -3,9 +3,20 @@ import { restoreNavigationScroll } from '../navigation'
 
 export function useRefresh(load: () => Promise<unknown>, refreshKey: () => number,
                            enabled?: () => boolean, background = load) {
-  const refresh = async () => { await load(); await restoreNavigationScroll(true) }
-  onMounted(refresh)
+  let pending = 0, disposed = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  async function run(work: () => Promise<unknown>) {
+    pending++
+    try { await work() } finally { pending-- }
+  }
+  const refresh = async () => { await run(load); if (!disposed) await restoreNavigationScroll(true) }
+  function schedule() { if (enabled && !disposed) timer = setTimeout(poll, 5000) }
+  async function poll() {
+    try {
+      if (!disposed && !pending && document.visibilityState !== 'hidden' && enabled?.()) await run(background)
+    } finally { schedule() }
+  }
+  onMounted(() => { schedule(); return refresh() })
   watch(refreshKey, refresh)
-  const timer = enabled ? setInterval(() => { if (document.visibilityState !== 'hidden' && enabled()) void background() }, 5000) : undefined
-  onUnmounted(() => clearInterval(timer))
+  onUnmounted(() => { disposed = true; clearTimeout(timer) })
 }

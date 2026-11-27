@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from purrai.action_delivery import deliver_once
 from purrai.action_queue import enqueue
 from purrai.advertisement_store import latest_reviews
+from purrai.advertisement_schemas import LOCAL_REVIEW_WINDOW_SECONDS
 from purrai.chat_state import blocked_message
 from purrai.errors import ManagementError
 from purrai.command_text import normalized_command
@@ -66,8 +67,10 @@ async def ranking(session, group_id, page=1):
 
 
 class PointsBot:
-    def __init__(self, db, tg):
+    def __init__(self, db, tg, answers=None):
         self.db, self.tg = db, tg
+        from purrai.callback_answers import CallbackAnswers
+        self.answers = answers or CallbackAnswers(tg, getattr(db, "settings", None))
 
     async def observe(self, message, *, edited=False):
         chat, user = message.get("chat", {}), message.get("from", {})
@@ -118,7 +121,7 @@ class PointsBot:
                 text, keyboard = await ranking(session, group_id, int(parts[2]))
                 await self.tg.call("edit_message_text", chat_id=group_id, message_id=message["message_id"],
                                    text=text, parse_mode="HTML", reply_markup=keyboard)
-                await self.tg.call("answer_callback_query", callback_query_id=query["id"])
+                await self.answers.send(query["id"])
                 return True
             packet = await session.get(PointsPacket, parts[2]) if len(parts) == 3 and parts[1] == "claim" else None
             if packet and packet.group_id == group_id:
@@ -138,15 +141,21 @@ class PointsBot:
                                 answer = str(exc)
                     else:
                         answer = "只有仍在本群的成员可以领取。"
-        await self.tg.call("answer_callback_query", callback_query_id=query["id"], text=answer, show_alert=True)
+        await self.answers.send(query["id"], answer, show_alert=True)
         return True
+
+    async def close(self):
+        await self.answers.close()
 
 
 async def process_message(call, session, action, group):
     if not group or not group.approved:
         action.state = "cancelled"
         return
-    message = action.payload["message"]
+    if action.payload.get("source_expired") and "reply" not in action.payload:
+        action.state, action.error = "cancelled", "原消息运行副本已到保留期限，不能重放旧积分指令"
+        return
+    message = action.payload.get("message") or action.payload.get("reply_source") or {}
     policy = await get_policy(session, group.id)
     if action.payload.get("menu_operation"):
         if await matched_action(session, group.id, message["text"]) != action.payload["menu_operation"]:
@@ -180,7 +189,7 @@ async def process_message(call, session, action, group):
             if review.state in ("pending", "requesting"):
                 # The terminal verdict wakes this exact reward in the same transaction.
                 # The deadline also recovers older jobs without a wakeup receipt.
-                action.available_at = max(now() + 60, review.event_at + 47 * 3600)
+                action.available_at = max(now() + 60, review.event_at + LOCAL_REVIEW_WINDOW_SECONDS)
                 return False
             if review.state not in ("clean", "exempt", "ignored"):
                 action.state, action.error = "cancelled", "此消息未通过广告审核"

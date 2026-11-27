@@ -1,5 +1,5 @@
 import { effectScope, reactive } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { usePreviewResult } from './usePreviewResult'
 
 describe('预览与当前输入绑定', () => {
@@ -23,8 +23,13 @@ describe('预览与当前输入绑定', () => {
     await preview.run(async () => '最新结果')
     reject(new Error('旧请求失败')); await earlier
     expect(preview.result.value).toBe('最新结果')
+    const failure = new Error('当前预览失败')
+    await expect(preview.run(async () => { throw failure })).rejects.toBe(failure)
     const pending = preview.run(() => new Promise<string>(done => { resolve = done }))
     scope.stop(); resolve('离开后的结果'); await pending
     expect(preview.result.value).toBeNull()
+    const read = vi.fn(async () => '离开后再次请求')
+    await preview.run(read)
+    expect(read).not.toHaveBeenCalled()
   })
 })

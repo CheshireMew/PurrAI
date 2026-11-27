@@ -1,5 +1,8 @@
 """Telegram panels for configuration panels."""
 
+from purrai.errors import ManagementError
+from purrai.schemas import EmojiPackChange
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -13,6 +16,20 @@ from purrai.schemas import (
 
 
 class ConfigurationPanels:
+    ACTIONS = (
+        "settings",
+        "chat_toggle",
+        "chat_reset",
+        "failure_policy",
+        "verification_method",
+        "toggle",
+        "emoji_packs",
+        "emoji_pack_remove",
+        "emoji_packs_clear_confirm",
+        "emoji_packs_clear",
+    )
+    INPUTS = ("chat_setting", "emoji_packs", "telegram_links", "verification_channel", "setting")
+
     def __init__(self, management, ui, state):
         self.management, self.panel, self.send = management, ui.panel, ui.send
         self.tg, self.remember = ui.tg, state.remember
@@ -218,3 +235,127 @@ class ConfigurationPanels:
             message_id,
             resume={"action": "emoji_packs", "data": {"page": page}},
         )
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "settings":
+            await self.settings_panel(actor, group_id, data["section"], message_id)
+        elif action == "chat_toggle":
+            if data["key"] not in (
+                "chat_enabled",
+                "chat_proactive",
+                "chat_stickers",
+                "chat_antifraud",
+                "chat_command_learning",
+                "chat_advertiser_cooldown",
+            ):
+                raise ManagementError(422, "聊天配置项不存在")
+            await self.management.setting(actor, group_id, data["key"], data["value"], request_id)
+            await self.chat_panel(actor, group_id, message_id)
+        elif action == "chat_reset":
+            await self.management.reset_chat(actor, group_id, request_id)
+            await self.send(actor, "已重新开始聊天；历史归档仍然保留。")
+            await self.chat_panel(actor, group_id, message_id)
+        elif action in ("failure_policy", "verification_method"):
+            await self.management.setting(
+                actor,
+                group_id,
+                "verification_failure_action" if action == "failure_policy" else "verification_method",
+                data["value"],
+                request_id,
+            )
+            await self.settings_panel(actor, group_id, "verification", message_id)
+        elif action == "toggle":
+            if data["key"] not in BOOLEANS:
+                raise ManagementError(422, "配置项不存在")
+            await self.management.setting(actor, group_id, data["key"], data["value"], request_id)
+            await self.settings_panel(actor, group_id, data["section"], message_id)
+        elif action == "emoji_packs":
+            await self.emoji_packs_panel(actor, group_id, data.get("page", 0), message_id)
+        elif action == "emoji_pack_remove":
+            await self.management.change_status_packs(
+                actor,
+                group_id,
+                EmojiPackChange(operation="remove", packs=[data["pack"]], request_id=request_id),
+            )
+            await self.send(actor, f"已从黑名单移除 {data['pack']}；已有禁言不会自动解除。")
+            await self.emoji_packs_panel(actor, group_id, data.get("page", 0), message_id)
+        elif action == "emoji_packs_clear_confirm":
+            await self.management.authorize(actor, group_id, write=True)
+            await self.panel(
+                actor,
+                "确认清空本群的状态表情包黑名单？已有封禁或禁言不会自动解除。",
+                [button("确认清空", "emoji_packs_clear"), button("取消并返回", "emoji_packs")],
+                group_id,
+                message_id,
+            )
+        elif action == "emoji_packs_clear":
+            await self.management.change_status_packs(
+                actor, group_id, EmojiPackChange(operation="clear", request_id=request_id)
+            )
+            await self.emoji_packs_panel(actor, group_id, message_id=message_id)
+
+    async def input(self, actor, group_id, text, data, request_id):
+        kind = data["kind"]
+        if kind == "chat_setting":
+            key = data["key"]
+            if key not in CHAT_FIELDS:
+                raise ManagementError(422, "聊天配置项不存在")
+            value = text
+            if key in (
+                "chat_history",
+                "chat_interval",
+                "chat_sticker_interval",
+                "chat_antifraud_interval",
+                "chat_command_threshold",
+            ):
+                if not text.isdecimal():
+                    raise ManagementError(422, "请发送有效的整数")
+                value = int(text)
+            elif key in ("chat_sticker_packs", "chat_antifraud_packs"):
+                import re
+
+                value = [] if text.strip() == "-" else re.split("[\\s,，]+", text.strip())
+            elif key == "chat_no_reply_user_ids":
+                values = [] if text.strip() == "-" else text.split()
+                if any((not value.isascii() or not value.isdecimal() or int(value) <= 0 for value in values)):
+                    raise ManagementError(422, "请填写用户的正数数字 ID，每行一个")
+                value = [int(item) for item in values]
+            elif key in ("chat_ignored_texts", "chat_command_exceptions"):
+                value = [] if text.strip() == "-" else text.splitlines()
+            await self.management.setting(actor, group_id, key, value, request_id)
+            await self.chat_panel(actor, group_id)
+        elif kind == "emoji_packs":
+            import re
+
+            if text.strip() == "-":
+                raise ManagementError(
+                    422, "这里只新增，不会清空名单。请发送 /cancel 后在黑名单面板点击清空。"
+                )
+            body = EmojiPackChange(
+                packs=[item for item in re.split("[\\s,，]+", text.strip()) if item], request_id=request_id
+            )
+            result = await self.management.change_status_packs(actor, group_id, body)
+            await self.send(
+                actor,
+                f"已新增 {len(result['added'])} 个表情包，原名单已保留。"
+                if result["added"]
+                else "这些表情包已在黑名单中，无需重复添加。",
+            )
+            await self.emoji_packs_panel(actor, group_id)
+        elif kind == "telegram_links":
+            values = [] if text.strip() == "-" else text.split()
+            await self.management.setting(actor, group_id, "telegram_allowed_links", values, request_id)
+            await self.send(actor, "允许链接名单已保存。")
+            await self.settings_panel(actor, group_id, "moderation")
+        elif kind == "verification_channel":
+            await self.management.setting(
+                actor, group_id, "verification_channel", "" if text.strip() == "-" else text, request_id
+            )
+            await self.send(actor, "订阅验证频道已保存。")
+            await self.settings_panel(actor, group_id, "verification")
+        elif kind == "setting":
+            if not text.isdecimal():
+                raise ManagementError(422, "请发送有效的非负整数；发送 /cancel 可取消")
+            await self.management.setting(actor, group_id, data["key"], int(text), request_id)
+            await self.send(actor, "群设置已保存。")
+            await self.settings_panel(actor, group_id, data["section"])

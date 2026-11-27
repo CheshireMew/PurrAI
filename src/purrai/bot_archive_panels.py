@@ -1,5 +1,9 @@
 """Telegram panels for archive panels."""
 
+from datetime import datetime
+from purrai.errors import ManagementError
+from zoneinfo import ZoneInfo
+
 from purrai.bot_common import button, clock, text_pages
 from purrai.schemas import (
     ArchiveFilter,
@@ -7,6 +11,9 @@ from purrai.schemas import (
 
 
 class ArchivePanels:
+    ACTIONS = ("archive", "archive_detail", "archive_toggle", "archive_export")
+    INPUTS = ("archive_query", "archive_sender", "archive_dates")
+
     def __init__(self, management, ui, state):
         self.management, self.panel, self.send = management, ui.panel, ui.send
         self.tg, self.remember = ui.tg, state.remember
@@ -122,3 +129,58 @@ class ArchivePanels:
             message_id,
             resume={"action": "archive_detail", "data": {**context, "version": version, "part": part}},
         )
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "archive":
+            await self.archive_panel(actor, group_id, data.get("filters"), data.get("page", 0), message_id)
+        elif action == "archive_detail":
+            await self.archive_detail(actor, group_id, data, message_id)
+        elif action == "archive_toggle":
+            group = await self.management.authorize(actor, group_id)
+            await self.management.setting(
+                actor,
+                group_id,
+                "archive_enabled",
+                not group.settings.get("archive_enabled", True),
+                request_id,
+            )
+            await self.archive_panel(actor, group_id, message_id=message_id)
+        elif action == "archive_export":
+            task = await self.management.archive_export(
+                actor, group_id, ArchiveFilter.model_validate(data["filters"]), request_id
+            )
+            await self.management.track(actor, group_id, actor, [task["id"]], request_id)
+            await self.send(actor, "导出已受理，完成后会在私聊发送 JSONL 文件；可在操作记录查看结果。")
+
+    async def input(self, actor, group_id, text, data, request_id):
+        kind = data["kind"]
+        if kind.startswith("archive_"):
+            filters = dict(data.get("filters", {}))
+            if kind == "archive_query":
+                filters["query"] = "" if text == "-" else text
+            elif kind == "archive_sender":
+                try:
+                    filters["sender_id"] = None if text == "-" else int(text)
+                except ValueError as exc:
+                    raise ManagementError(422, "请发送有效的数字 ID，或发送 - 清除") from exc
+            elif kind == "archive_dates":
+                if text == "-":
+                    filters.update(after=0, before=0)
+                else:
+                    try:
+                        start, end = text.split("/", 1)
+                        filters.update(
+                            after=datetime.strptime(start.strip(), "%Y-%m-%d %H:%M")
+                            .replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+                            .timestamp(),
+                            before=datetime.strptime(end.strip(), "%Y-%m-%d %H:%M")
+                            .replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+                            .timestamp(),
+                        )
+                    except ValueError as exc:
+                        raise ManagementError(
+                            422, "时间格式示例：2026-10-01 00:00 / 2026-10-20 00:00"
+                        ) from exc
+            ArchiveFilter.model_validate(filters)
+            await self.remember(f"bot_prompt:{actor}", None)
+            await self.archive_panel(actor, group_id, filters)

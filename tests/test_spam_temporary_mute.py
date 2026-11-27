@@ -9,7 +9,7 @@ async def test_configured_hour_window_catches_ten_to_thirty_minute_repeats(env, 
     import json
     from pathlib import Path
 
-    settings = json.loads((Path(__file__).resolve().parents[1] / "data/policies/slow-spam-20261115.json").read_text(encoding="utf-8"))["group_settings"]
+    settings = json.loads((Path(__file__).resolve().parents[1] / "tests/fixtures/slow_spam_policy.json").read_text(encoding="utf-8"))["group_settings"]
     response = await client.patch("/api/groups/-1001/settings", json={"settings": settings})
     assert response.status_code == 200, response.text
     _, db, tg, service = env

@@ -499,9 +499,15 @@ async def test_optional_sample_mute_uses_configured_action(env):
 
 
 @pytest.mark.parametrize("change", ["unknown", "duplicate", "invalid"])
-async def test_invalid_batch_result_never_silently_passes_a_message(env, change):
+@pytest.mark.parametrize("history", [False, True])
+async def test_invalid_batch_result_never_silently_passes_a_message(env, change, history):
     worker, model = await reviewer(env)
-    await env[3].message(message(1, "本条消息测试无效模型响应的恢复行为"))
+    if history:
+        async with env[1].transaction() as session:
+            session.add(AdvertisementSample(group_id=-1001, text="任意待复核的历史文本", scope="context",
+                                           source="history", source_key="invalid-history", review_state="pending"))
+    else:
+        await env[3].message(message(1, "本条消息测试无效模型响应的恢复行为"))
     original = model.completion
     async def malformed(*args, **kwargs):
         result, tokens = await original(*args, **kwargs)
@@ -515,7 +521,11 @@ async def test_invalid_batch_result_never_silently_passes_a_message(env, change)
         return result, tokens
     model.completion = malformed
     await worker.run_one()
-    assert (await records(env[1], AdvertisementReview))[0].state == "pending"
+    if history:
+        assert (await records(env[1], AdvertisementSample))[0].review_state == "pending"
+        assert not await records(env[1], Action)
+    else:
+        assert (await records(env[1], AdvertisementReview))[0].state == "pending"
     assert not await records(env[1], Violation)
 
 

@@ -29,11 +29,8 @@ async def credit(session, account, delta, key, kind, reason, actor=0):
         PointsEntry.group_id == account.group_id, PointsEntry.request_id == key))
     if existing:
         return existing.result
-    if not 0 <= account.balance + delta <= MAX_POINTS:
-        raise ManagementError(409, "积分不足或积分超出允许范围")
-    account.balance += delta
-    account.version += 1
-    return await PointsLedger.entry(session, account, actor, key, kind, delta, reason, {"account_id": account.id, "delta": delta})
+    return await PointsLedger.apply_delta(session, account, delta, actor, key, kind, reason,
+                                          {"account_id": account.id, "delta": delta})
 
 
 async def daily_record(session, group_id, user_id, timestamp):
@@ -53,8 +50,8 @@ async def earn(session, account, policy, message, kind):
     if kind == "signin":
         if daily.signed:
             return f"今天已经签到啦，当前 {account.balance} 积分。"
-        daily.signed = True
         await credit(session, account, policy.signin_points, key, "signin", "每日签到", account.user_id)
+        daily.signed = True
         return f"签到成功，+{policy.signin_points} 积分！当前 {account.balance} 积分。"
     text = message.get("text") or ""
     digest = hashlib.sha256("".join(text.split()).casefold().encode()).hexdigest()
@@ -95,6 +92,8 @@ async def create_packet(session, account, policy, message, arguments):
 
 
 async def claim_packet(session, packet, user):
+    from purrai.group_access import GroupAccess
+    await GroupAccess.current_group(session, packet.group_id)
     previous = await session.get(PointsClaim, (packet.id, user["id"]))
     if previous:
         return f"你已经领取过 {previous.points} 积分。"
@@ -114,12 +113,23 @@ async def claim_packet(session, packet, user):
     return f"领取成功，+{amount} 积分！当前 {account.balance} 积分。"
 
 
-async def refund_expired(session):
-    packets = await session.scalars(select(PointsPacket).where(
-        PointsPacket.expires_at <= now(), PointsPacket.refunded.is_(False)).limit(100))
+async def refund_expired(session, limit=100):
+    # Ineligible refunds remain durable, but cannot occupy every slot in a
+    # bounded batch. Oldest eligible packets are settled before new arrivals.
+    packets = (await session.scalars(select(PointsPacket).outerjoin(PointsAccount,
+        (PointsAccount.group_id == PointsPacket.group_id) & (PointsAccount.user_id == PointsPacket.sender_id)
+    ).where(PointsPacket.expires_at <= now(), PointsPacket.refunded.is_(False),
+        (PointsPacket.remaining == 0) | ((PointsAccount.id.is_not(None))
+            & (PointsAccount.balance <= MAX_POINTS - PointsPacket.remaining))
+    ).order_by(PointsPacket.expires_at, PointsPacket.id).limit(limit))).all()
     for packet in packets:
         if packet.remaining:
             account = await session.scalar(select(PointsAccount).where(
                 PointsAccount.group_id == packet.group_id, PointsAccount.user_id == packet.sender_id))
+            # Earlier packets in this same transaction may have filled the
+            # account. Never discard the remaining refund or overflow credit.
+            if account is None or account.balance > MAX_POINTS - packet.remaining:
+                continue
             await credit(session, account, packet.remaining, f"packet-refund:{packet.id}", "packet_refund", "红包过期，退回未领取积分")
         packet.remaining, packet.remaining_count, packet.refunded = 0, 0, True
+    return len(packets)

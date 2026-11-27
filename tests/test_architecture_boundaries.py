@@ -18,7 +18,7 @@ from purrai.sender_identity import sender_name
 
 def test_runtime_and_bot_boundaries_do_not_reintroduce_storage_details():
     root = Path(__file__).resolve().parents[1] / "src/purrai"
-    for module in ("runtime", "bot_input", "bot_routes"):
+    for module in ("runtime", "bot_input", "bot_routes", "points_api"):
         tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -144,3 +144,38 @@ async def test_shared_permanent_mute_enqueue_preserves_precedence_keys_and_evide
         assert penalties[0].dedupe_key == expected.replace("_", "-") + ":mixed-evidence"
         assert penalties[0].payload["generation"]
         assert penalties[0].payload["rule_evidence"]["sender_name"] == violation.sender_name
+
+
+async def test_lottery_and_menu_administration_run_with_only_shared_context(env):
+    from purrai.admin_context import AdminContext
+    from purrai.group_access import GroupAccess
+    from purrai.group_menu_admin import GroupMenuAdmin
+    from purrai.group_menu_schemas import MenuSave
+    from purrai.lottery_admin import LotteryAdmin
+    from purrai.lottery_schemas import LotterySave
+
+    settings, db, tg, _ = env
+    context = AdminContext(db, tg, settings, GroupAccess(db, tg, settings))
+    lottery, menu = LotteryAdmin(context), GroupMenuAdmin(context)
+    body = LotterySave(config={"title": "Context only", "prizes": [{"name": "Prize"}]})
+    saved = await lottery.save(1, -1001, body, "context-lottery")
+    assert (await lottery.page(1, -1001))["items"] == [saved]
+    before = await menu.get(1, -1001)
+    configured = await menu.change(1, -1001, MenuSave(config=before["config"], version=before["version"]),
+                                   "context-menu", save=True)
+    assert await menu.get(1, -1001) == configured
+    for read in (lottery.page, menu.get):
+        with pytest.raises(ManagementError) as denied:
+            await read(555, -1001)
+        assert denied.value.status == 403
+
+
+@pytest.mark.parametrize("names", [("new", "existing"), ("new", "new")])
+def test_bot_registration_rejects_duplicate_owners_without_partially_replacing_handlers(names):
+    from purrai.bot_panels import BotPanels
+
+    original, replacement = object(), object()
+    handlers = {"existing": original}
+    with pytest.raises(ValueError, match="Duplicate Telegram handlers"):
+        BotPanels.register(handlers, names, replacement)
+    assert handlers == {"existing": original}

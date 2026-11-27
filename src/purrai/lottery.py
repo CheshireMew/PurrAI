@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, update
 
 from purrai.action_queue import enqueue
 from purrai.errors import ManagementError
@@ -72,14 +72,21 @@ async def award(session, entry, index, prize):
     await settle(session, entry)
 
 
-async def cancel(session, row):
+async def cancel(session, row, *, settlement_limit=100):
     config = LotteryConfig.model_validate(row.config)
     if row.state not in ("draft", "open") or config.mode == "instant" and row.state == "open":
         raise ManagementError(409, "此活动不能取消；即时抽奖发布后请使用结束活动")
-    entries = await session.scalars(select(LotteryEntry).where(LotteryEntry.lottery_id == row.id))
-    for entry in entries:
-        entry.state = "refund_pending" if entry.fee else "refunded"
-        if entry.fee:
+    await session.flush()
+    await session.execute(update(LotteryEntry).where(LotteryEntry.lottery_id == row.id).values(
+        state=case((LotteryEntry.fee > 0, "refund_pending"), else_="refunded"))
+        .execution_options(synchronize_session=False))
+    for entry in list(session.identity_map.values()):
+        if isinstance(entry, LotteryEntry) and entry.lottery_id == row.id:
+            entry.state = "refund_pending" if entry.fee else "refunded"
+    # Cancellation is immediate; a large refund is durable bounded maintenance,
+    # rather than thousands of account mutations holding the only writer.
+    if settlement_limit:
+        for entry in await settlement_entries(session, settlement_limit, row.id):
             await settle(session, entry)
     was_open = row.state == "open"
     row.state, row.finished_at, row.version = "cancelled", now(), row.version + 1
@@ -91,18 +98,29 @@ async def draw(session, row):
     config = LotteryConfig.model_validate(row.config)
     if row.state != "open" or config.mode != "raffle":
         raise ManagementError(409, "只有进行中的报名抽奖可以开奖")
-    entries = (await session.scalars(select(LotteryEntry).where(
-        LotteryEntry.lottery_id == row.id, LotteryEntry.state == "joined").order_by(LotteryEntry.id))).all()
-    if len(entries) < config.min_participants:
+    eligible = (LotteryEntry.lottery_id == row.id, LotteryEntry.state == "joined")
+    count = await session.scalar(select(func.count()).select_from(LotteryEntry).where(*eligible))
+    if count < config.min_participants:
         await cancel(session, row)
         return
     slots = [(index, prize) for index, prize in enumerate(config.prizes) for _ in range(prize.quantity)]
-    selected = secrets.SystemRandom().sample(entries, min(len(entries), len(slots)))
-    for entry in entries:
-        entry.state = "lost"
+    positions = secrets.SystemRandom().sample(range(count), min(count, len(slots)))
+    ranked = select(LotteryEntry.id, func.row_number().over(order_by=LotteryEntry.id).label("position"))
+    ranked = ranked.where(*eligible).subquery()
+    selected_rows = (await session.scalars(select(LotteryEntry).where(LotteryEntry.id.in_(
+        select(ranked.c.id).where(ranked.c.position.in_([position + 1 for position in positions])))))).all()
+    # Keep the cryptographic sample's random assignment to prize slots.
+    ordered = sorted(selected_rows, key=lambda entry: entry.id)
+    mapping = dict(zip(sorted(positions), ordered))
+    selected = [mapping[position] for position in positions]
+    await session.execute(update(LotteryEntry).where(*eligible).values(state="lost")
+                          .execution_options(synchronize_session=False))
+    for entry in list(session.identity_map.values()):
+        if isinstance(entry, LotteryEntry) and entry.lottery_id == row.id and entry.state == "joined":
+            entry.state = "lost"
     for entry, (index, prize) in zip(selected, slots):
         await award(session, entry, index, prize)
-    row.state, row.finished_at, row.draw_count = "drawn", now(), len(entries)
+    row.state, row.finished_at, row.draw_count = "drawn", now(), count
     row.version += 1
     await notice(session, row, "result", "draw")
 
@@ -202,14 +220,32 @@ async def remaining_prizes(session, row):
     return [max(0, prize["quantity"] - counts.get(index, 0)) for index, prize in enumerate(row.config["prizes"])]
 
 
-async def cycle(session):
-    for row in await session.scalars(select(Lottery).where(Lottery.state == "open").order_by(Lottery.created_at)):
-        await expire(session, row)
-    entries = await session.scalars(select(LotteryEntry).where(
+async def settlement_entries(session, limit, lottery_id=None):
+    amount = case((LotteryEntry.state == "refund_pending", LotteryEntry.fee), else_=LotteryEntry.reward_points)
+    query = select(LotteryEntry).outerjoin(PointsAccount,
+        (PointsAccount.group_id == LotteryEntry.group_id) & (PointsAccount.user_id == LotteryEntry.user_id)
+    ).where(
         (LotteryEntry.state == "refund_pending") | ((LotteryEntry.state == "won")
-            & (LotteryEntry.reward_points > 0) & LotteryEntry.fulfilled.is_(False))).limit(100))
+            & (LotteryEntry.reward_points > 0) & LotteryEntry.fulfilled.is_(False)),
+        func.coalesce(PointsAccount.balance, 0) <= MAX_POINTS - amount,
+    )
+    if lottery_id is not None:
+        query = query.where(LotteryEntry.lottery_id == lottery_id)
+    return (await session.scalars(query.order_by(LotteryEntry.created_at, LotteryEntry.id).limit(limit))).all()
+
+
+async def cycle(session, limit=100):
+    due = select(Lottery).where(Lottery.state == "open", Lottery.config["draw_mode"].as_string() == "time",
+        Lottery.config["ends_at"].as_float() <= now()).order_by(Lottery.created_at, Lottery.id).limit(10)
+    for row in await session.scalars(due):
+        if row.config["mode"] == "raffle" and row.participant_count < row.config["min_participants"]:
+            await cancel(session, row, settlement_limit=0)
+        else:
+            await expire(session, row)
+    entries = await settlement_entries(session, limit)
     for entry in entries:
         await settle(session, entry)
+    return len(entries)
 
 
 def outcome(entry):

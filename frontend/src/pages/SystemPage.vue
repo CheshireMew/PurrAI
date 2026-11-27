@@ -1,36 +1,43 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { post } from '../api'
-import type { Operation, Page, SystemStatus, WorkerStatus } from '../types'
+import type { Page, SystemStatus, WorkerStatus } from '../types'
+import type { Action, FailedEvent } from '../adminApi'
 import DeliveryReviewDialog from '../components/DeliveryReviewDialog.vue'
 import BackupsDialog from '../components/BackupsDialog.vue'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ refreshKey: number }>()
-const { actionTracker, catalog } = useWorkspace()
-const reads = useTask(), actions = useTask(), system = ref<Partial<SystemStatus> & { workers?: WorkerStatus[] }>({})
-const busy = computed(() => reads.busy.value || actions.busy.value)
-const error = computed({ get: () => actions.error.value || reads.error.value,
-  set: value => { actions.error.value = value; reads.error.value = value } })
+const { actionTracker, catalog, mutations } = useWorkspace()
+const reads = useLatestRequest(), actions = useTask(), system = ref<Partial<SystemStatus> & { workers?: WorkerStatus[] }>({})
+const { busy, error } = combineTasks(actions, reads)
 const failurePage = ref(1), eventPage = ref(1), failureTotal = ref(0), eventTotal = ref(0)
-const reviewing = ref<Operation | null>(null)
+const reviewing = ref<Action | null>(null)
 const backupsOpen = ref(false)
 const alerts = ref<{name: string; active: boolean; message: string; changed_at: number}[]>([])
-async function load() { await reads.safe(async () => {
+async function load() { await reads.run(async () => {
   const [status, failures, events, episodes] = await Promise.all([api<SystemStatus>('/api/system'),
-    api<Page<Operation>>(`/api/system/failures?page_number=${failurePage.value}`),
-    api<Page<{id: number; error: string}>>(`/api/system/failures?event=true&page_number=${eventPage.value}`),
+    api<Page<Action>>(`/api/system/failures?page_number=${failurePage.value}`),
+    api<Page<FailedEvent>>(`/api/system/failures?event=true&page_number=${eventPage.value}`),
     api<typeof alerts.value>('/api/system/alerts')])
+  return {status, failures, events, episodes}
+}, ({status, failures, events, episodes}) => {
   alerts.value = episodes
   system.value = { ...status, failed_actions: failures.items, failed_events: events.items }
   failureTotal.value = failures.total; eventTotal.value = events.total
 }) }
 async function systemAction(path: string) {
-  if (await actions.safe(async () => { await post(path); ElMessage.success('操作已提交'); await actionTracker.refresh(true) })) await load()
+  if (await actions.safe(async () => {
+    if (path === '/api/system/backup') {
+      await mutations.submit(path, 'POST', {}, undefined, '生成数据库备份')
+      ElMessage.success('备份已完成')
+    } else { await mutations.submit(path, 'POST', {}, undefined, '重试失败任务'); ElMessage.success('操作已提交') }
+    await actionTracker.refresh(true)
+  })) await load()
 }
 useRefresh(load, () => props.refreshKey, () => !busy.value)
 </script>
@@ -68,8 +75,9 @@ useRefresh(load, () => props.refreshKey, () => !busy.value)
 <el-alert v-else-if="system.telegram_health?.warnings?.some(item => item.purpose === 'source_check')" title="原消息核对暂未确认恢复，正在等待下一次核对结果。" type="warning" :closable="false"/>
 <el-alert v-if="system.telegram_health?.warnings?.some(item => item.purpose === 'profile_lookup')" title="用户简介暂时无法读取，正文审核仍在继续。" type="warning" :closable="false"/>
 <p class="muted">最近备份：{{ system.last_backup || '尚未生成' }}</p>
-<p v-if="system.chat_budget" class="muted">今日 AI 模型请求 {{ system.chat_budget.global_calls }}/{{ system.chat_budget.global_call_limit }}；Token 预算 {{ system.chat_budget.global_tokens }}/{{ system.chat_budget.global_token_limit }}。按北京时间零点重置，达到上限只暂停 AI 聊天。</p>
+<p v-if="system.chat_budget" class="muted">今日 AI 模型请求 {{ system.chat_budget.global_calls }}/{{ system.chat_budget.global_call_limit }}；Token 预算 {{ system.chat_budget.global_tokens }}/{{ system.chat_budget.global_token_limit }}。按北京时间零点重置；达到上限后，AI 聊天暂停，AI 广告审核等待额度恢复，本地规则和样本匹配继续执行。</p>
 <el-alert v-if="system.archive_status" :title="system.archive_status" type="warning" :closable="false"/>
+<el-alert v-if="system.review_storage && (system.review_storage.bytes >= system.review_storage.limit_bytes * 0.9 || system.review_storage.limited && system.review_storage.limited.at > Date.now() / 1000 - 86400)" title="广告审核暂存接近额度，或最近有消息因容量不足未送入模型；群规则仍在检查。" type="warning" :closable="false"/>
 <el-alert v-if="system.last_error" :title="system.last_error" type="warning" :closable="false"/>
 <el-alert v-for="alert in alerts.filter(item => item.active && !(item.name === '原消息核对' && system.source_checks))" :key="alert.name" :title="`${alert.name}：${alert.message}`" type="warning" :closable="false"/>
 <p v-for="worker in system.workers?.filter(row => row.state !== 'running')" :key="worker.name">{{ worker.name }} · {{ worker.state === 'retrying' ? '正在恢复' : '已停止' }} · 已重启 {{ worker.restarts }} 次</p>

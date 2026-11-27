@@ -60,7 +60,7 @@ async def test_three_day_observation_covers_all_requested_content(env, age, obse
         message(1, "频道内容", forward_origin={"type": "channel", "date": 1,
                 "chat": {"id": -2001, "type": "channel"}, "message_id": 1}),
         message(2, "用户内容", forward_origin={"type": "hidden_user", "date": 1, "sender_user_name": "A"}),
-        message(3, "@-1002274900898 @public_group"),
+        message(3, "@-1009000000001 @public_group"),
     ]
     if observed:
         messages.extend([

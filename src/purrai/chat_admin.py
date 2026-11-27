@@ -62,8 +62,9 @@ class ChatAdministration:
         from purrai.models import ChatTurn
 
         await self.context.access.authorize(actor, group_id, write=True)
+        intent = {"operation": "chat_reset", "group_id": group_id}
         async with self.context.access.group_transaction(group_id) as session:
-            previous = await self.context.previous(session, actor, request_id)
+            previous = await self.context.previous(session, actor, request_id, intent)
             if previous is not None:
                 return previous
             key = f"chat_reset:{group_id}"
@@ -81,5 +82,5 @@ class ChatAdministration:
                 .values(state="skipped")
             )
             return await self.context.record(
-                session, actor, group_id, "settings", "重新开始群聊天", {}, request_id
+                session, actor, group_id, "settings", "重新开始群聊天", {}, request_id, intent
             )

@@ -28,6 +28,8 @@ from purrai.diagnostics import failure
 from purrai.models import ChatTurn, Group, now
 from purrai.schemas import GroupSettings
 from purrai.stickers import Stickers
+from purrai.policy_work import PolicyExecution
+from purrai.action_execution import ActionSuperseded
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +90,7 @@ class GroupChat:
                         request_timeout=2,
                     )
             # Typing notification can yield to moderation. Refresh just before the paid request.
-            async with self.db.transaction() as session:
+            async with PolicyExecution(self.db) as session:
                 current = await session.get(ChatTurn, turn.id)
                 group = await session.get(Group, turn.group_id)
                 cfg = GroupSettings.model_validate(group.settings)
@@ -113,6 +115,11 @@ class GroupChat:
                 if not await self.complete_shared_review(turn, generated):
                     return True
             return await self.delivery.deliver(turn, cfg, original, sender_id, generated)
+        except ActionSuperseded:
+            async with self.db.transaction() as session:
+                current = await session.get(ChatTurn, turn.id)
+                if current and current.state == "generating":
+                    current.state, current.available_at, current.error = "pending", now(), "来源或配置已变化，重新检查"
         except BudgetCooldown as exc:
             async with self.db.transaction() as session:
                 current = await session.get(ChatTurn, turn.id)

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type * as Api from '../adminApi'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { stateLabel } from '../catalog'
@@ -8,14 +9,11 @@ import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefresh } from '../composables/useRefresh'
 import { useDraftClose } from '../composables/useDraftClose'
 
-type MenuAction = 'signin' | 'balance' | 'lottery'
-type MenuStyle = 'default' | 'primary' | 'success' | 'danger'
-interface Button { text: string; action: MenuAction; style: MenuStyle }
-interface Config { rows: Button[][] }
-interface MenuDocument {
-  config: Config; version: number; active: boolean; needs_update: boolean
-  delivery: { id: string; state: string; error: string; operation: 'publish' | 'clear' } | null
-}
+type Button = Required<Api.MenuButton>
+type MenuAction = Button['action']
+type MenuStyle = Button['style']
+type Config = { rows: Button[][] }
+type MenuDocument = Omit<Api.Menu, 'config'> & { config: Config }
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const { mutations } = useWorkspace()
 const { busy, error, safe, run } = useLatestRequest()
@@ -79,7 +77,7 @@ async function reloadConfig() {
   await load()
 }
 watch(() => props.groupId, () => { doc.value = null; baseline.value = ''; form.value = { rows: [] }; void load() })
-useRefresh(load, () => props.refreshKey, () => pending.value)
+useRefresh(load, () => props.refreshKey, () => pending.value && !busy.value)
 </script>
 
 <template>

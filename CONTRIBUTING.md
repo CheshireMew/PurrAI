@@ -4,17 +4,19 @@ PurrAI 面向自用和朋友群，由服务器上的单个 Python 服务运行�
 
 ## 提交问题与修改
 
-通过仓库的 [Issues](https://github.com/CheshireMew/PurrAI/issues)描述问题，附上触发步骤、预期结果和实际结果。日志只保留定位所需片段，遮去 Bot Token、API Key、登录密钥及真实成员信息。仓库目前为私有，反馈入口需要相应访问权限。
+通过公开仓库的 [Issues](https://github.com/CheshireMew/PurrAI/issues)描述问题，附上触发步骤、预期结果和实际结果。日志只保留定位所需片段，遮去 Bot Token、API Key、登录密钥及真实成员信息。公开可读不代表授予代码使用许可，许可边界见 [README](README.md#许可与第三方资源)。
 
 修改应围绕一个明确结果，说明对群管理员和成员的实际影响。新增持久化字段时提供 Alembic 迁移；群配置应同时核对 Bot 面板、网页和默认值；调整处罚、任务恢复或验证码时覆盖旧按钮、重复事件和重启后的行为。AI 聊天与群管理分别处理，不让模型回复直接执行管理动作。
 
-模块分工与依赖方向见[架构说明](docs/ARCHITECTURE.md)。修改群配置字段或管理目录后，运行 `python scripts/sync_admin_contract.py --write` 同步 TypeScript 类型与浏览器测试目录，再用 `--check` 核对；网页运行时直接使用后端配置目录。
+模块分工与依赖方向见[架构说明](docs/ARCHITECTURE.md)。管理 API 的返回模型同时用于运行时校验和 OpenAPI。修改接口、群配置字段或管理目录后，运行 `python scripts/sync_admin_contract.py --write` 同步 TypeScript 契约与浏览器测试目录，再用 `--check` 核对；网页运行时直接使用后端配置目录。
 
 ## 本地检查
 
 关键词和业务规则的内容通过现有 Rule / SharedPolicy 管理，不逐词修改程序；项目内 Agent 还须遵守 [AGENTS.md](AGENTS.md)。涉及规则或匹配的改动，在仓库根运行 `python scripts/check_rule_boundaries.py`。同一检查已进入 pytest：`python -m pytest tests/test_rule_boundaries.py -q`。发现新增匹配字面量时先使用配置数据，不通过刷新冻结清单来放行当前样例。检查范围、历史硬编码及限制见[规则边界说明](docs/RULE_BOUNDARIES.md)。
 
 环境准备和命令见[运维与开发说明](docs/OPERATIONS.md)。按改动运行相关后端测试、前端测试或构建，并在提交说明中列出实际命令和结果。模拟 Telegram、OIDC 或后台接口的测试只证明模拟环境行为；真实群验收请使用专门测试群。
+
+CI 运行全部 pytest、前端单元测试和 Playwright 用例。Playwright 自动在 `frontend/test-results/backend-*` 创建独立数据库并启动本地后端，集成用例经过真实 HTTP 接口和页面操作，Telegram 使用现有本地模拟器。可通过 `PURRAI_TEST_PYTHON` 和 `PURRAI_BROWSER_EXECUTABLE` 复用本机解释器与浏览器；不读取实际业务数据库，不连接真实 Bot 或模型。
 
 仅修改 README 时，检查三种语言的命令与功能边界一致、相对链接可达。项目标志由网页组件生成，修改 `CatMark.vue` 或主色后运行：
 

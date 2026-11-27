@@ -7,7 +7,7 @@ from purrai.runtime import Runtime
 from test_bot_admin import click, deliver, markup, private, texts
 
 
-TARGET = -1003792975859
+TARGET = -1009000000002
 
 
 def chat_api(monkeypatch, tg, *, kind="supergroup", status="administrator", failure=None):

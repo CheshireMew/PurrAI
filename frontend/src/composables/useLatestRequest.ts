@@ -1,17 +1,17 @@
-import { onUnmounted, ref } from 'vue'
 import { useTask } from './useTask'
+import { useRequestScope } from './useRequestScope'
 
 // A superseded read cannot replace data, errors or loading state from the latest read.
-export function useLatestRequest() {
-  const task = useTask(), version = ref(0)
-  function cancel() { version.value++ }
-  async function run<T>(read: () => Promise<T>, accept: (value: T) => void) {
-    const current = ++version.value
-    return task.safe(async () => {
+export function useLatestRequest(onUnauthorized?: () => void) {
+  const task = useTask(onUnauthorized), scope = useRequestScope()
+  async function run<T>(read: () => Promise<T>, accept: (value: T) => void, reject?: (reason: unknown) => void) {
+    const active = scope.begin()
+    if (!active) return false
+    const success = await task.safe(async () => {
       const result = await read()
-      if (current === version.value) accept(result)
-    }, () => current === version.value)
+      if (active()) accept(result)
+    }, active, reject)
+    return success && active()
   }
-  onUnmounted(cancel)
-  return { ...task, run, cancel }
+  return { ...task, run, cancel: scope.cancel }
 }

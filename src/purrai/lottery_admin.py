@@ -9,12 +9,11 @@ from purrai.models import Action, Lottery, LotteryEntry, now
 
 
 class LotteryAdmin:
-    def __init__(self, management):
-        self.management, self.db = management, management.db
-        self.context = AdminContext(management.db, management.tg, management.settings, management.access)
+    def __init__(self, context: AdminContext):
+        self.context, self.db = context, context.db
 
     async def page(self, actor, group_id, page=1, size=20):
-        await self.management.authorize(actor, group_id)
+        await self.context.access.authorize(actor, group_id)
         async with self.db.sessions() as session:
             query = select(Lottery).where(Lottery.group_id == group_id)
             total = await session.scalar(select(func.count()).select_from(query.subquery()))
@@ -23,7 +22,7 @@ class LotteryAdmin:
             return {"items": [document(row) for row in rows], "total": total}
 
     async def get(self, actor, group_id, identifier, page=1, entry_state="", size=50):
-        await self.management.authorize(actor, group_id)
+        await self.context.access.authorize(actor, group_id)
         async with self.db.sessions() as session:
             row = await require_row(session, group_id, identifier)
             query = select(LotteryEntry).where(LotteryEntry.lottery_id == row.id)
@@ -40,9 +39,9 @@ class LotteryAdmin:
                     "phase": item.payload["phase"]} for item in deliveries]}
 
     async def save(self, actor, group_id, body, request_id, identifier=None):
-        await self.management.authorize(actor, group_id, write=True)
+        await self.context.access.authorize(actor, group_id, write=True)
         intent = {"operation": "lottery_save", "group_id": group_id, "id": identifier, **body.model_dump()}
-        async with self.db.transaction() as session:
+        async with self.context.access.group_transaction(group_id) as session:
             previous = await self.context.previous(session, actor, request_id, intent)
             if previous is not None:
                 return previous
@@ -61,9 +60,9 @@ class LotteryAdmin:
                 document(row), request_id, intent)
 
     async def operate(self, actor, group_id, identifier, body, request_id):
-        await self.management.authorize(actor, group_id, write=True)
+        await self.context.access.authorize(actor, group_id, write=True)
         intent = {"operation": "lottery_operate", "group_id": group_id, "id": identifier, **body.model_dump()}
-        async with self.db.transaction() as session:
+        async with self.context.access.group_transaction(group_id) as session:
             previous = await self.context.previous(session, actor, request_id, intent)
             if previous is not None:
                 return previous

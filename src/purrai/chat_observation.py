@@ -21,6 +21,8 @@ from purrai.schemas import GroupSettings
 from purrai.stickers import sticker_text
 from purrai.chat_telemetry import observation
 from purrai.telegram_sources import channel_sources, external_channel_reasons
+from purrai.policy_work import PolicyExecution, policy_work
+from purrai.action_execution import ActionSuperseded
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +33,23 @@ class ChatObservation:
         self.contexts, self.stickers, self.wakeup = contexts, stickers, wakeup
 
     async def observe(self, message, edited=False, update_id=0):
+        # Each handoff rechecks its source/configuration. A concurrent edit
+        # restarts observation with the same durable message identity.
+        for _ in range(3):
+            try:
+                return await self.observe_current(message, edited, update_id)
+            except ActionSuperseded:
+                continue
+        raise ConnectionError("聊天输入在检查期间持续变化，稍后重试")
+
+    async def observe_current(self, message, edited=False, update_id=0):
         if message.get("chat", {}).get("type") not in ("group", "supergroup"):
             return
         group_id, message_id = message["chat"]["id"], message["message_id"]
         sender = chat_sender(message)
         text = sticker_text(message)
-        async with self.db.transaction() as session:
+        async with PolicyExecution(self.db) as session:
+            session.info["policy_messages"] = {(group_id, message_id): sender.get("id", 0)}
             row = await session.scalar(
                 select(ChatMessage).where(
                     ChatMessage.group_id == group_id,
@@ -55,42 +68,48 @@ class ChatObservation:
             direct = addressed(message, self.tg, cfg.chat_name)
             rules = await effective_rules(session, group_id)
             urls = message_content(message)[1]
-            reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
-            reasons += assess("", [], rules, group.settings, sender_name=profile_name(sender))["name_reasons"]
-            if has_link(*message_content(message.get("reply_to_message") or {}), rules=rules):
-                reasons.append(LINK_REASON)
-            reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
-                                                linked_channel_id=await own_channel_id(session, group_id))
+            linked_channel_id = await own_channel_id(session, group_id)
+            def assess_input():
+                reasons = input_reasons(text, rules, group.settings, direct=direct, urls=urls)
+                reasons += assess("", [], rules, group.settings, sender_name=profile_name(sender))["name_reasons"]
+                if has_link(*message_content(message.get("reply_to_message") or {}), rules=rules):
+                    reasons.append(LINK_REASON)
+                reasons += external_channel_reasons(channel_sources(message), group_id, group.settings, rules,
+                                                    linked_channel_id=linked_channel_id)
+                return reasons
+            reasons = await policy_work(session, assess_input)
             allowed = bool(sender.get("id")) and await self.contexts.allowed(session, group_id, message_id, sender["id"])
+            human = await policy_work(session, human_message, message, bot_username=getattr(self.tg, "username", ""), rules=rules)
             command_state = await chat_commands.observe(
                 session, group_id, {**message, "from": sender}, cfg,
                 eligible=bool(not no_reply and not direct and not reasons and not urls and not has_image(message)
                               and not (message.get("forward_origin") or message.get("forward_date"))
-                              and human_message(message, bot_username=getattr(self.tg, "username", ""), rules=rules) and allowed),
+                              and human and allowed),
                 edited=edited, advertising=bool(reasons), rules=rules,
             )
-            ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
-            command = ignored_text(text, ignored, getattr(self.tg, "username", ""), rules=rules)
+            ignored = cfg.chat_ignored_texts + await policy_work(session, chat_commands.learned, command_state, cfg, rules)
+            command = await policy_work(session, ignored_text, text, ignored, getattr(self.tg, "username", ""), rules=rules)
             can_review = bool(
                 not reasons and not command and allowed and group.enabled and cfg.chat_advertiser_cooldown
                 and sender.get("id") not in self.settings.superadmin_ids
-                and human_message(message, bot_username=getattr(self.tg, "username", ""), rules=rules)
+                and human
                 and not has_image(message)
             )
-            keyword_review = can_review and bool(ai_keyword_rules(text, rules, profile_name(sender)))
+            keyword_review = can_review and bool(await policy_work(session, ai_keyword_rules, text, rules, profile_name(sender)))
+            known_ad = await policy_work(session, chat_commands.known_ad, command_state, text, sender.get("id"), profile_name(sender), rules=rules)
             review_only = can_review and (
-                chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules)
+                known_ad
                 or chat_commands.advertiser_blocked(command_state, sender.get("id"), cfg)
             )
-            if chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules):
+            if known_ad:
                 reasons.append("聊天广告历史命中")
             if cfg.chat_advertiser_cooldown and (any(getattr(reason, "advertiser_cooldown", False) for reason in reasons)
-                    or chat_commands.known_ad(command_state, text, sender.get("id"), profile_name(sender), rules=rules)):
+                    or known_ad):
                 await chat_commands.remember_advertiser(session, group_id, sender.get("id"))
             if cfg.chat_advertiser_cooldown and chat_commands.advertiser_blocked(command_state, sender.get("id"), cfg):
                 reasons.append("广告账号聊天冷却中")
-            image = has_image(message) and human_message({**message, "text": UNREADABLE_IMAGE}, rules=rules)
-            eligible = human_message(
+            image = has_image(message) and await policy_work(session, human_message, {**message, "text": UNREADABLE_IMAGE}, rules=rules)
+            eligible = await policy_work(session, human_message,
                 {**message, "text": text or UNREADABLE_IMAGE} if image else message, ignored,
                 bot_username=getattr(self.tg, "username", ""), rules=rules,
             ) and (direct or not (image or has_image(message.get("reply_to_message") or {})))
@@ -138,7 +157,7 @@ class ChatObservation:
                 row.reply_text = reply_snapshot(message, direct=direct)
                 row.edited_at, row.update_id = message.get("edit_date", 0), update_id
                 return  # Editing and redelivery never create another reply.
-            if not (eligible or image or review_only or reasons and human_message(message, rules=rules)) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
+            if not (eligible or image or review_only or reasons and human) or (edited and not image) or not cfg.chat_enabled or not self.settings.chat_ready:
                 return
             # Ordinary supergroup replies also carry a thread ID. Only forum
             # topic messages belong to separate conversations and send targets.

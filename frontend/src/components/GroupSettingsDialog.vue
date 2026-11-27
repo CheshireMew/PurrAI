@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch, onUnmounted } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, post } from '../api'
+import { api } from '../api'
 import type { ChatStatus, Group, GroupSettings, SharedPolicy } from '../types'
 import { useWorkspace } from '../workspace'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useDraftClose } from '../composables/useDraftClose'
 import EmergencyProtection from './EmergencyProtection.vue'
 import { settingOptions, settingValue } from '../settingPresentation'
@@ -14,7 +15,9 @@ const sharedMode = computed(() => props.group?.id === 0)
 const commonBaseline = ref<SharedPolicy | null>(null)
 const emit = defineEmits<{ close: []; saved: [] }>()
 const { catalog, groups, reloadGroups, mutations } = useWorkspace()
-const { busy, error, safe } = useTask()
+const actions = useTask(), { busy, safe } = actions
+const inheritanceReads = useLatestRequest(), statusReads = useLatestRequest()
+const { error } = combineTasks(actions, inheritanceReads)
 const dialog = ref(false), editingId = ref('')
 const activeTab = ref('verification')
 const settingsTabs = [
@@ -36,6 +39,7 @@ const form = reactive<GroupSettings>(copySettings(catalog.value!.settings.defaul
 const identityNamesText = computed({ get: () => form.identity_names.join('\n'),
   set: (value: string) => { form.identity_names = value.split(/\r?\n/).map(v => v.trim()).filter(Boolean) } })
 const settingsBaseline = ref<GroupSettings>(copySettings(catalog.value!.settings.defaults))
+const baselineOverrides = ref<string[]>([])
 const emojiPacksText = ref(''), chatPacksText = ref(''), antifraudPacksText = ref('')
 const ignoredChatText = ref('')
 const noReplyUsersText = ref('')
@@ -79,15 +83,15 @@ const sectionFor = (key: string) => /^(coordinated_|raid_|emergency_)/.test(key)
 const numericSettings = computed(() => (Object.entries(catalog.value!.settings.numbers) as [NumericKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
 const boolSettings = computed(() => (Object.entries(catalog.value!.settings.booleans) as [BooleanKey, string][]).filter(([key]) => sectionFor(key) === activeTab.value))
 const bounds = (key: keyof GroupSettings) => catalog.value!.settings.fields[key]
-let version = 0
 watch(() => props.group, group => {
-  const current = ++version
+  inheritanceReads.cancel(); statusReads.cancel()
   if (!group) { dialog.value = false; return }
   editingId.value = String(group.id)
   commonBaseline.value = props.sharedBaseline ? JSON.parse(JSON.stringify(props.sharedBaseline)) : null
   activeTab.value = 'verification'
   Object.assign(form, copySettings({ ...catalog.value!.settings.defaults, ...group.settings }))
   settingsBaseline.value = copySettings({ ...form })
+  baselineOverrides.value = [...(group.setting_overrides || [])]
   stagedReset.value = []; resetValues.value = {}
   emojiPacksText.value = ''; chatPacksText.value = form.chat_sticker_packs.join('\n')
   antifraudPacksText.value = form.chat_antifraud_packs.join('\n'); chatStatus.value = {}; error.value = ''
@@ -97,14 +101,14 @@ watch(() => props.group, group => {
   allowedLinksText.value = form.telegram_allowed_links.join('\n')
   dialog.value = true
   inheritance.value = null
-  if (group.id !== 0) api<{ defaults: GroupSettings; settings: GroupSettings; overrides: string[] }>(`/api/groups/${group.id}/settings/inheritance`)
-    .then(data => { if (current === version) inheritance.value = data })
-    .catch(() => { if (current === version) error.value = '暂时无法读取设置继承来源，可重新打开重试' })
-  if (group.id !== 0) api<ChatStatus>(`/api/groups/${group.id}/chat`).then(data => { if (current === version) chatStatus.value = data })
-    .catch(() => { if (current === version) chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
+  if (group.id !== 0) {
+    void inheritanceReads.run(() => api<{ defaults: GroupSettings; settings: GroupSettings; overrides: string[] }>(`/api/groups/${group.id}/settings/inheritance`),
+      data => { inheritance.value = data }, () => { inheritanceReads.error.value = '暂时无法读取设置继承来源，可重新打开重试' })
+    void statusReads.run(() => api<ChatStatus>(`/api/groups/${group.id}/chat`), data => { chatStatus.value = data },
+      () => { chatStatus.value = { error: '暂时无法读取聊天服务状态' } })
+  }
 }, { immediate: true })
-watch(dialog, value => { if (!value) { version++; emit('close') } })
-onUnmounted(() => { version++ })
+watch(dialog, value => { if (!value) { inheritanceReads.cancel(); statusReads.cancel(); emit('close') } }, {flush: 'sync'})
 async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: string) {
   if (operation === 'clear') {
     try { await ElMessageBox.confirm('清空本群的状态表情包黑名单？已有封禁或禁言不会自动解除。', '清空名单', { confirmButtonText: '确认清空', cancelButtonText: '取消' }) }
@@ -134,17 +138,20 @@ async function changeEmojiPacks(operation: 'add' | 'remove' | 'clear', pack?: st
   })
 }
 async function resetChat() {
-  await safe(async () => { await post(`/api/groups/${editingId.value}/chat/reset`); ElMessage.success('已重新开始聊天；消息归档仍然保留') })
+  await safe(async () => { await mutations.submit(`/api/groups/${editingId.value}/chat/reset`, 'POST', {}, undefined, '重新开始群聊天'); ElMessage.success('已重新开始聊天；消息归档仍然保留') })
 }
 async function changeInheritance(key: keyof GroupSettings, restore: boolean) {
   if (!inheritance.value) return
   await safe(async () => {
-    const result = await api<Group>(`/api/groups/${editingId.value}/settings`, { method: 'PATCH', body: JSON.stringify({
+    const result = await mutations.submit<Group>(`/api/groups/${editingId.value}/settings`, 'PATCH', {
       ...(restore ? { reset: [key] } : { settings: { [key]: form[key] } }), baseline: { [key]: settingsBaseline.value[key] },
-    }) })
+      baseline_overrides: baselineOverrides.value,
+    }, undefined, '修改设置继承来源')
     Object.assign(form, { [key]: result.settings[key] }); settingsBaseline.value[key] = result.settings[key] as never
     stagedReset.value = stagedReset.value.filter(item => item !== key)
     inheritance.value!.overrides = result.setting_overrides || []
+    baselineOverrides.value = baselineOverrides.value.filter(item => item !== key)
+    if (result.setting_overrides?.includes(key)) baselineOverrides.value.push(key)
     if (key === 'chat_sticker_packs') chatPacksText.value = form.chat_sticker_packs.join('\n')
     if (key === 'chat_antifraud_packs') antifraudPacksText.value = form.chat_antifraud_packs.join('\n')
     if (key === 'chat_ignored_texts') ignoredChatText.value = form.chat_ignored_texts.join('\n')
@@ -169,7 +176,8 @@ async function save() {
     const changes = Object.fromEntries(Object.entries(draftSettings()).filter(([key, value]) => !reset.includes(key as keyof GroupSettings) && (stagedReset.value.includes(key as keyof GroupSettings) || JSON.stringify(value) !== JSON.stringify(settingsBaseline.value[key as keyof GroupSettings]))))
     const baseline = Object.fromEntries([...Object.keys(changes), ...reset].map(key => [key, settingsBaseline.value[key as keyof GroupSettings]]))
     if (sharedMode.value) await mutations.submit('/api/settings/defaults', 'PATCH', { settings: changes, baseline: commonBaseline.value }, undefined, '保存通用设置')
-    else await api(`/api/groups/${id}/settings`, { method: 'PATCH', body: JSON.stringify({ settings: changes, baseline, ...(reset.length ? { reset } : {}) }) })
+    else await mutations.submit(`/api/groups/${id}/settings`, 'PATCH', { settings: changes, baseline,
+      baseline_overrides: baselineOverrides.value, ...(reset.length ? { reset } : {}) }, undefined, '保存群设置')
     await reloadGroups(); ElMessage.success('已保存'); emit('saved')
   })) { if (editingId.value === id) dialog.value = false }
 }
@@ -244,6 +252,7 @@ async function save() {
 </div>
 </section>
 <section v-show="activeTab === 'moderation'" aria-label="防广告处理说明">
+<p class="muted" v-if="form.linked_channel_auto_unpin">关联频道的新同步消息会自动取消置顶，手动置顶仍保留。机器人须有置顶消息权限。</p>
 <h3>防冒充</h3>
 <el-form-item label="开启防冒充核验"><el-switch v-model="form.identity_enabled" aria-label="开启防冒充核验"/></el-form-item>
 <div class="settings-grid">

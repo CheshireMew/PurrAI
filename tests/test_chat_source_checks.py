@@ -205,5 +205,6 @@ async def test_source_request_scope_pacing_and_cancellation_do_not_leak(env, mon
     with pytest.raises(asyncio.CancelledError):
         await task
     assert seen[0][0] == seen[1][0] == "source_check"
-    assert seen[1][1] - seen[0][1] >= 0.015
+    # Subtracting large timestamps can round the 15 ms boundary below the limit.
+    assert seen[1][1] >= seen[0][1] + 0.015
     assert request_purpose.get() == "operations"

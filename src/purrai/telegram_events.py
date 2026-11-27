@@ -1,30 +1,26 @@
 """Adapt Telegram events to application services and bound callback acknowledgements."""
 
-import asyncio
-import logging
 from contextvars import ContextVar
 
 from aiogram import Dispatcher
 from aiogram.types import Update
 
-from purrai.diagnostics import failure
 from purrai.telegram import telegram_data
 from purrai.auto_replies import AutoReplies
+from purrai.callback_answers import CallbackAnswers
 from purrai.models import Inbox
-
-logger = logging.getLogger(__name__)
-
 
 class TelegramEvents:
     def __init__(self, service, admin, chat):
         self.service, self.admin, self.chat = service, admin, chat
         self.auto_replies = AutoReplies(service.db)
         from purrai.points_bot import PointsBot
-        self.points = PointsBot(service.db, service.tg)
+        self.answers = CallbackAnswers(service.tg, service.settings)
+        self.points = PointsBot(service.db, service.tg, self.answers)
         from purrai.lottery_bot import LotteryBot
-        self.lottery = LotteryBot(service.db, service.tg)
+        self.lottery = LotteryBot(service.db, service.tg, self.answers)
         self.current_update_id = ContextVar("purrai_update_id", default=0)
-        self.ack_tasks, self.ack_slots = set(), asyncio.Semaphore(8)
+        self.ack_tasks, self.ack_slots = self.answers.tasks, self.answers.slots
         self.dispatcher = Dispatcher()
         self.dispatcher.chat_member.register(self.member)
         self.dispatcher.my_chat_member.register(self.bot_member)
@@ -65,20 +61,10 @@ class TelegramEvents:
                 receipt = await session.get(Inbox, self.current_update_id.get())
                 received_at = receipt.received_at if receipt else None
             answer = await self.service.callback(query, acknowledge=False, received_at=received_at)
-            # Input is committed before acknowledgement, but slow toasts never
-            # hold up the next digit. Bound both the task count and HTTP lifetime.
-            if len(self.ack_tasks) < 64:
-                task = asyncio.create_task(self.answer_callback(query["id"], answer))
-                self.ack_tasks.add(task)
-                task.add_done_callback(self.ack_tasks.discard)
+            await self.answers.send(query["id"], answer)
 
     async def answer_callback(self, identifier, answer):
-        try:
-            async with asyncio.timeout(4):
-                async with self.ack_slots:
-                    await self.service.acknowledge(identifier, answer)
-        except TimeoutError as exc:
-            failure(logger, self.service.settings, exc, "验证提示回执超时（输入已保存）", f"callback={identifier}")
+        await self.answers.answer(identifier, answer)
 
     async def message(self, event):
         message = telegram_data(event)
@@ -115,7 +101,4 @@ class TelegramEvents:
         await self.chat.observe(message, edited=True, update_id=self.current_update_id.get())
 
     async def close(self):
-        tasks = list(self.ack_tasks)
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.answers.close()

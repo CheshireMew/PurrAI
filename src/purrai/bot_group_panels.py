@@ -1,11 +1,31 @@
 """Telegram panels for group panels."""
 
+from purrai.schemas import GroupAdmissionInput, SettingsPatch
+
 from purrai.admin_labels import STATE
 from purrai.bot_common import button, login_button
 from purrai.errors import ManagementError
 
 
 class GroupPanels:
+    ACTIONS = (
+        "access_panel",
+        "group_access",
+        "groups",
+        "group",
+        "activate",
+        "permissions",
+        "pause",
+        "join_link",
+        "settings_inherit",
+        "admins",
+        "admin_add",
+        "admin_detail",
+        "admin_grant",
+        "admin_active",
+    )
+    INPUTS = ("group_admission",)
+
     def __init__(self, management, ui, state):
         self.management, self.panel, self.send = management, ui.panel, ui.send
         self.tg, self.remember = ui.tg, state.remember
@@ -121,3 +141,70 @@ class GroupPanels:
         if owner:
             text += "\n超级管理员 ID：" + "、".join(map(str, self.management.settings.superadmin_ids))
         await self.panel(actor, text, [button("返回选群", "groups")], message_id=message_id)
+
+    async def route(self, actor, group_id, action, data, request_id, message_id):
+        if action == "access_panel":
+            await self.access_panel(actor, data["id"], message_id)
+        elif action == "group_access":
+            await self.management.group_access(actor, data["id"], data["approved"])
+            await self.choose_groups(actor, message_id=message_id)
+        elif action == "groups":
+            await self.remember(f"bot_prompt:{actor}", None)
+            await self.choose_groups(actor, data.get("page", 0), message_id)
+        elif action == "group":
+            await self.group_panel(actor, data["id"], message_id)
+        elif action in ("activate", "permissions"):
+            result = await self.management.permissions(actor, group_id, activate=action == "activate")
+            await self.send(
+                actor, "机器人权限完整。" if result["ok"] else "缺少权限：" + "、".join(result["missing"])
+            )
+            await self.group_panel(actor, group_id, message_id)
+        elif action == "pause":
+            await self.management.settings_patch(actor, group_id, SettingsPatch(enabled=False), request_id)
+            await self.group_panel(actor, group_id, message_id)
+        elif action == "join_link":
+            result = await self.management.join_link(actor, group_id, request_id)
+            await self.management.track(actor, group_id, actor, [result["id"]], request_id)
+            await self.send(actor, "已受理，生成后会在此返回申请入群链接。请替换原有直接入群入口。")
+        elif action == "settings_inherit":
+            from purrai.schemas import GroupSettings
+
+            if not data.get("confirmed"):
+                group = await self.management.authorize(actor, group_id)
+                await self.panel(
+                    actor,
+                    f"{group.title}（{group_id}）\n恢复本群全部设置为通用设置？\n包含验证、防广告、聊天、状态表情、消息归档及应急设置；本群不再保留这些项目的单独设置。已有广告规则、白名单、消息归档和成员限制保持不变。",
+                    [
+                        button(
+                            "确认恢复全部设置", "settings_inherit", confirmed=True, baseline=group.settings
+                        ),
+                        button("取消，返回群管理", "group", id=group_id),
+                    ],
+                    group_id,
+                    message_id,
+                    resume={"action": "settings_inherit", "data": {}},
+                )
+            else:
+                await self.management.settings_patch(
+                    actor,
+                    group_id,
+                    SettingsPatch(reset=list(GroupSettings.model_fields), baseline=data.get("baseline")),
+                    request_id,
+                )
+                await self.group_panel(actor, group_id, message_id)
+        elif action == "admins":
+            await self.admins(actor, message_id, data.get("page", 0))
+        elif action in ("admin_add", "admin_detail", "admin_grant", "admin_active"):
+            await self.send(actor, "已改为自动识别群管理员，请在 Telegram 群设置中管理身份。")
+            await self.admins(actor, message_id)
+
+    async def input(self, actor, group_id, text, data, request_id):
+        kind = data["kind"]
+        if kind == "group_admission":
+            await self.management.principal(actor, root=True)
+            if not text.startswith("-") or not text[1:].isascii() or (not text[1:].isdecimal()):
+                raise ManagementError(422, "请发送群的负数数字 ID，例如 -1001234567890")
+            body = GroupAdmissionInput(group_id=int(text))
+            result = await self.management.admit_group(actor, body.group_id)
+            await self.send(actor, f"已接入：{result['title']}\n群 ID：{body.group_id}")
+            await self.group_panel(actor, body.group_id)

@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from purrai.bot_common import button
 from purrai.errors import ManagementError
 from purrai.lottery import BEIJING, STATES
-from purrai.lottery_admin import LotteryAdmin
 from purrai.lottery_messages import public_rules
 from purrai.lottery_schemas import LotteryConfig, LotteryOperation, LotterySave
 from purrai.models import now
@@ -13,7 +12,7 @@ from purrai.models import now
 
 class LotteryPanels:
     def __init__(self, management, ui, state):
-        self.management, self.admin = management, LotteryAdmin(management)
+        self.management, self.admin = management, management.lotteries
         self.panel, self.send, self.remember = ui.panel, ui.send, state.remember
 
     async def home(self, actor, group_id, page=0, message_id=None):

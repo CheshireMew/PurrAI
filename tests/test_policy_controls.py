@@ -1,4 +1,5 @@
 """Saved policy must govern real messages, not only matching previews."""
+from purrai.policy_work import PolicyExecution
 import asyncio
 
 import pytest
@@ -145,7 +146,7 @@ async def test_pending_ai_penalty_rechecks_saved_limit_and_disposition(env, chan
     await settings(env, ai_ad_limit=2)
     for identifier in (1, 2):
         await env[3].message(message(identifier, f"任意审核结果{identifier}"))
-    async with env[1].transaction() as session:
+    async with PolicyExecution(env[1]) as session:
         group = await session.get(Group, -1001)
         for identifier in (1, 2):
             await record_ai_advertisement(session, group, 42, identifier, f"任意审核结果{identifier}", "")
@@ -161,7 +162,7 @@ async def test_ai_window_and_threshold_are_read_from_saved_settings(env, monkeyp
     stamp = [now()]
     monkeypatch.setattr(ai_advertising, "now", lambda: stamp[0])
     await settings(env, ai_ad_window_hours=2, ai_ad_limit=2)
-    async with env[1].transaction() as session:
+    async with PolicyExecution(env[1]) as session:
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 1, "任意审核甲", "成员")
     stamp[0] += 3601
@@ -169,7 +170,7 @@ async def test_ai_window_and_threshold_are_read_from_saved_settings(env, monkeyp
     async with env[1].sessions() as session:
         assert await advertisement_count(session, -1001, 42) == 0
     await settings(env, ai_ad_window_hours=2)
-    async with env[1].transaction() as session:
+    async with PolicyExecution(env[1]) as session:
         assert await advertisement_count(session, -1001, 42) == 1
         group = await session.get(Group, -1001)
         await record_ai_advertisement(session, group, 42, 2, "任意审核乙", "成员")
@@ -180,7 +181,7 @@ async def test_ai_window_and_threshold_are_read_from_saved_settings(env, monkeyp
 @pytest.mark.parametrize("change", [{"ai_ad_limit": 4}, {"ai_ad_penalty": "delete"}])
 async def test_ai_policy_is_rechecked_after_slow_telegram_lookup(env, monkeypatch, change):
     await settings(env, ai_ad_limit=2)
-    async with env[1].transaction() as session:
+    async with PolicyExecution(env[1]) as session:
         group = await session.get(Group, -1001)
         for identifier in (1, 2):
             await record_ai_advertisement(session, group, 42, identifier, "任意审核正文", "成员")
@@ -240,7 +241,7 @@ async def test_command_learning_and_chat_opening_policies_use_saved_values(env, 
     document = (await client.get("/api/settings/business-policy")).json()["document"]
     document["recognition"]["candidate_patterns"] = [{"id": "arbitrary", "title": "任意口令", "enabled": True, "pattern": "琥珀口令"}]
     await save(client, document)
-    async with env[1].transaction() as session:
+    async with PolicyExecution(env[1]) as session:
         rules = await effective_rules(session, -1001)
         for identifier in (10, 11, 12):
             data = await chat_commands.observe(session, -1001, message(identifier, "琥珀口令"), cfg, eligible=True, rules=rules)

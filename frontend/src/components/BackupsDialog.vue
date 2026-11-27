@@ -1,36 +1,36 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type * as Api from '../adminApi'
 import { ElMessage } from 'element-plus'
 import { api, time } from '../api'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useWorkspace } from '../workspace'
 import { useDraftClose } from '../composables/useDraftClose'
 
-type Plan = {enabled: boolean; hour_beijing: number; interval_days: number; retention_days: number;
-  retention_count: number; max_total_mb: number; prune_enabled: boolean; exercise_after_backup: boolean}
-type Backup = {file: string; bytes: number; created_at: number; revision: string; managed: boolean;
-  exercise?: {checked_at: number; integrity_ok: boolean; foreign_keys_ok: boolean; compatible: boolean; restored: boolean; counts: Record<string, number>}}
+type Plan = Omit<Api.BackupPlan, 'version'>
+type Backup = Api.BackupFile
 const props = defineProps<{ open: boolean }>(), emit = defineEmits<{close: []; saved: []}>()
 const open = computed({get: () => props.open, set: value => { if (!value) emit('close') }})
-const { mutations } = useWorkspace(), {busy, error, safe} = useTask()
+const { mutations } = useWorkspace(), actions = useTask(), reads = useLatestRequest(), safe = actions.safe
+const { busy, error } = combineTasks(actions, reads)
 const plan = ref<Plan | null>(null), items = ref<Backup[]>([]), free = ref(0), state = ref<{last_success?: number; error?: string}>({})
-const baseline = ref('')
+const pending = ref<{file: string; error: string; created_at: number}[]>([])
+const baseline = ref(''), planVersion = ref('missing')
 const { requestClose, confirmDiscard } = useDraftClose(() => !!plan.value && JSON.stringify(plan.value) !== baseline.value, () => emit('close'), () => busy.value, () => props.open)
-let version = 0
 async function load(preserveDraft = false) {
-  const current = ++version
-  await safe(async () => {
-    const data = await api<{plan: Plan; items: Backup[]; free_bytes: number; schedule: typeof state.value}>('/api/system/backups')
-    if (current !== version) return
-    if (!preserveDraft) { plan.value = data.plan; baseline.value = JSON.stringify(data.plan) }
-    items.value = data.items; free.value = data.free_bytes; state.value = data.schedule
+  await reads.run(() => api<{plan: Plan; version: string; items: Backup[]; pending: typeof pending.value; free_bytes: number; schedule: typeof state.value}>('/api/system/backups'), data => {
+    if (!preserveDraft) { plan.value = data.plan; baseline.value = JSON.stringify(data.plan); planVersion.value = data.version }
+    items.value = data.items; pending.value = data.pending; free.value = data.free_bytes; state.value = data.schedule
   })
 }
-watch(() => props.open, value => { if (value) { plan.value = null; void load() } else version++ })
+watch(() => props.open, value => { if (value) { plan.value = null; void load() } else reads.cancel() }, {flush: 'sync'})
 async function save() {
   if (await safe(async () => {
     const sent = JSON.stringify(plan.value)
-    await mutations.submit('/api/system/backups/plan', 'PATCH', plan.value, undefined, '保存备份计划与保留授权')
+    const result = await mutations.submit<Plan & {version: string}>('/api/system/backups/plan', 'PATCH',
+      {...plan.value, version: planVersion.value}, undefined, '保存备份计划与保留授权')
+    planVersion.value = result.version
     baseline.value = sent
     ElMessage.success('计划已保存，按北京时间执行')
   })) emit('saved')
@@ -49,6 +49,7 @@ async function refresh() { if (await confirmDiscard()) await load() }
 <div v-loading="busy"><el-alert v-if="error" :title="error" type="error" :closable="false"/>
 <p>备份目录剩余 {{ (free / 1073741824).toFixed(2) }} GB。最近计划成功：{{ time(state.last_success || 0) }}</p>
 <el-alert v-if="state.error" :title="state.error" type="warning" :closable="false"/>
+<el-alert v-for="operation in pending" :key="operation.file" :title="`${operation.file}：${operation.error || '备份尚未完成，系统将沿原操作恢复'}`" type="warning" :closable="false"/>
 <el-form v-if="plan" label-position="top">
 <el-form-item label="定时备份"><el-switch v-model="plan.enabled" aria-label="启用定时备份"/></el-form-item>
 <div class="settings-grid"><el-form-item label="北京时间几点执行"><el-input-number v-model="plan.hour_beijing" :min="0" :max="23"/></el-form-item><el-form-item label="间隔天数"><el-input-number v-model="plan.interval_days" :min="1" :max="30"/></el-form-item></div>

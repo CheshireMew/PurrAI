@@ -12,6 +12,7 @@ from purrai.message_identity import profile_name
 from purrai.recognition_policy import matches
 from purrai.command_text import normalized_command
 from purrai.shared_policy import effective_rules
+from purrai.policy_work import policy_work
 
 WINDOW = GroupSettings().chat_evidence_hours * 3600  # Initial-policy compatibility export.
 MAX_COMMANDS = 200
@@ -105,9 +106,11 @@ async def observe(session, group_id, message, cfg, *, eligible, edited=False, ad
         rules = await effective_rules(session, group_id)
     row, data = await load(session, group_id)
     eligible = eligible and not (cfg.chat_advertiser_cooldown and advertiser_blocked(data, message.get("from", {}).get("id"), cfg))
-    eligible = eligible and not known_ad(data, message.get("text") or message.get("caption") or "",
-        message.get("from", {}).get("id"), profile_name(message.get("from") or {}), rules=rules)
-    phrase = candidate(message.get("text") or message.get("caption") or "", rules)
+    text = message.get("text") or message.get("caption") or ""
+    is_ad, phrase = await policy_work(session, lambda: (
+        known_ad(data, text, message.get("from", {}).get("id"), profile_name(message.get("from") or {}), rules=rules),
+        candidate(text, rules)))
+    eligible = eligible and not is_ad
     if advertising and phrase:
         data["commands"].pop(phrase, None)
     message_id = message["message_id"]
@@ -149,10 +152,10 @@ async def remember_advertiser(session, group_id, sender_id):
 
 
 async def remember_ad(session, group_id, message_id, text, sender_id=None, *, sender_name="", cooldown=False):
+    phrase = await policy_work(session, candidate, text, await effective_rules(session, group_id))
     row, data = await load(session, group_id)
     prefix = f"member:{sender_id}:{ad_key(sender_name)}:" if sender_id else ""
     data["ads"][prefix + ad_key(text)] = now()
-    phrase = candidate(text, await effective_rules(session, group_id))
     if phrase:
         data["ads"][prefix + ad_key(phrase)] = now()
         if not sender_id:

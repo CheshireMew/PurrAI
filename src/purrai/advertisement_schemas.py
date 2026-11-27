@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+LOCAL_REVIEW_WINDOW_SECONDS = 47 * 3600
+
 
 class AdvertisementSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")

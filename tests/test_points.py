@@ -174,3 +174,60 @@ def test_points_migration(tmp_path):
                 assert before == policies
                 assert connection.execute("SELECT count(*) FROM points_accounts").fetchone()[0] == 0
                 assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+async def test_settings_management_and_http_share_replay_versions_and_saved_policy(env, client):
+    from purrai.admin_context import AdminContext
+    from purrai.group_access import GroupAccess
+    from purrai.points_admin import PointsAdministration
+    from purrai.points_schemas import PointsSettingsInput
+
+    settings, db, tg, _ = env
+    admin = PointsAdministration(AdminContext(db, tg, settings, GroupAccess(db, tg, settings)))
+    original = await admin.settings(1, -1001)
+    body = PointsSettingsInput(config={**original["config"], "signin_points": 23}, version=original["version"])
+    saved = await admin.save_settings(1, -1001, body, "shared-points-settings")
+    path = "/api/groups/-1001/points/settings"
+    assert (await client.get(path)).json() == saved
+    assert (await client.put(path, json=body.model_dump(),
+                            headers={"Idempotency-Key": "shared-points-settings"})).json() == saved
+    newer = PointsSettingsInput(config={**saved["config"], "signin_points": 31}, version=saved["version"])
+    latest = await admin.save_settings(1, -1001, newer, "newer-points-settings")
+    assert await admin.save_settings(1, -1001, body, "shared-points-settings") == saved
+    assert await admin.settings(1, -1001) == latest
+    with pytest.raises(ManagementError) as conflict:
+        await admin.save_settings(1, -1001, body, "stale-points-settings")
+    assert conflict.value.status == 409
+    with pytest.raises(ManagementError) as denied:
+        await admin.save_settings(555, -1001, newer, "denied-points-settings")
+    assert denied.value.status == 403
+
+
+async def test_rewards_and_manual_adjustments_preserve_one_balance_version_and_ledger(env):
+    from purrai.points_rewards import credit
+    from purrai.points_schemas import MAX_POINTS, PointsCreate
+
+    _, db, _, _ = env
+    ledger = PointsLedger(db)
+    account = await ledger.create(-1001, PointsCreate(user_id=42, display_name="Ledger"), 1, "shared-ledger-create")
+    async with db.transaction() as session:
+        row = await ledger.account(session, -1001, account["id"])
+        reward = await credit(session, row, 20, "shared-ledger-reward", "signin", "奖励", 42)
+    body = PointsAdjustment(delta=-5, version=reward["version"], reason="兑换")
+    adjusted = await ledger.change(-1001, account["id"], body, 1, "shared-ledger-adjust")
+    assert adjusted["balance"] == 15 and adjusted["version"] == 3
+    assert await ledger.change(-1001, account["id"], body, 1, "shared-ledger-adjust") == adjusted
+    async with db.transaction() as session:
+        row = await ledger.account(session, -1001, account["id"])
+        assert await credit(session, row, 20, "shared-ledger-reward", "signin", "奖励", 42) == reward
+    for delta in (-16, MAX_POINTS):
+        with pytest.raises(ManagementError):
+            await ledger.change(-1001, account["id"], PointsAdjustment(delta=delta, version=3, reason="边界"),
+                                1, f"manual-boundary:{delta}")
+        with pytest.raises(ManagementError):
+            async with db.transaction() as session:
+                row = await ledger.account(session, -1001, account["id"])
+                await credit(session, row, delta, f"reward-boundary:{delta}", "signin", "边界", 42)
+    history = await ledger.history(-1001, account["id"])
+    assert history["account"]["balance"] == sum(entry["delta"] for entry in history["items"]) == 15
+    assert history["account"]["version"] == 3 and history["total"] == 3

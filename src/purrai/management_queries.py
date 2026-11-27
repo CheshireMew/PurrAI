@@ -1,12 +1,14 @@
 """Shared administration read models for HTTP and Telegram."""
 
+import json
+
 from sqlalchemy import func, or_, select
 
 from purrai.action_results import action_result
 from purrai.chat_budget import ChatBudget
 from purrai.errors import ManagementError
 from purrai.models import Action, Group, Inbox, Meta, Rule, Verification, Violation, Whitelist, now
-from purrai.moderation_records import violation_actions
+from purrai.moderation_records import violation_actions_many
 from purrai.serialization import row_dict
 from purrai.record_versions import versioned
 from purrai.record_operations import permanently_banned, verification_operations, violation_operations
@@ -34,6 +36,14 @@ class ManagementQueries:
 
     async def project(self, session, model, rows):
         result = []
+        metadata, penalties = {}, {}
+        if model is Violation and rows:
+            keys = [f"violation-correction:{row.id}" for row in rows]
+            keys += [f"group-migration:{row.group_id}" for row in rows if -2147483647 <= row.message_id < 0]
+            metadata = {key: json.loads(value) for key, value in await session.execute(
+                select(Meta.key, Meta.value).where(Meta.key.in_(keys)))}
+            for group_id in {row.group_id for row in rows}:
+                penalties.update(await violation_actions_many(session, group_id, [row.id for row in rows if row.group_id == group_id]))
         for row in rows:
             item = await action_result(session, row) if model is Action else row_dict(row)
             if model in (Rule, Whitelist):
@@ -43,14 +53,11 @@ class ManagementQueries:
                     item.pop(key, None)
                 item["allowed_operations"] = verification_operations(item)
             if model is Violation:
-                from purrai.group_history import historical_source
-                item.update(await historical_source(session, row.group_id, row.message_id))
-                import json
-                correction = await session.get(Meta, f"violation-correction:{row.id}")
-                item["correction"] = json.loads(correction.value) if correction else None
-                item["actions"] = [
-                    row_dict(a) for a in await violation_actions(session, row.group_id, row.id)
-                ]
+                migration = metadata.get(f"group-migration:{row.group_id}")
+                if migration and -2147483647 <= row.message_id < 0:
+                    item.update(origin_group_id=migration["old_id"], origin_message_id=-row.message_id)
+                item["correction"] = metadata.get(f"violation-correction:{row.id}")
+                item["actions"] = [row_dict(a) for a in penalties[row.id]]
                 item["permanent_ban"] = permanently_banned(item["actions"])
                 item["allowed_operations"] = violation_operations(item, item["permanent_ban"])
             result.append(item)
@@ -221,7 +228,9 @@ class ManagementQueries:
                 await session.get(Meta, "last_backup"),
                 await session.get(Meta, "archive:paused"),
             )
+            from purrai.operational_retention import storage_status
             result = {
+                "review_storage": await storage_status(session, self.context.settings),
                 "pending_actions": counts.get("pending", 0),
                 "failed_count": counts.get("failed", 0),
                 "failed_actions": [await action_result(session, row) for row in failed],

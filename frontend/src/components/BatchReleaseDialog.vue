@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { post } from '../api'
+import { api } from '../api'
 import { useWorkspace } from '../workspace'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import type { BatchReceipt } from '../actionTracker'
 import { actionContext } from '../actionContext'
 import { useDraftClose } from '../composables/useDraftClose'
@@ -13,19 +14,19 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 const open = computed({ get: () => Boolean(props.selection), set: value => { if (!value) emit('close') } })
 const { mutations, actionTracker, groups } = useWorkspace()
 const group = computed(() => groups.value.find(item => item.id === props.groupId))
-const { busy, error, safe } = useTask()
+const actions = useTask(), reads = useLatestRequest(), safe = actions.safe
+const { busy, error } = combineTasks(actions, reads)
 const preview = ref<{ items: {id: string; user_id: number; user_name: string; state: string}[]; total: number; snapshot: string } | null>(null)
 const reason = ref(''), previewPage = ref(1)
 const { requestClose } = useDraftClose(() => !!reason.value, () => emit('close'), () => busy.value, () => !!props.selection)
-let revision = 0
 watch(() => props.selection, async selection => {
-  const current = ++revision
+  reads.cancel()
   preview.value = null; reason.value = ''; error.value = ''; previewPage.value = 1
-  if (selection) await safe(async () => {
-    const result = await post(`/api/groups/${props.groupId}/release-pending/preview`, selection)
-    if (current === revision) preview.value = result
-  })
-})
+  if (selection) await reads.run(() => api<NonNullable<typeof preview.value>>(`/api/groups/${props.groupId}/release-pending/preview`,
+    { method: 'POST', body: JSON.stringify(selection) }),
+    result => { preview.value = result })
+}, {flush: 'sync'})
+
 async function submit() {
   const reviewed = preview.value
   if (!reviewed?.total) return

@@ -69,6 +69,15 @@ class ActionExecution:
         if isinstance(row, Meta) and row.key.startswith("member-decision:"):
             return row.value
 
+    async def refresh_rows(self, rows):
+        deleted = set()
+        for row in rows:
+            if await self.session.get(type(row), inspect(row).identity, populate_existing=True) is None:
+                deleted.add(id(row))
+                if row in self.session:
+                    self.session.expunge(row)
+        return deleted
+
     async def external(self, operation):
         # Commit the intent (including restriction ownership) before the request.
         # Releasing only the asyncio lock would leave a SQLite write transaction open.
@@ -88,12 +97,7 @@ class ActionExecution:
             self.locked = True
         if isinstance(error, asyncio.CancelledError):
             raise error
-        deleted = set()
-        for row in rows:
-            if await self.session.get(type(row), inspect(row).identity, populate_existing=True) is None:
-                deleted.add(id(row))
-                if row in self.session:
-                    self.session.expunge(row)
+        deleted = await self.refresh_rows(rows)
         changed = [row for row, value in baseline if id(row) in deleted or self.identity(row) != value]
         if changed:
             if all(isinstance(row, Member) for row in changed):

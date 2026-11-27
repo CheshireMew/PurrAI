@@ -11,8 +11,10 @@ from purrai.models import Group, Lottery, LotteryEntry, now
 
 
 class LotteryBot:
-    def __init__(self, db, tg):
+    def __init__(self, db, tg, answers=None):
         self.db, self.tg = db, tg
+        from purrai.callback_answers import CallbackAnswers
+        self.answers = answers or CallbackAnswers(tg, getattr(db, "settings", None))
 
     async def observe(self, message):
         words = message.get("text", "").strip().split()
@@ -75,8 +77,11 @@ class LotteryBot:
                         + ("（已发放）" if entry.state == "won" and entry.fulfilled else "") for entry in entries) if entries else "你还没有参加此活动。"
         except ManagementError as exc:
             answer = str(exc)
-        await self.tg.call("answer_callback_query", callback_query_id=query["id"], text=answer[:200], show_alert=True)
+        await self.answers.send(query["id"], answer, show_alert=True)
         return True
+
+    async def close(self):
+        await self.answers.close()
 
 
 async def process_notice(call, session, action, group):

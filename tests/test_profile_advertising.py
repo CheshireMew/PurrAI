@@ -99,9 +99,10 @@ async def test_numeric_profile_ad_is_excluded_before_model(env):
 
 
 async def test_frozen_history_recovers_username_and_rechecks_archived_profile(env):
+    from purrai.policy_work import PolicyExecution
     _, db, _, _ = env
     chat, _ = await configured(env)
-    async with db.transaction() as session:
+    async with PolicyExecution(db) as session:
         await capture(session, message(1, "今天聊点电影吧", **{"from": {"id": 42, "first_name": AD_NAME, "username": "dRV_dT6"}}))
         result = await chat.contexts.filter(session, -1001, 0,
             [{"id": 1, "speaker_id": 42, "name": "旧昵称", "text": "今天聊点电影吧", "bot": False}], GroupSettings())

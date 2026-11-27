@@ -20,7 +20,7 @@ def timestamp(value):
 
 def turn(identifier=1):
     return SimpleNamespace(id=identifier, group_id=-1001, topic_id=0, message_id=identifier,
-                           response="", direct=True, review_only=False)
+                           response="", direct=True, review_only=False, attempts=1)
 
 
 def budget():

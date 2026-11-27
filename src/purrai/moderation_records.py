@@ -1,6 +1,6 @@
 """Association shared by the web and Telegram violation views."""
 
-from sqlalchemy import or_, select
+from sqlalchemy import select, union
 
 from purrai.models import Action, Meta, RuleHit, Violation, now, uid
 from purrai.reason_policy import classifies, details, unique_reasons
@@ -67,19 +67,26 @@ async def record_violation(
 
 
 async def violation_actions(session, group_id, violation_id):
-    return (
-        await session.scalars(
-            select(Action)
-            .where(
-                Action.group_id == group_id,
-                or_(
-                    Action.payload["violation_id"].as_string() == violation_id,
-                    Action.dedupe_key == f"warning:{violation_id}",
-                ),
-            )
-            .order_by(Action.created_at, Action.id)
-        )
-    ).all()
+    return (await violation_actions_many(session, group_id, [violation_id]))[violation_id]
+
+
+async def violation_actions_many(session, group_id, identifiers):
+    result = {identifier: [] for identifier in identifiers}
+    if not result:
+        return result
+    warnings = {f"warning:{identifier}": identifier for identifier in result}
+    # Separate index lookups avoid scanning every action in the group for an OR
+    # between the JSON association and the legacy unique warning key.
+    associated = union(
+        select(Action.id).where(Action.group_id == group_id, Action.violation_id.in_(result)),
+        select(Action.id).where(Action.group_id == group_id, Action.dedupe_key.in_(warnings)),
+    )
+    rows = await session.scalars(select(Action).where(Action.id.in_(associated)).order_by(Action.created_at, Action.id))
+    for row in rows:
+        keys = {row.violation_id, warnings.get(row.dedupe_key)} & result.keys()
+        for identifier in keys:
+            result[identifier].append(row)
+    return result
 
 
 async def record_rule_hits(session, group_id, message_id, identifiers):

@@ -1,21 +1,23 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
+import type * as Api from '../adminApi'
 import { ElMessage } from 'element-plus'
 import { api, time } from '../api'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefresh } from '../composables/useRefresh'
 import { useWorkspace } from '../workspace'
 import { useDraftClose } from '../composables/useDraftClose'
 import { parsePointsImport, pointsImportTemplate, pointsTemplateDownload } from '../pointsImport'
 
-interface Account { id: string; display_name: string; user_id: number | null; balance: number; version: number; rank: number; source_rank: number | null; note: string; trust: { earned_points: number; active_days: number; level: number } }
-interface Batch { id: string; batch_key: string; count: number; total_points: number; created_at: number }
-interface Page { items: Account[]; total: number; summary: { accounts: number; points: number; pending: number }; imports: Batch[] }
-interface Entry { id: string; kind: string; delta: number; balance_after: number; reason: string; actor_id: number; created_at: number; result: { previous_identity?: { display_name: string; user_id: number | null }; display_name: string; user_id: number | null } }
-interface Settings { enabled: boolean; signin_points: number; chat_points: number; chat_daily_limit: number; chat_min_characters: number; chat_interval_seconds: number; packet_enabled: boolean; packet_expiry_hours: number; commands: Record<string, string[]>; trust_enabled: boolean; newcomer_exemption_points: number; advertising_exemption_points: number; trust_excluded_user_ids: number[] }
+type Account = Api.PointsAccount
+type Page = Api.PointsPage
+type Entry = Api.PointsEntry
+type Settings = Required<Api.PointsSettings>
 const props = defineProps<{ groupId: number; refreshKey: number }>()
 const { mutations } = useWorkspace()
-const { busy, error, safe } = useTask()
+const tasks = useTask(), listing = useLatestRequest(), historyReads = useLatestRequest(), safe = tasks.safe
+const { busy, error } = combineTasks(tasks, listing, historyReads)
 const data = ref<Page>({ items: [], total: 0, summary: { accounts: 0, points: 0, pending: 0 }, imports: [] })
 const loaded = ref(false), loadError = ref(''), appliedQuery = ref(''), appliedPending = ref(false)
 let acceptedPage = 1
@@ -43,22 +45,17 @@ function restoreSettings() {
   settings.value.config = baseline.config; excludedUserIds.value = baseline.excluded
   Object.assign(aliases, baseline.aliases)
 }
-let generation = 0
 async function load() {
-  const current = ++generation, candidate = { query: query.value, pending: pending.value, page: page.value }
+  const candidate = { query: query.value, pending: pending.value, page: page.value }
   loadError.value = ''
-  const success = await safe(async () => {
-    const [result, config] = await Promise.all([
-      api<Page>(`${base()}?${new URLSearchParams({ query: candidate.query, pending: String(candidate.pending), page_number: String(candidate.page) })}`),
-      api<{ config: Settings; version: number }>(`${base()}/settings`),
-    ])
-    if (current === generation) {
-      data.value = result
-      loaded.value = true; appliedQuery.value = candidate.query; appliedPending.value = candidate.pending; acceptedPage = candidate.page
-      if (!settingsDirty.value) acceptSettings(config)
-    }
-  }, () => current === generation)
-  if (!success && current === generation) { loadError.value = error.value; if (loaded.value) page.value = acceptedPage }
+  await listing.run(() => Promise.all([
+    api<Page>(`${base()}?${new URLSearchParams({ query: candidate.query, pending: String(candidate.pending), page_number: String(candidate.page) })}`),
+    api<{ config: Settings; version: number }>(`${base()}/settings`),
+  ]), ([result, config]) => {
+    data.value = result
+    loaded.value = true; appliedQuery.value = candidate.query; appliedPending.value = candidate.pending; acceptedPage = candidate.page
+    if (!settingsDirty.value) acceptSettings(config)
+  }, () => { loadError.value = listing.error.value; if (loaded.value) page.value = acceptedPage })
 }
 function filter() { page.value = 1; void load() }
 async function saveSettings() {
@@ -107,7 +104,8 @@ const historyOpen = ref(false), historyPage = ref(1), history = ref<{ account: A
 async function showHistory(row?: Account) {
   if (row) { selected.value = row; historyPage.value = 1; history.value = null }
   historyOpen.value = true
-  await safe(async () => { history.value = await api(`${base()}/${selected.value!.id}/history?page_number=${historyPage.value}`) })
+  const path = `${base()}/${selected.value!.id}/history?page_number=${historyPage.value}`
+  await historyReads.run(() => api<NonNullable<typeof history.value>>(path), value => { history.value = value })
 }
 const importOpen = ref(false), importBody = ref<any>(null), preview = ref<any>(null), importName = ref('')
 const { requestClose: closeImport } = useDraftClose(() => !!preview.value && !preview.value.already_imported,
@@ -143,6 +141,13 @@ useRefresh(load, () => props.refreshKey)
   <div><span>积分账户</span><strong>{{ loaded ? data.summary.accounts : '—' }}</strong></div>
   <div><span>待绑定身份</span><strong>{{ loaded ? data.summary.pending : '—' }}</strong></div>
 </section>
+<section v-if="loaded && data.settlement" class="panel" role="status" aria-label="聊天积分结算状态">
+  <p>待结算聊天消息 {{ data.settlement.pending_messages }} 条<span v-if="data.settlement.oldest_at">，最早收到于 {{ time(data.settlement.oldest_at) }}</span>。审核通过后还会核对奖励条件，待结算条数不代表最终加分。</p>
+  <p v-if="data.settlement.mode === 'local'">当前只使用本地广告样本审核。未命中的聊天消息在收到 {{ data.settlement.local_window_hours }} 小时后结算；签到和人工调整不受此等待影响。</p>
+  <p v-else-if="data.settlement.mode === 'model'">聊天积分在 AI 广告审核通过后结算；模型暂不可用或额度耗尽时继续等待。签到和人工调整不受此等待影响。</p>
+  <p v-else-if="data.settlement.mode === 'direct'">聊天消息通过本地群规则和奖励条件检查后结算。</p>
+  <p v-else>聊天加分当前未开启。</p>
+</section>
 <details v-if="settings" class="panel points-settings">
   <summary>积分设置{{ settings.config.enabled ? '' : ' · 未开启群内功能' }}</summary>
   <el-form label-position="top" class="points-config" @submit.prevent="saveSettings">
@@ -160,7 +165,7 @@ useRefresh(load, () => props.refreshKey)
     <el-form-item label="取消自动豁免的成员 ID"><el-input v-model="excludedUserIds" type="textarea" :rows="2" aria-label="取消自动豁免的成员 ID" placeholder="每行一个 Telegram 数字 ID"/></el-form-item>
     <p class="muted config-wide">按本人在本群的历史最高积分判断，签到积分也计入；消费或扣分后仍保留资格。达到新人门槛解除新人限制，达到广告门槛后跳过 AI 广告审核及样本匹配。</p>
     <el-form-item v-for="(_, key) in aliases" :key="key" :label="commandLabels[key]"><el-input v-model="aliases[key]" type="textarea" :rows="2" :aria-label="commandLabels[key]" placeholder="每行一个口令，清空可停用"/></el-form-item>
-    <p class="muted config-wide">每天按北京时间结算。奖励或每日上限设为 0 可关闭对应加分；转发、重复内容、违规消息不加分。红包格式：口令 总积分 份数，回复某位群友时为专属红包。</p>
+    <p class="muted config-wide">每日额度按北京时间零点重置；延后结算的聊天积分归入发言当天。奖励或每日上限设为 0 可关闭对应加分；转发、重复内容、违规消息不加分。红包格式：口令 总积分 份数，回复某位群友时为专属红包。</p>
     <p class="muted config-wide">管理员回复群友消息，发送加分或扣分口令及正整数即可调整积分，口令与数字之间的空格可省略。所有群友都可用回复查询口令查看对方，不回复则查自己。口令留空可停用。</p>
     <el-button type="primary" :loading="busy" native-type="submit">保存积分设置</el-button>
   </el-form>
@@ -176,7 +181,7 @@ useRefresh(load, () => props.refreshKey)
     <article v-for="row in data.items" :key="row.id">
       <div class="points-card-heading"><strong>{{ row.rank }}. {{ row.display_name || '未显示昵称' }}</strong><b>{{ row.balance.toLocaleString() }} 分</b></div>
       <p class="muted">{{ row.user_id || '待绑定身份' }}<span v-if="row.source_rank"> · 原排名 {{ row.source_rank }}</span></p>
-      <p>历史最高 {{ row.trust.earned_points }} 分 · {{ trustLabels[row.trust.level] }}</p>
+      <p>历史最高 {{ row.trust?.earned_points ?? 0 }} 分 · {{ trustLabels[row.trust?.level ?? 0] }}</p>
       <p v-if="row.note" class="points-note">{{ row.note }}</p>
       <div><el-button text @click="showHistory(row)">流水</el-button><el-button text @click="edit('adjust', row)">增减</el-button><el-button text @click="edit('identity', row)">{{ row.user_id ? '身份' : '绑定' }}</el-button></div>
     </article>
@@ -214,7 +219,7 @@ useRefresh(load, () => props.refreshKey)
   </el-form>
   <template #footer><el-button :disabled="busy" @click="closeAccount">取消</el-button><el-button type="primary" :loading="busy" @click="save">保存</el-button></template>
 </el-dialog>
-<el-dialog v-model="historyOpen" title="积分流水" class="form-dialog" width="min(900px, 96vw)">
+<el-dialog v-model="historyOpen" title="积分流水" class="form-dialog" width="min(900px, 96vw)" @close="historyReads.cancel()">
   <template v-if="history"><p>{{ history.account.display_name || '未显示昵称' }} · 当前 {{ history.account.balance }} 积分</p>
   <el-table :data="history.items" v-loading="busy">
     <el-table-column label="时间" min-width="170"><template #default="{ row }">{{ time(row.created_at) }}</template></el-table-column>

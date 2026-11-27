@@ -2,4 +2,4 @@
 
 
 def row_dict(row) -> dict:
-    return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+    return {column.name: getattr(row, column.name) for column in row.__table__.columns if not column.info.get("internal")}

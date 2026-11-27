@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useWorkspace } from '../workspace'
 import type { Rule, Violation } from '../types'
 import { actionContext } from '../actionContext'
@@ -14,19 +15,18 @@ const props = defineProps<{ groupId: number; violation: Violation | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const open = computed({ get: () => Boolean(props.violation), set: value => { if (!value) emit('close') } })
 const { mutations, actionTracker, groups } = useWorkspace()
-const { busy, error, safe } = useTask()
+const actions = useTask(), reads = useLatestRequest(), safe = actions.safe
+const { busy, error } = combineTasks(actions, reads)
 const evidence = ref<Evidence | null>(null), selected = ref<string[]>([]), scope = ref('local'), reason = ref(''), action = ref('keep')
 const { requestClose } = useDraftClose(() => !!reason.value || action.value !== 'keep' || selected.value.length > 0 || scope.value !== 'local', () => emit('close'), () => busy.value, () => !!props.violation)
 const actionSummary = computed(() => action.value === 'keep' ? '保留当前成员限制，不解除禁言或封禁' : action.value === 'unban' ? '提交解除这次 PurrAI 封禁的任务' : '提交解除这次 PurrAI 禁言的任务')
-let revision = 0
 watch(() => props.violation, async row => {
-  const current = ++revision
+  reads.cancel()
   evidence.value = null; selected.value = []; scope.value = 'local'; reason.value = ''; action.value = 'keep'; error.value = ''
-  if (row) await safe(async () => {
-    const result = await api<Evidence>(`/api/groups/${props.groupId}/violations/${row.id}/correction`)
-    if (current === revision) evidence.value = result
-  })
-})
+  if (row) await reads.run(() => api<Evidence>(`/api/groups/${props.groupId}/violations/${row.id}/correction`),
+    result => { evidence.value = result })
+}, {flush: 'sync'})
+
 async function save() {
   const row = props.violation, data = evidence.value
   if (!row || !data) return

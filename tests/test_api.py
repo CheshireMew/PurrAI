@@ -85,7 +85,7 @@ async def test_permissions_missing_blocks_activation(env, client, monkeypatch):
 
 async def test_backup_and_restore(env, client):
     _, database, _, _ = env
-    response = await client.post("/api/system/backup")
+    response = await client.post("/api/system/backup", headers={"Idempotency-Key": "api-test-backup"})
     assert response.status_code == 200
     import sqlite3
 

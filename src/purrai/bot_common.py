@@ -102,3 +102,12 @@ def explain(error):
             details.append(f"{name}：{message}")
         return "输入不符合要求：" + "；".join(details)
     return str(error)
+
+
+def user_note(text):
+    """Read the same Telegram user ID and optional note for member and whitelist inputs."""
+    parts = text.split(maxsplit=1)
+    if not parts or not parts[0].isdecimal() or int(parts[0]) <= 0:
+        from purrai.errors import ManagementError
+        raise ManagementError(422, "请发送数字形式的 Telegram 用户 ID")
+    return int(parts[0]), parts[1] if len(parts) > 1 else ""

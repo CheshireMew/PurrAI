@@ -10,6 +10,7 @@ import { MutationRequests, type MutationRequest } from './mutationRequests'
 import { catalog, configureCatalog } from './catalog'
 import { workspaceKey } from './workspace'
 import { useTask } from './composables/useTask'
+import { useLatestRequest } from './composables/useLatestRequest'
 import type { AdminCatalog, Group, User } from './types'
 import CatMark from './CatMark.vue'
 import MessageArchive from './MessageArchive.vue'
@@ -38,6 +39,7 @@ const page = ref(route.value.page), selected = ref<number | null>(route.value.gr
 const groupWarning = ref('')
 const startupError = ref('')
 const { busy, error, safe } = useTask(expireSession)
+const groupReads = useLatestRequest(expireSession)
 const actionTracker = reactive(new ActionTracker())
 const actionRequests = reactive(new ActionRequests())
 const mutations = reactive(new MutationRequests())
@@ -85,13 +87,16 @@ watch(page, async () => {
   }
 })
 async function reloadGroups() {
-  groups.value = await api<Group[]>('/api/groups', {}, response => {
-    groupWarning.value = response.headers.get('X-PurrAI-Groups-Partial') === 'true'
+  let warning = ''
+  await groupReads.run(() => api<Group[]>('/api/groups', {}, response => {
+    warning = response.headers.get('X-PurrAI-Groups-Partial') === 'true'
       ? '部分群权限暂未核实，当前显示已确认的群；稍后可刷新重试。' : ''
-  })
+  }), result => {
+  groups.value = result; groupWarning.value = warning
   if (!groups.value.some(group => group.id === selected.value)) selected.value = groups.value.find(group => group.previous_ids?.includes(selected.value!))?.id ?? groups.value[0]?.id ?? null
+  }, reason => { throw reason })
 }
-function expireSession() { me.value = null }
+function expireSession() { groupReads.cancel(); me.value = null }
 function acceptAction({ receipt, reason, context }: AcceptedAction) {
   actionTracker.accept(receipt, reason, context)
   if ('action_ids' in receipt) ElMessage.success(`已提交 ${receipt.action_ids.length} 个放行任务`)

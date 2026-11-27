@@ -75,7 +75,7 @@ class BatchPanels:
                     button("返回待验证", "list", kind="pending")]
         await self.panel(actor, f"批量放行预览 · 第 {page + 1} 页\n已选 {len(draft['selected'])} / {len(draft['items'])} 人\n点击成员可切换选择。原因：{draft['reason'] or '尚未填写'}", buttons, group_id, message_id)
 
-    async def input(self, actor, group_id, text, data):
+    async def input(self, actor, group_id, text, data, request_id=None):
         draft = await self.recall("bot_draft:batch:" + data["draft"])
         if not draft or draft["actor"] != actor or draft["group_id"] != group_id or draft["expires"] < now():
             raise ManagementError(409, "预览已过期，请重新查看名单")

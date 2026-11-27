@@ -1,6 +1,80 @@
 import { expect, test } from '@playwright/test'
 import { openPage } from './navigation'
 import catalog from './fixtures/catalog.json' with { type: 'json' }
+import pointsSeed from '../../src/purrai/assets/points_policy.v1.json' with { type: 'json' }
+
+test('积分展示实际待结算消息和等待原因，AI额度说明包含广告审核', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  let mode = 'local', pending = 3
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    let data: unknown = { items: [], total: 0 }
+    if (path === '/api/me') data = { id: 1, root: true, csrf: 'test' }
+    else if (path === '/api/catalog') data = catalog
+    else if (path === '/api/groups') data = [{ id: -1001, title: '积分等待测试群', approved: true, enabled: true, status: 'active', settings: catalog.settings.defaults }]
+    else if (path.endsWith('/points/settings')) data = { config: { ...pointsSeed, enabled: true }, version: 1 }
+    else if (path.endsWith('/points')) data = { items: [], total: 0, imports: [], summary: { accounts: 0, points: 0, pending: 0 },
+      settlement: { mode, pending_messages: pending, oldest_at: pending ? 1795300000 : null, local_window_hours: 47 } }
+    else if (path === '/api/system') data = { chat_budget: { global_calls: 10, global_call_limit: 10, global_tokens: 100, global_token_limit: 100 } }
+    else if (path === '/api/system/alerts') data = []
+    await route.fulfill({ json: data })
+  })
+  await page.goto('/#/points?group=-1001')
+  const status = page.getByRole('status', { name: '聊天积分结算状态' })
+  await expect(status).toContainText('待结算聊天消息 3 条')
+  await expect(status).toContainText('47 小时后结算')
+  await expect(status).toContainText('签到和人工调整不受此等待影响')
+  await page.screenshot({ path: testInfo.outputPath('points-settlement-mobile.png'), fullPage: true })
+  mode = 'model'; pending = 0
+  await page.reload()
+  await expect(status).toContainText('待结算聊天消息 0 条')
+  await expect(status).toContainText('模型暂不可用或额度耗尽时继续等待')
+  await expect(status).not.toContainText('最早收到于')
+  await openPage(page, '系统维护')
+  await expect(page.getByText(/达到上限后，AI 聊天暂停，AI 广告审核等待额度恢复/)).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('关闭旧流水并查看另一账户后，迟到的旧响应不能覆盖当前账户', async ({ page }) => {
+  const accounts = ['账户甲', '账户乙'].map((name, index) => ({ id: `history-${index}`, display_name: name,
+    user_id: 1000 + index, balance: 20, version: 1, rank: index + 1, source_rank: null, note: '',
+    trust: { earned_points: 20, active_days: 1, level: 0 } }))
+  let release!: () => void
+  const oldResponse = new Promise<void>(done => { release = done })
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    let data: unknown = { items: [], total: 0 }
+    if (path === '/api/me') data = { id: 1, root: true, csrf: 'test' }
+    else if (path === '/api/catalog') data = catalog
+    else if (path === '/api/groups') data = [{ id: -1001, title: '流水测试群', approved: true, enabled: true, status: 'active', settings: catalog.settings.defaults }]
+    else if (path.endsWith('/points/settings')) data = { config: { enabled: true, trust_excluded_user_ids: [], commands: {} }, version: 0 }
+    else if (path.endsWith('/history')) {
+      const old = path.includes('history-0')
+      if (old) await oldResponse
+      data = { account: accounts[old ? 0 : 1], items: [], total: 0 }
+    } else if (path.endsWith('/points')) data = { items: accounts, total: 2, imports: [], summary: { accounts: 2, points: 40, pending: 0 } }
+    await route.fulfill({ json: data })
+  })
+  try {
+    await page.goto('/#/points?group=-1001')
+    const table = page.locator('.points-table')
+    const firstRequest = page.waitForRequest(request => request.url().includes('history-0/history'))
+    await table.getByRole('row').filter({ hasText: '账户甲' }).getByRole('button', { name: '流水', exact: true }).click()
+    await firstRequest
+    await page.keyboard.press('Escape')
+    const dialog = page.getByRole('dialog', { name: '积分流水', exact: true })
+    await expect(dialog).toBeHidden()
+    await table.getByRole('row').filter({ hasText: '账户乙' }).getByRole('button', { name: '流水', exact: true }).click()
+    await expect(dialog).toContainText('账户乙')
+    const received = page.waitForResponse(response => response.url().includes('history-0/history'))
+    release(); await received
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect(dialog).toContainText('账户乙')
+    await expect(dialog).not.toContainText('账户甲')
+  } finally { release() }
+})
 
 test('积分管理可查积分、调整、绑定、导入和修改口令', async ({ page }, testInfo) => {
   let account = { id: 'account1', display_name: '群友甲', user_id: null as number | null, balance: 100, version: 1, rank: 1, source_rank: 1, note: '', trust: { earned_points: 220, active_days: 8, level: 1 } }

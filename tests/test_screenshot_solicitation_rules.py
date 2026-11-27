@@ -12,7 +12,7 @@ from purrai.solicitation_rules import contact_should_block, profile_solicitation
 
 
 async def test_slow_spam_configuration_is_managed_data_and_does_not_reenable_old_rules(env, client):
-    changes = json.loads((Path(__file__).resolve().parents[1] / "data/policies/slow-spam-20261115.json").read_text(encoding="utf-8"))
+    changes = json.loads((Path(__file__).resolve().parents[1] / "tests/fixtures/slow_spam_policy.json").read_text(encoding="utf-8"))
     current = (await client.get("/api/settings/business-policy")).json()
     document = current["document"]
     # Production has retired these legacy combinations. Apply only the requested

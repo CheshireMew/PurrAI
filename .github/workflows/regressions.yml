@@ -20,21 +20,7 @@ jobs:
       - run: python -m pip install --no-deps -e .
       - run: python scripts/check_rule_boundaries.py
       - run: python scripts/sync_admin_contract.py --check
-      - run: >-
-          python -m pytest -q tests/test_advertisement_review.py tests/test_ai_advertising_limit.py
-          tests/test_bio_advertising.py tests/test_bot_admin.py tests/test_archive.py
-          tests/test_points_bot.py tests/test_policy_controls_migration.py tests/test_screenshot_solicitation_rules.py
-          tests/test_architecture_design.py tests/test_profile_advertising.py
-          tests/test_channel_advertising.py tests/test_inline_buttons.py tests/test_guest_resource_ads.py
-          tests/test_automatic_admin.py tests/test_contact_kick.py tests/test_admin_responsiveness.py
-          tests/test_architecture_boundaries.py tests/test_telegram_health.py
-          tests/test_migrations.py::test_fresh_install_loads_public_policy_and_existing_install_keeps_edits
-          tests/test_points_trust.py tests/test_bulk_emoji_rules.py tests/test_combined_chat_review.py
-          tests/test_structured_messages.py tests/test_lottery.py tests/test_lottery_migration.py
-          tests/test_notice_expiry.py tests/test_profile_trust.py tests/test_verification_delivery.py
-          tests/test_administrator_exemptions.py
-          tests/test_group_menu.py tests/test_group_menu_migration.py tests/test_bio_blacklisted_targets.py
-          tests/test_traditional_commands.py
+      - run: python -m pytest -q
   admin:
     runs-on: windows-latest
     defaults:
@@ -47,9 +33,15 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -r ../requirements.lock
+      - run: python -m pip install --no-deps -e ..
       - run: npm ci
       - run: npx vue-tsc --noEmit
       - run: npm test
       - run: npx playwright install chromium
-      - run: node node_modules/@playwright/test/cli.js test admin.spec.ts --grep '群聊天口令计数|昵称谐音规则'
-      - run: node node_modules/@playwright/test/cli.js test group-menu.spec.ts
+      - run: node node_modules/@playwright/test/cli.js test

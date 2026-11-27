@@ -1,9 +1,10 @@
 """Select runnable conversations, merge pending turns and reserve one reply."""
 
+import asyncio
 import json
 import logging
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, tuple_, update
 
 from purrai import chat_commands
 from purrai.advertisement_store import latest_reviews
@@ -14,6 +15,7 @@ from purrai.chat_state import (
 )
 from purrai.models import ChatMessage, ChatTurn, Group, Meta, now
 from purrai.schemas import GroupSettings
+from purrai.policy_work import PolicyExecution, policy_work
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ class ChatScheduler:
     def __init__(self, db, telegram, settings, contexts, busy):
         self.db, self.tg, self.settings = db, telegram, settings
         self.contexts, self.busy = contexts, busy
+        self.claim_lock = asyncio.Lock()
 
     @staticmethod
     def skip(batch, reason):
@@ -30,26 +33,38 @@ class ChatScheduler:
             logger.info("聊天跳过 turn=%s group=%s reason=%s", item.id, item.group_id, reason)
 
     async def claim(self):
-        async with self.db.transaction() as session:
-            # Enumerate scopes so a busy topic cannot hide unrelated conversations.
-            candidates = (await session.execute(
-                select(ChatTurn.group_id, ChatTurn.topic_id)
-                .where(ChatTurn.state == "pending", ChatTurn.available_at <= now())
-                .group_by(ChatTurn.group_id, ChatTurn.topic_id)
-                .order_by(func.max(ChatTurn.direct).desc(), func.min(ChatTurn.id))
-            )).all()
-            for scope in candidates:
-                key = scope.group_id, scope.topic_id
-                if key not in self.busy:
-                    prepared = await self.prepare(session, key)
-                    if prepared:
-                        return prepared
+        async with self.claim_lock:
+            prepared = None
+            async with PolicyExecution(self.db) as session:
+                orphaned = update(ChatTurn).where(ChatTurn.state == "generating")
+                if self.busy:
+                    orphaned = orphaned.where(tuple_(ChatTurn.group_id, ChatTurn.topic_id).not_in(self.busy))
+                await session.execute(orphaned.values(state="pending", available_at=now())
+                                      .execution_options(synchronize_session=False))
+                # Enumerate scopes so a busy topic cannot hide unrelated conversations.
+                candidates = (await session.execute(
+                    select(ChatTurn.group_id, ChatTurn.topic_id)
+                    .where(ChatTurn.state == "pending", ChatTurn.available_at <= now())
+                    .group_by(ChatTurn.group_id, ChatTurn.topic_id)
+                    .order_by(func.max(ChatTurn.direct).desc(), func.min(ChatTurn.id))
+                )).all()
+                for scope in candidates:
+                    key = scope.group_id, scope.topic_id
+                    if key not in self.busy:
+                        prepared = await self.prepare(session, key)
+                        if prepared:
+                            break
+            # Only a committed claim can own an in-memory scope. There is no
+            # await between reserving it and handing it to run_one's finally.
+            if prepared:
+                self.busy.add((prepared[0].group_id, prepared[0].topic_id))
+            return prepared
 
     async def pending_batch(self, session, group, topic_id, cfg):
         from purrai.shared_policy import effective_rules
         rules = await effective_rules(session, group.id)
         _, command_state = await chat_commands.load(session, group.id)
-        ignored = cfg.chat_ignored_texts + chat_commands.learned(command_state, cfg, rules)
+        ignored = cfg.chat_ignored_texts + await policy_work(session, chat_commands.learned, command_state, cfg, rules)
         batch = (await session.scalars(select(ChatTurn).where(
             ChatTurn.group_id == group.id, ChatTurn.topic_id == topic_id,
             ChatTurn.state == "pending", or_(ChatTurn.available_at <= now(), and_(
@@ -76,11 +91,14 @@ class ChatScheduler:
             return [], []
         recent = await self.contexts.recent(session, group.id, topic_id)
         image_ids = image_message_ids(recent, cfg.chat_burst_seconds)
-        valid_ids = {row.message_id for row in await session.scalars(select(ChatMessage).where(
+        candidates = list(await session.scalars(select(ChatMessage).where(
             *self.contexts.clean_conditions(group.id, topic_id),
             ChatMessage.message_id.in_([item.message_id for item in batch]),
-        )) if row.sender_id not in cfg.chat_no_reply_user_ids
-            and not ignored_text(row.text, ignored, getattr(self.tg, "username", ""), rules=rules) and now() - row.sent_at <= cfg.chat_message_max_age_seconds}
+        )))
+        valid_ids = await policy_work(session, lambda: {row.message_id for row in candidates
+            if row.sender_id not in cfg.chat_no_reply_user_ids
+            and not ignored_text(row.text, ignored, getattr(self.tg, "username", ""), rules=rules)
+            and now() - row.sent_at <= cfg.chat_message_max_age_seconds})
         for item in batch:
             if item.review_only:
                 if not await self.contexts.review(session, item, cfg):
@@ -175,7 +193,6 @@ class ChatScheduler:
         leader.attempts += 1
         state["last_attempt"] = now()
         store_state(session, state_row, *key, state)
-        self.busy.add(key)
         logger.info("聊天选择 turn=%s group=%s topic=%s message=%s",
                     leader.id, leader.group_id, leader.topic_id, leader.message_id)
         return leader, cfg, context, target.text, target.sender_id

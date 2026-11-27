@@ -179,7 +179,20 @@ class GroupAccess:
             missing.append("administrator")
         if join_requests and not member.get("can_invite_users") and member.get("status") != "creator":
             missing.append("can_invite_users")
+        async with self.db.sessions() as session:
+            group = await session.get(Group, group_id)
+        if (group and group.settings.get("linked_channel_auto_unpin", False)
+                and not member.get("can_pin_messages") and member.get("status") != "creator"):
+            missing.append("can_pin_messages")
         return {"ok": not missing, "missing": missing, "checked_at": now()}
+
+    async def require_pin_right(self, group_id):
+        try:
+            member = await self.tg.call("get_chat_member", chat_id=group_id, user_id=self.tg.user_id)
+        except Exception as exc:
+            raise ManagementError(503, "暂时无法检查机器人置顶消息权限") from exc
+        if not is_admin(member) or not (member.get("can_pin_messages") or member.get("status") == "creator"):
+            raise ManagementError(422, "取消关联频道自动置顶需要机器人拥有置顶消息权限")
 
     async def require_join_right(self, group_id):
         try:

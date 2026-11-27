@@ -250,7 +250,7 @@ async def test_bot_settings_and_http_status_use_existing_admin_scope(env, client
     status = await client.get("/api/groups/-1001/chat")
     assert status.status_code == 200 and status.json()["configured"] is False
     assert "api_key" not in status.text
-    assert (await client.post("/api/groups/-1001/chat/reset")).status_code == 200
+    assert (await client.post("/api/groups/-1001/chat/reset", headers={"Idempotency-Key": "chat-reset-scope"})).status_code == 200
     assert (await client.get("/api/groups/-9999/chat")).status_code == 404
 
 

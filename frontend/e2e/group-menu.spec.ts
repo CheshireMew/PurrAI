@@ -34,6 +34,31 @@ async function mockMenu(page: Page) {
   return { menu, operations, failNextSave: () => { failSave = true } }
 }
 
+test('菜单慢于刷新间隔时等待原查询，成功后停止轮询', async ({ page }) => {
+  const state = await mockMenu(page)
+  state.menu.delivery = { id: 'pending-menu', state: 'pending', operation: 'publish', error: '' }
+  let reads = 0, finish!: () => void
+  const slow = new Promise<void>(resolve => { finish = resolve })
+  await page.route('**/api/groups/*/menu', async route => {
+    const number = ++reads
+    if (number > 1) await slow
+    await route.fulfill({ json: { ...state.menu, active: number > 1,
+      delivery: { ...state.menu.delivery, state: number > 1 ? 'succeeded' : 'pending' } } })
+  })
+  await page.clock.install()
+  await page.goto('/#/group-menu?group=-1001')
+  await expect(page.getByText('正在更新群菜单…', { exact: true })).toBeVisible()
+  await page.clock.fastForward(5000)
+  await expect.poll(() => reads).toBe(2)
+  await page.clock.fastForward(12000)
+  expect(reads).toBe(2)
+  finish()
+  await expect(page.getByText('菜单已显示在群内', { exact: true })).toBeVisible()
+  await page.clock.fastForward(10000)
+  expect(reads).toBe(2)
+  await expect(page.locator('.el-loading-mask:visible')).toHaveCount(0)
+})
+
 test('底部菜单编辑、预览、更新、清除和恢复', async ({ page }, testInfo) => {
   const state = await mockMenu(page)
   const errors: string[] = []

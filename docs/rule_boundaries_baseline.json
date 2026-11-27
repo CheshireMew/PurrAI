@@ -10,6 +10,17 @@
   "seed_sha256": "df26d9ad3ab704dbb3c5ee91ffbfec3aa39c3c13b14f37e8928b136a45e90165",
   "entries": [
     {
+      "path": "src/purrai/group_configuration.py",
+      "scope": "GroupConfiguration.update",
+      "kind": "comparison",
+      "digest": "07509e1957bfd5cb63df527acae82ff67546941e57425bd1d5afe8ab979258b9",
+      "line": 64,
+      "examples": [
+        "linked_channel_auto_unpin"
+      ],
+      "review": "2026-11-26: User requested optional linked-channel auto-unpin while preserving manual pins. This comparison checks the SettingsPatch.reset protocol field name before validating pin permissions; it never matches channel post text or advertising vocabulary."
+    },
+    {
       "path": "src/purrai/telegram_health.py",
       "scope": "<module>",
       "kind": "matching-data",
@@ -294,45 +305,49 @@
       ]
     },
     {
-      "path": "src/purrai/bot_input.py",
-      "scope": "BotInput.input",
+      "path": "src/purrai/bot_system_panels.py",
+      "scope": "SystemPanels.input",
       "kind": "comparison",
       "digest": "9ae85d3af624a98f19f7d05226999e0fa0e9e08fd2945e10fe10085526ad1f90",
-      "line": 144,
+      "line": 107,
       "examples": [
         "已完成",
         "未完成"
-      ]
+      ],
+      "review": "2026-11-26: Authorized cohesion refactor. Unchanged administrator input syntax moved out of BotInput; parses explicit preview or delivery-resolution input, never advertising content."
     },
     {
-      "path": "src/purrai/bot_input.py",
-      "scope": "BotInput.input",
+      "path": "src/purrai/bot_system_panels.py",
+      "scope": "SystemPanels.input",
       "kind": "comparison",
       "digest": "08c95408833b59925970bab0108962bcd852987016b725e27ce50980adf625db",
-      "line": 147,
+      "line": 114,
       "examples": [
         "已完成"
-      ]
+      ],
+      "review": "2026-11-26: Authorized cohesion refactor. Unchanged administrator input syntax moved out of BotInput; parses explicit preview or delivery-resolution input, never advertising content."
     },
     {
-      "path": "src/purrai/bot_input.py",
-      "scope": "BotInput.input",
+      "path": "src/purrai/bot_rule_panels.py",
+      "scope": "RulePanels.input",
       "kind": "string-match",
       "digest": "07195818bec5da40c470668fc5f89893c4cbb1fd164ab26fcc7df72d48f5cca5",
-      "line": 258,
+      "line": 59,
       "examples": [
         "昵称:"
-      ]
+      ],
+      "review": "2026-11-26: Authorized cohesion refactor. Unchanged administrator input syntax moved out of BotInput; parses explicit preview or delivery-resolution input, never advertising content."
     },
     {
-      "path": "src/purrai/bot_input.py",
-      "scope": "BotInput.input",
+      "path": "src/purrai/bot_rule_panels.py",
+      "scope": "RulePanels.input",
       "kind": "string-match",
       "digest": "002c4957d62398ccf90a57a79a7c5ee48d724848873d332cd82f1a56ae6bdbfb",
-      "line": 258,
+      "line": 59,
       "examples": [
         "昵称："
-      ]
+      ],
+      "review": "2026-11-26: Authorized cohesion refactor. Unchanged administrator input syntax moved out of BotInput; parses explicit preview or delivery-resolution input, never advertising content."
     },
     {
       "path": "src/purrai/bot_member_panels.py",
@@ -1031,16 +1046,16 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "06f2cb908ca15ebaab746f64fcf5699ba1a8135de720c088d39b195372e83bc8",
-      "line": 111,
+      "digest": "4b5fa610b70adaccf05edf3e9f5d042b57b629a2ba05ec82eba27e4e7009e3c3",
+      "line": 114,
       "examples": [
         "入群验证",
         "全员拦截钱包及代币合约地址",
+        "取消关联频道自动置顶",
         "只拦截广告联系人名片",
-        "在群内显示管理操作提交提示",
-        "外群链接、外部频道引用及转发永久封禁"
+        "在群内显示管理操作提交提示"
       ],
-      "review": "2026-11-23: User requested optional submission receipts with automatic cleanup. BOOLEANS contains only administrator setting names and display labels, never advertising match data."
+      "review": "2026-11-23: User requested optional submission receipts with automatic cleanup. BOOLEANS contains only administrator setting names and display labels, never advertising match data. 2026-11-26: Added the user-requested linked_channel_auto_unpin setting label only."
     },
     {
       "path": "src/purrai/chat_input.py",
@@ -1216,16 +1231,17 @@
     },
     {
       "path": "src/purrai/chat_model.py",
-      "scope": "ChatModel.completion",
+      "scope": "ChatModel._parse",
       "kind": "matching-data",
       "digest": "34017f95f60d81279f2a511b2f715d81fddfa8e414edf4378ca667b2e824876c",
-      "line": 63,
+      "line": 83,
       "examples": [
         "API Key 无效",
         "API 地址或模型不存在",
         "API 无权访问",
         "API 限流或额度不足"
-      ]
+      ],
+      "review": "2026-11-26: Authorized PA26-U1 request/response diagnostics moved the existing HTTP status display labels to ChatModel._parse without changing their AST digest. They describe provider errors and never match message or profile vocabulary."
     },
     {
       "path": "src/purrai/admin_labels.py",
@@ -1454,7 +1470,7 @@
       "path": "src/purrai/admin_labels.py",
       "scope": "<module>",
       "kind": "matching-data",
-      "digest": "f58d2e8a9cc8fd52518229864d86dbc32ba22bc4512cfd6fe30426738025538f",
+      "digest": "646abc8aad3399f840aa626977320dff74d6df4a4a4c25f09e5eee393d0db528",
       "line": 37,
       "examples": [
         "AI广告永久禁言",
@@ -1463,7 +1479,7 @@
         "临时禁言",
         "人工核实发送结果"
       ],
-      "review": "2026-11-23: Requested unban to cover mute removal. OPERATIONS only displays operation names in administrator interfaces and receipts; it never matches advertisement content. 2026-11-25: User-requested bottom menu adds group_menu and group_menu_settings display names only; button routing reads saved group configuration, and these labels never inspect message text."
+      "review": "2026-11-23: Requested unban to cover mute removal. OPERATIONS only displays operation names in administrator interfaces and receipts; it never matches advertisement content. 2026-11-25: User-requested bottom menu adds group_menu and group_menu_settings display names only; button routing reads saved group configuration, and these labels never inspect message text. 2026-11-26: Added the user-requested linked_channel_unpin operation label only."
     },
     {
       "path": "src/purrai/bot_lottery_panels.py",
@@ -1682,6 +1698,28 @@
         "unban"
       ],
       "review": "2026-11-23: User explicitly requested unban to include mute removal. This compares the management ActionInput operation field, not a message, profile, keyword or advertising decision."
+    },
+    {
+      "path": "src/purrai/db.py",
+      "scope": "Database.backup",
+      "kind": "matching-call",
+      "digest": "d8eda0f9b0fb41e1ff58477b11fbb80be9ea2aef4843e1f5d7a20a123f4e15a3",
+      "line": 84,
+      "examples": [
+        "purrai-\\d{8}-\\d{6}-\\d{6}\\.sqlite3"
+      ],
+      "review": "2026-11-26: Authorized PA26-05 managed-backup recovery validates the generated backup filename protocol before writing a named target. This pattern only reads filenames, never group messages, profiles or moderation configuration."
+    },
+    {
+      "path": "src/purrai/model_diagnostics.py",
+      "scope": "<module>",
+      "kind": "matching-call",
+      "digest": "b311691b11571171791d87b7d330e490fcf4a8289321882f1ae73f990b52f24a",
+      "line": 21,
+      "examples": [
+        "[0-9a-f]{32}\\.(?:json|tmp)"
+      ],
+      "review": "2026-11-26: User explicitly selected opt-in full model diagnostics. This pattern limits retention to this store's generated UUID JSON/tmp files so foreign files are untouched; it never matches user message content or advertising vocabulary."
     }
   ],
   "additional_seed_sha256": {

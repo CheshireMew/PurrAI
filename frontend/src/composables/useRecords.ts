@@ -15,7 +15,7 @@ export function useRecords<T>(groupId: () => number, section: string, extra?: ()
   const task = useLatestRequest(), rows = shallowRef<T[]>([]), total = ref(0), pagination = ref(1)
   const statusFilter = ref(''), userFilter = ref(''), dates = ref<[string, string] | null>(null)
   let applied = {state: '', user: '', dates: null as [string, string] | null, extra: {} as Record<string, string>}
-  let requested = applied, acceptedPage = 1, loadVersion = 0
+  let requested = applied, acceptedPage = 1
   const loaded = ref(false), queryFailed = ref(false)
   let written = route.value.params.get('filter') || ''
   const restored = savedFilters(section)
@@ -32,9 +32,9 @@ export function useRecords<T>(groupId: () => number, section: string, extra?: ()
   }
   restore()
   async function load(change: boolean | number = false) {
-    const version = ++loadVersion, candidate = requested, number = pagination.value
+    const candidate = requested, number = pagination.value
     queryFailed.value = false
-    const success = await task.run(async () => {
+    await task.run(async () => {
       const query = recordQuery(number, candidate.state, candidate.user, candidate.dates)
       for (const [key, value] of Object.entries(candidate.extra)) if (value) query.set(key, value)
       return api<T[] | Page<T>>(`/api/groups/${groupId()}/${section}?${query}`)
@@ -44,11 +44,10 @@ export function useRecords<T>(groupId: () => number, section: string, extra?: ()
       applied = candidate; acceptedPage = number; loaded.value = true
       const stored = {section, page: number, ...candidate}
       written = JSON.stringify(stored); saveFilters(stored, !change)
-    })
-    if (!success && version === loadVersion) {
+    }, () => {
       queryFailed.value = true
       if (loaded.value) { pagination.value = acceptedPage; requested = applied }
-    }
+    })
   }
   async function filters() {
     requested = {state: statusFilter.value, user: userFilter.value, dates: dates.value ? [...dates.value] : null, extra: {...extra?.()}}

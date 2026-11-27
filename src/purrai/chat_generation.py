@@ -1,5 +1,6 @@
 """Model request preparation, budget accounting and generation reuse."""
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -111,7 +112,7 @@ class ChatGeneration:
                     target.update(name=profile_name(message_sender(saved.message)), text=normalize(body),
                                   bio=biography(saved.message), bio_status=(saved.message.get("_sender_profile") or {}).get("status", "unavailable"),
                                   links=message_content(saved.message)[1], buttons=inline_buttons(saved.message))
-                    from purrai.advertisement_review import include_number_readings
+                    from purrai.advertisement_content import include_number_readings
                     include_number_readings(target)
                 from purrai.models import Whitelist
                 white = await session.get(Whitelist, (turn.group_id, sender_id))
@@ -131,7 +132,7 @@ class ChatGeneration:
         hints = None
         if self.db is not None and not target.get("advertisement_reviewed"):
             target = next((row for row in context if row["id"] == turn.message_id), {})
-            hints = ai_keyword_hints(target.get("text", ""), rules, target.get("name", ""), target.get("bio", ""))
+            hints = await asyncio.to_thread(ai_keyword_hints, target.get("text", ""), rules, target.get("name", ""), target.get("bio", ""))
             request["keyword_hints"] = hints
         # Delivery retries reuse the model result; a text receipt also survives context additions.
         fingerprint = hashlib.sha256((system + json.dumps(request, ensure_ascii=False)).encode()).hexdigest()
@@ -174,7 +175,10 @@ class ChatGeneration:
             )
             started = perf_counter()
             try:
-                result = await self.model.reply(system, payload)
+                from purrai.model_diagnostics import model_request_context
+                with model_request_context(group_id=turn.group_id, topic_id=turn.topic_id,
+                                           turn_id=turn.id, message_id=turn.message_id, attempt=turn.attempts):
+                    result = await self.model.reply(system, payload)
                 await self.budget.settle(reservation, result.total_tokens)
             finally:
                 if self.db is not None:

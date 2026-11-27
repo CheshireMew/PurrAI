@@ -5,6 +5,7 @@
       "bio_cache_seconds": 300,
       "notice_seconds": 30,
       "admin_submission_notice": false,
+      "linked_channel_auto_unpin": false,
       "ai_ad_mute_notice": false,
       "ai_ad_window_hours": 72,
       "ai_ad_limit": 3,
@@ -154,6 +155,11 @@
       "admin_submission_notice": {
         "default": false,
         "title": "在群内显示管理操作提交提示",
+        "type": "boolean"
+      },
+      "linked_channel_auto_unpin": {
+        "default": false,
+        "title": "取消关联频道自动置顶",
         "type": "boolean"
       },
       "ai_ad_mute_notice": {
@@ -784,6 +790,7 @@
       "mute_seconds": "手动禁言（秒）"
     },
     "booleans": {
+      "linked_channel_auto_unpin": "取消关联频道自动置顶",
       "admin_submission_notice": "在群内显示管理操作提交提示",
       "bio_advertising_enabled": "检查用户简介广告",
       "coordinated_enabled": "多账号重复刷屏检测",
@@ -810,6 +817,7 @@
       "bio_cache_seconds": "用户简介刷新间隔（秒）",
       "notice_seconds": "群内系统提醒保留秒数",
       "admin_submission_notice": "在群内显示管理操作提交提示",
+      "linked_channel_auto_unpin": "取消关联频道自动置顶",
       "ai_ad_mute_notice": "在群内发送 AI 广告禁言通知",
       "ai_ad_window_hours": "AI广告累计窗口（小时）",
       "ai_ad_limit": "AI广告累计次数",
@@ -926,6 +934,7 @@
   "operations": {
     "channel_ad_ban": "封禁广告频道在本群发言",
     "channel_unban": "解除频道发言封禁",
+    "linked_channel_unpin": "取消关联频道自动置顶",
     "identity_check": "防冒充资料核验",
     "auto_reply": "关键词自动回复",
     "points_message": "积分互动",

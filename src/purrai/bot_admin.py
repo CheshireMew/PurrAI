@@ -18,7 +18,7 @@ class BotAdmin:
         self.ui = BotUI(management.tg, management.settings, self.state)
         self.panels = BotPanels(management, self.ui, self.state)
         self.inputs = BotInput(management, self.ui, self.state, self.panels)
-        self.routes = BotRoutes(management, self.ui, self.state, self.panels, self.inputs)
+        self.routes = BotRoutes(management.access, self.state, self.panels, self.inputs)
         self.commands = BotCommands(management, self.ui, self.state, self.panels, self.inputs)
         self.callbacks = BotCallbacks(self.ui, self.state, self.routes, self.inputs)
 

@@ -2,7 +2,7 @@
 import hashlib
 import json
 
-from sqlalchemy import exists, select, update
+from sqlalchemy import exists, func, select, update
 
 from purrai.advertisement_schemas import AdvertisementSettings
 from purrai.models import Action, AdvertisementPolicy, AdvertisementReview, AdvertisementSample, Meta, now
@@ -42,8 +42,26 @@ def revision(message):
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-async def samples(session, group_id):
-    return (await session.scalars(select(AdvertisementSample).where(
+async def samples(session, group_id, *, direct_text=None):
+    conditions = []
+    if direct_text is not None:
+        from collections import Counter
+        from purrai.advertisement_similarity import features
+        from purrai.models import AdvertisementSampleToken
+        counts = Counter(features(direct_text)[0])
+        if not counts:
+            return []
+        token = AdvertisementSampleToken
+        # Every direct match contains all input characters, including repeated
+        # occurrences. Intersect rare postings before loading any sample text.
+        rare = list(await session.scalars(select(token.character).where(token.group_id == group_id,
+            token.character.in_(counts)).group_by(token.character).order_by(func.count(), token.character).limit(3)))
+        if not rare:
+            return []
+        conditions.append(AdvertisementSample.scope == "text")
+        conditions.extend(exists().where(token.sample_id == AdvertisementSample.id,
+            token.group_id == group_id, token.character == char, token.occurrences >= counts[char]) for char in rare)
+    return (await session.scalars(select(AdvertisementSample).where(*conditions,
         AdvertisementSample.group_id == group_id, AdvertisementSample.enabled.is_(True),
         ~exists().where(Meta.key == "violation-correction:" + AdvertisementSample.violation_id),
     ).order_by(AdvertisementSample.created_at.desc()))).all()
@@ -80,6 +98,8 @@ async def remember(session, review, *, scope, reason, violation_id=""):
 
 
 async def current(session, review):
+    if review.message.get("_retained"):
+        return False
     from purrai.message_events import event_current
     if not await event_current(session, review.message, review.update_id):
         return False

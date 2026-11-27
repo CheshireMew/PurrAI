@@ -24,7 +24,7 @@ const sampleOpen = ref(false), sampleIds = ref<string[]>([])
 const filters = reactive({ query: '', sender_id: '', message_type: '', flagged: false, deletion: '', dates: null as DateRange })
 const applied = ref(''), requested = ref('')
 const hasResult = ref(false), retained = ref(false)
-let acceptedPage = 1, loadVersion = 0
+let acceptedPage = 1
 let written = route.value.params.get('filter') || ''
 function restoreQuery() {
   const saved = savedFilters('messages')
@@ -43,9 +43,8 @@ const types: Record<string, string> = { text: '文字', checklist: '核对清单
 const exportUrl = computed(() => `/api/groups/${props.groupId}/messages/export?${applied.value}`)
 async function load(apply = false, change = false) {
   details.error.value = ''
-  const version = ++loadVersion
   retained.value = hasResult.value
-  const success = await listing.run(async () => {
+  await listing.run(async () => {
     let candidate = requested.value
     if (apply) {
       if (filters.sender_id && !/^-?\d+$/.test(filters.sender_id.trim())) throw new Error('请填写有效的用户或频道数字 ID')
@@ -66,8 +65,7 @@ async function load(apply = false, change = false) {
     const saved = {section: 'messages', query, page: number}
     written = JSON.stringify(saved); saveFilters(saved, !(apply || change))
     recording.value = result.recording || { state: 'unknown', reason: '' }
-  })
-  if (!success && version === loadVersion && hasResult.value) { page.value = acceptedPage; requested.value = applied.value }
+  }, () => { if (hasResult.value) { page.value = acceptedPage; requested.value = applied.value } })
 }
 async function show(row: ArchivedMessage) {
   detail.value = null; opened.value = true; listing.error.value = ''

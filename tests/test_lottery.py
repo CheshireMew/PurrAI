@@ -297,15 +297,15 @@ async def test_buttons_check_group_membership_and_retry_after_lost_ack(client, e
     assert await balance(db) == 1000
     tg.members[(-1001, 42)] = {"status": "member"}
     tg.fail["answer_callback_query"] = 1
-    with pytest.raises(ConnectionError):
-        await bot.callback(query)
+    assert await bot.callback(query)
     assert await balance(db) == 900
-    assert await LotteryBot(db, tg).callback(query)
+    assert await bot.callback(query)
     assert await balance(db) == 900
     assert await bot.callback({**query, "id": "query-other-group", "message": {"chat": {"id": -1002}}})
     assert await balance(db) == 900
     await drain(service)
     assert any("报名消耗 100" in data.get("text", "") for method, data in tg.calls)
+    await bot.close()
 
 
 async def test_notice_uncertain_delivery_not_repeated_and_result_survives(client, env):

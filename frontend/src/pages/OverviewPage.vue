@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { api, label } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
@@ -8,8 +8,8 @@ import { useRefresh } from '../composables/useRefresh'
 const props = defineProps<{ refreshKey: number }>()
 const emit = defineEmits<{ navigate: [page: string] }>()
 const { groups, me } = useWorkspace(), stats = ref<Record<string, number>>({})
-const { busy, error, safe } = useTask()
-async function load() { await safe(async () => { stats.value = await api<Record<string, number>>('/api/dashboard') }) }
+const { busy, error, run } = useLatestRequest()
+async function load() { await run(() => api<Record<string, number>>('/api/dashboard'), value => { stats.value = value }) }
 useRefresh(load, () => props.refreshKey, () => !busy.value)
 </script>
 

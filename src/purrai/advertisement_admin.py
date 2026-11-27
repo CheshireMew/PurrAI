@@ -121,6 +121,8 @@ class AdvertisementAdministration:
             changed = []
             for identifier in body.ids:
                 row = await session.get(AdvertisementReview, identifier)
+                if row and row.group_id == group_id and row.message.get("_retained"):
+                    raise ManagementError(409, "审核原文已到保留期限，不能重新审核历史摘要")
                 if row and row.group_id == group_id and row.state in ("failed", "pending"):
                     row.state, row.error, row.available_at, row.attempts = "pending", "", now(), 0
                     changed.append(identifier)

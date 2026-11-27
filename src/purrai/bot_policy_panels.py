@@ -159,7 +159,7 @@ class PolicyPanels:
             instruction = "请发送需要同时命中的正文关键词。原内容作为昵称关键词。"
         await self.send(actor, instruction + "\n发送 /cancel 取消；15 分钟内有效。")
 
-    async def input(self, actor, text, data, request_id):
+    async def input(self, actor, text, data, request_id, group_id=None):
         await self.management.principal(actor, root=True)
         if data["kind"] == "policy_setting":
             key = data["key"]

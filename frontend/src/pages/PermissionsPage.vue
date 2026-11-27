@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { api, label, time } from '../api'
 import { useWorkspace } from '../workspace'
 import { useRefresh } from '../composables/useRefresh'
 
 const props = defineProps<{ refreshKey: number }>()
 const rows = ref<{ id: number }[]>([])
-const { busy, error, safe } = useTask()
-async function load() { await safe(async () => { const data = await api<{ superadmin_ids: number[] }>('/api/admins'); rows.value = data.superadmin_ids.map(id => ({ id })) }) }
+const { busy, error, run } = useLatestRequest()
+async function load() { await run(() => api<{ superadmin_ids: number[] }>('/api/admins'), data => { rows.value = data.superadmin_ids.map(id => ({ id })) }) }
 useRefresh(load, () => props.refreshKey)
 </script>
 

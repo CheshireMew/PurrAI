@@ -52,7 +52,7 @@ class InboxProcessor:
             query = query.where(~is_verification, ~is_control)
         elif lane == "control":
             query = query.where(is_control)
-        async with self.claims.lock:
+        async with self.claims.selecting():
             async with self.db.sessions() as session:
                 if lane == "verification":
                     item = await self.verification_item(session, query)
@@ -92,6 +92,14 @@ class InboxProcessor:
         token = self.current_update_id.set(identifier)
         trace_token = request_identity.set(f"update={identifier} lane={lane} scope={scope}")
         try:
+            from purrai.group_migration import receive_migration
+            message = payload.get("message", {})
+            if message.get("migrate_to_chat_id") or message.get("migrate_from_chat_id"):
+                async with self.db.transaction() as session:
+                    await receive_migration(session, payload)
+                    item = await session.get(Inbox, identifier)
+                    item.state, item.completed_at, item.payload, item.error = "done", now(), {"update_id": identifier}, ""
+                return True
             async with self.db.sessions() as session:
                 group_id = await update_group_id(session, payload)
                 permitted = group_id is None or await approved(session, group_id)

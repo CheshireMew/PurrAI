@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import type * as Api from '../adminApi'
 import { ElMessage } from 'element-plus'
 import { api, time } from '../api'
 import { useWorkspace } from '../workspace'
-import { useTask } from '../composables/useTask'
+import { combineTasks, useTask } from '../composables/useTask'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import { useDraftClose } from '../composables/useDraftClose'
 import { usePreviewResult } from '../composables/usePreviewResult'
 
 const props = defineProps<{ groupId: number }>()
 const { mutations } = useWorkspace()
 const open = ref(false), page = ref(1), query = ref(''), activeTab = ref('samples')
-const { busy, error, safe } = useTask()
-const data = ref<any>(null), history = ref<any>(null), historyPage = ref(1), historyState = ref('')
-const editing = ref<any>(null), editor = ref(false), previewText = ref(''), quoted = ref(false)
+const tasks = useTask(), sampleReads = useLatestRequest(), reviewReads = useLatestRequest(), safe = tasks.safe
+const { busy, error } = combineTasks(tasks, sampleReads, reviewReads)
+const data = ref<Api.Samples | null>(null), history = ref<Api.Page_AdvertisementReview_ | null>(null), historyPage = ref(1), historyState = ref('')
+const editing = ref<Api.AdvertisementSample | null>(null), editor = ref(false), previewText = ref(''), quoted = ref(false)
 const previewScope = ref('text')
 const form = reactive({ text: '', sender_name: '', scope: 'text', enabled: true, reason: '' })
 const settingsBaseline = ref(''), settingsVersion = ref(0), sampleBaseline = ref(''), samplesRevision = ref(0)
@@ -21,28 +24,26 @@ const { requestClose: closePanel } = useDraftClose(() => settingsDirty.value,
   () => { open.value = false }, () => busy.value, () => open.value)
 const { requestClose: closeSample } = useDraftClose(() => JSON.stringify(form) !== sampleBaseline.value,
   () => { editor.value = false }, () => busy.value, () => editor.value)
-const { result: preview, run: runPreview, invalidate } = usePreviewResult<any>(() => [props.groupId, open.value,
+const { result: preview, run: runPreview, invalidate } = usePreviewResult<Api.SamplePreview>(() => [props.groupId, open.value,
   previewText.value, quoted.value, previewScope.value, samplesRevision.value])
 const stateLabels: Record<string, string> = { pending: '等待审核', requesting: '正在审核', clean: '非广告', advertisement: 'AI确认广告', matched: '本地样本命中', handled: '规则已处理', ignored: '功能口令或空正文', failed: '审核失败', cancelled: '已取消', superseded: '消息已编辑', exempt: '已豁免' }
 const scopeLabels: Record<string, string> = { text: '正文可独立判断', bio: '简介参考', context: '需结合资料或上下文' }
 const sourceLabels: Record<string, string> = { model: 'AI确认', manual: '管理员确认', history: '历史判定' }
 const base = () => `/api/groups/${props.groupId}`
 async function load() {
-  const group = props.groupId
-  const result = await api(`${base()}/advertisement-samples?page_number=${page.value}&query=${encodeURIComponent(query.value)}`)
-  if (group === props.groupId) {
+  const path = `${base()}/advertisement-samples?page_number=${page.value}&query=${encodeURIComponent(query.value)}`
+  await sampleReads.run(() => api<Api.Samples>(path), result => {
     const keepDraft = settingsDirty.value
     const draft = data.value?.settings
     data.value = result
-    if (keepDraft) data.value.settings = draft
+    if (keepDraft && draft) data.value.settings = draft
     else { settingsBaseline.value = JSON.stringify(result.settings); settingsVersion.value = result.version }
     samplesRevision.value++
-  }
+  })
 }
 async function loadHistory() {
-  const group = props.groupId
-  const result = await api(`${base()}/advertisement-reviews?page_number=${historyPage.value}&state=${historyState.value}`)
-  if (group === props.groupId) history.value = result
+  const path = `${base()}/advertisement-reviews?page_number=${historyPage.value}&state=${historyState.value}`
+  await reviewReads.run(() => api<Api.Page_AdvertisementReview_>(path), result => { history.value = result })
 }
 async function show() {
   data.value = null; settingsBaseline.value = ''; activeTab.value = 'samples'; open.value = true
@@ -63,29 +64,32 @@ async function save() {
 }
 async function saveSettings() {
   await safe(async () => {
-    const result = await mutations.submit<any>(`${base()}/advertisement-settings`, 'PUT', data.value.settings, String(settingsVersion.value), '保存广告审核设置')
-    settingsBaseline.value = JSON.stringify(data.value.settings)
+    if (!data.value) return
+    const submitted = JSON.parse(JSON.stringify(data.value.settings)) as Api.AdvertisementPolicy['settings']
+    const result = await mutations.submit<Api.AdvertisementPolicy>(`${base()}/advertisement-settings`, 'PUT', submitted, String(settingsVersion.value), '保存广告审核设置')
+    settingsBaseline.value = JSON.stringify(submitted)
     settingsVersion.value = result.version
     await load(); ElMessage.success('审核设置已保存')
   })
 }
-const importing = ref<any>(null)
+const importing = ref<Api.AdvertisementImport_Output | null>(null)
 async function importHistory(apply: boolean) {
   await safe(async () => {
     importing.value = await mutations.submit(`${base()}/advertisement-samples/import-history`, 'POST', { apply }, undefined, apply ? '导入历史广告判定' : '预览历史广告判定')
-    if (apply) { await load(); ElMessage.success(`已导入 ${importing.value.count} 条历史判定`) }
+    if (apply) { await load(); ElMessage.success(`已导入 ${importing.value?.count || 0} 条历史判定`) }
   })
 }
 async function test() {
   await safe(async () => { await runPreview(() => api(`${base()}/advertisement-samples/preview`, { method: 'POST', body: JSON.stringify({ text: previewText.value, quoted: quoted.value, scope: previewScope.value }) })) })
 }
-async function retry(row: any) {
+async function retry(row: Api.AdvertisementReview) {
   await safe(async () => {
     await mutations.submit(`${base()}/advertisement-reviews/retry`, 'POST', { ids: [row.id] }, undefined, '重试广告审核')
     await loadHistory()
   })
 }
 watch(() => props.groupId, () => { open.value = false; editor.value = false; data.value = history.value = importing.value = null; invalidate(); page.value = historyPage.value = 1 })
+watch(open, value => { if (!value) { sampleReads.cancel(); reviewReads.cancel() } })
 </script>
 
 <template>
@@ -108,8 +112,8 @@ watch(() => props.groupId, () => { open.value = false; editor.value = false; dat
           <h3>试一条消息</h3>
           <el-input v-model="previewText" type="textarea" :rows="3" aria-label="样本匹配测试消息"/>
           <div class="ad-tools"><el-select v-model="previewScope" aria-label="样本测试范围"><el-option label="消息正文" value="text"/><el-option label="用户简介" value="bio"/></el-select><el-checkbox v-model="quoted">包含引用或转发</el-checkbox><el-button :disabled="!previewText.trim()" @click="test">测试本地匹配</el-button></div>
-          <el-alert v-if="preview" :type="preview.action !== 'review' ? 'warning' : 'info'" :closable="false" :title="preview.action !== 'review' ? `命中样本，相似度 ${preview.result.score.toFixed(3)}，${preview.action === 'delete' ? '删除消息' : '删除并永久禁言'}` : '未达到本地处置条件，交由 AI 审核'"/>
-          <p v-if="preview?.result" class="ad-text">对照样本：{{ preview.result.sample.text }}</p>
+          <el-alert v-if="preview" :type="preview.action !== 'review' ? 'warning' : 'info'" :closable="false" :title="preview.action !== 'review' ? `命中样本，相似度 ${(preview.result?.score ?? 0).toFixed(3)}，${preview.action === 'delete' ? '删除消息' : '删除并永久禁言'}` : '未达到本地处置条件，交由 AI 审核'"/>
+          <p v-if="preview?.result?.sample" class="ad-text">对照样本：{{ preview.result.sample.text }}</p>
         </el-tab-pane>
         <el-tab-pane label="审核记录" name="history">
           <div class="ad-tools"><el-select v-model="historyState" aria-label="审核状态" @change="historyPage = 1; safe(loadHistory)"><el-option label="全部状态" value=""/><el-option v-for="(label, value) in stateLabels" :key="value" :label="label" :value="value"/></el-select><el-button @click="safe(loadHistory)">刷新</el-button></div>

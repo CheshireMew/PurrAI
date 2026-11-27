@@ -1,13 +1,36 @@
 """Transactional group points ledger, shared by HTTP and the offline CLI."""
+import asyncio
 import hashlib
 import json
+import math
 
 from sqlalchemy import func, select
 
 from purrai.errors import ManagementError
-from purrai.models import Group, PointsAccount, PointsEntry, PointsImport, PointsPacket, uid
+from purrai.models import PointsAccount, PointsEntry, PointsImport, PointsPacket, now, uid
+from purrai.group_access import GroupAccess
 from purrai.points_schemas import MAX_POINTS
 from purrai.serialization import row_dict
+
+
+def prepare_import(group_id, body, actor, preview):
+    payload = body.model_dump()
+    payload["rows"] = sorted(payload["rows"], key=lambda row: row["source_key"])
+    digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    batch_id, timestamp = uid(), now()
+    accounts, entries = [], []
+    if not preview:
+        for item in body.rows:
+            timestamp = max(now(), math.nextafter(timestamp, math.inf))
+            account = dict(id=uid(), group_id=group_id, source_key=item.source_key, display_name=item.display_name,
+                user_id=item.user_id, balance=item.points, source_rank=item.source_rank, note=item.note,
+                version=1, created_at=timestamp)
+            accounts.append(account)
+            entries.append(dict(id=uid(), group_id=group_id, account_id=account["id"], actor_id=actor,
+                request_id=f"import:{batch_id}:{item.source_key}", kind="import", delta=item.points,
+                balance_after=item.points, reason=body.source,
+                intent={"batch_id": batch_id, "source_key": item.source_key}, result=account, created_at=timestamp))
+    return digest, batch_id, accounts, entries
 
 
 class PointsLedger:
@@ -16,8 +39,7 @@ class PointsLedger:
 
     @staticmethod
     async def group(session, group_id):
-        if await session.get(Group, group_id) is None:
-            raise ManagementError(404, "群不存在")
+        return await GroupAccess.current_group(session, group_id)
 
     @staticmethod
     async def account(session, group_id, account_id):
@@ -45,10 +67,21 @@ class PointsLedger:
             reason=reason, intent=intent, result=result))
         return result
 
+    @staticmethod
+    async def apply_delta(session, account, delta, actor, request_id, kind, reason, intent):
+        """Post a balance change and its receipt in the caller's transaction.
+
+        Callers own replay and version checks; all balance mutations share the
+        same bounds, version increment and ledger write here.
+        """
+        if not 0 <= account.balance + delta <= MAX_POINTS:
+            raise ManagementError(409, "积分不足或积分超出允许范围")
+        account.balance += delta
+        account.version += 1
+        return await PointsLedger.entry(session, account, actor, request_id, kind, delta, reason, intent)
+
     async def import_data(self, group_id, body, actor=0, *, preview=False):
-        payload = body.model_dump()
-        payload["rows"] = sorted(payload["rows"], key=lambda row: row["source_key"])
-        digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        digest, batch_id, accounts, entries = await asyncio.to_thread(prepare_import, group_id, body, actor, preview)
         async with self.db.transaction() as session:
             await self.group(session, group_id)
             previous = await session.scalar(select(PointsImport).where(
@@ -57,28 +90,27 @@ class PointsLedger:
                 if previous.digest != digest:
                     raise ManagementError(409, "此批次已导入，但内容不同；请通过积分调整纠错")
                 return {**row_dict(previous), "already_imported": True}
-            keys = set(await session.scalars(select(PointsAccount.source_key).where(PointsAccount.group_id == group_id)))
-            if keys.intersection(row.source_key for row in body.rows):
-                raise ManagementError(409, "部分来源编号已入账，不能通过更换批次重复加分")
-            users = set(await session.scalars(select(PointsAccount.user_id).where(
-                PointsAccount.group_id == group_id, PointsAccount.user_id.is_not(None))))
-            if users.intersection(row.user_id for row in body.rows if row.user_id is not None):
-                raise ManagementError(409, "部分 Telegram ID 已有账户，请通过积分调整处理")
+            for start in range(0, len(body.rows), 500):
+                incoming = body.rows[start:start + 500]
+                if await session.scalar(select(PointsAccount.id).where(PointsAccount.group_id == group_id,
+                        PointsAccount.source_key.in_([row.source_key for row in incoming])).limit(1)):
+                    raise ManagementError(409, "部分来源编号已入账，不能通过更换批次重复加分")
+                users = [row.user_id for row in incoming if row.user_id is not None]
+                if users and await session.scalar(select(PointsAccount.id).where(PointsAccount.group_id == group_id,
+                        PointsAccount.user_id.in_(users)).limit(1)):
+                    raise ManagementError(409, "部分 Telegram ID 已有账户，请通过积分调整处理")
             result = {"batch_key": body.batch_key, "count": len(body.rows),
                       "total_points": sum(row.points for row in body.rows), "source": body.source,
                       "already_imported": False}
             if preview:
                 return {**result, "preview": True}
-            batch = PointsImport(group_id=group_id, batch_key=body.batch_key, digest=digest,
+            batch = PointsImport(id=batch_id, group_id=group_id, batch_key=body.batch_key, digest=digest,
                                  source=body.source, count=result["count"], total_points=result["total_points"], actor_id=actor)
             session.add(batch)
             await session.flush()
-            for item in body.rows:
-                account = PointsAccount(group_id=group_id, source_key=item.source_key, display_name=item.display_name,
-                    user_id=item.user_id, balance=item.points, source_rank=item.source_rank, note=item.note)
-                session.add(account)
-                await self.entry(session, account, actor, f"import:{batch.id}:{account.source_key}", "import",
-                                 item.points, body.source, {"batch_id": batch.id, "source_key": item.source_key})
+            for start in range(0, len(accounts), 500):
+                await session.execute(PointsAccount.__table__.insert(), accounts[start:start + 500])
+                await session.execute(PointsEntry.__table__.insert(), entries[start:start + 500])
             return {**row_dict(batch), "already_imported": False}
 
     async def page(self, group_id, *, query="", pending=False, page_number=1, size=20):
@@ -137,6 +169,7 @@ class PointsLedger:
         kind = "identity" if identity else "adjustment"
         intent = {"kind": kind, "account_id": account_id, "actor": actor, **body.model_dump()}
         async with self.db.transaction() as session:
+            await self.group(session, group_id)
             previous = await self.previous(session, group_id, request_id, intent)
             if previous is not None:
                 return previous
@@ -155,9 +188,8 @@ class PointsLedger:
                 before = {"user_id": account.user_id, "display_name": account.display_name}
                 account.user_id, account.display_name = body.user_id, body.display_name
             else:
-                if not 0 <= account.balance + body.delta <= MAX_POINTS:
-                    raise ManagementError(409, "积分不足或调整后超出允许范围")
-                account.balance += body.delta
+                return await self.apply_delta(
+                    session, account, body.delta, actor, request_id, kind, body.reason, intent)
             account.version += 1
             return await self.entry(session, account, actor, request_id, kind, 0 if identity else body.delta,
                                     body.reason, intent, previous_identity=before)

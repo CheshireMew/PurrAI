@@ -142,6 +142,7 @@ def main():
         print(f"每日模型请求：全局 {settings.chat_daily_calls}、每群 {settings.chat_group_daily_calls}、每人 {settings.chat_user_daily_calls}；全局 Token 预算 {settings.chat_daily_tokens}")
     elif args.command == "restore":
         import sqlite3
+        from contextlib import closing
         from purrai.process_lock import ProcessLock
 
         if not args.source.is_file():
@@ -157,8 +158,7 @@ def main():
                 finally:
                     await database.close()
 
-            backup = asyncio.run(preserve())
-            with sqlite3.connect(args.source.resolve().as_uri() + "?mode=ro", uri=True) as source:
+            with closing(sqlite3.connect(args.source.resolve().as_uri() + "?mode=ro", uri=True)) as source:
                 if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     parser.error("备份数据库完整性检查失败")
                 if not source.execute(
@@ -166,9 +166,12 @@ def main():
                 ).fetchone():
                     parser.error("指定文件不是带迁移记录的 PurrAI 备份")
                 target = settings.database_url.split("///", 1)[-1]
-                with sqlite3.connect(target) as destination:
+                # A missing database is a normal disaster-recovery destination.
+                # Validate the source first; preserve only an existing target.
+                backup = asyncio.run(preserve()) if Path(target).is_file() else None
+                with closing(sqlite3.connect(target)) as destination:
                     source.backup(destination)
-            print(f"数据库已恢复；恢复前的数据库保留于：{backup}")
+            print(f"数据库已恢复；恢复前的数据库保留于：{backup}" if backup else "数据库已恢复到新目标。")
         finally:
             lock.release()
 

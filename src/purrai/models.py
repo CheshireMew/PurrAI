@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     Float,
     ForeignKey,
     Index,
@@ -19,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from purrai.business_rules import default_business_rules
+from purrai.action_scopes import scope_sql
 
 
 def now() -> float:
@@ -472,6 +474,15 @@ class AdvertisementSample(Base):
     review_error: Mapped[str] = mapped_column(Text, default="")
 
 
+class AdvertisementSampleToken(Base):
+    __tablename__ = "advertisement_sample_tokens"
+    __table_args__ = (Index("ix_ad_sample_character", "group_id", "character", "occurrences", "sample_id"),)
+    sample_id: Mapped[str] = mapped_column(ForeignKey("advertisement_samples.id", ondelete="CASCADE"), primary_key=True)
+    character: Mapped[str] = mapped_column(String, primary_key=True)
+    group_id: Mapped[int] = mapped_column(BigInteger)
+    occurrences: Mapped[int] = mapped_column(Integer)
+
+
 class AdvertisementReview(Base):
     __tablename__ = "advertisement_reviews"
     __table_args__ = (
@@ -479,6 +490,9 @@ class AdvertisementReview(Base):
         Index("ix_ad_review_queue", "state", "available_at"),
         Index("ix_ad_review_local", "state", "local_after"),
         Index("ix_ad_review_message", "group_id", "message_id"),
+        Index("ix_ad_review_retention", "event_at", "id"),
+        Index("ix_ad_review_history", "created_at", "id"),
+        Index("ix_ad_review_raw", "event_at", "id", sqlite_where=literal_column("json_extract(message, '$._retained') IS NOT 1")),
     )
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"))
@@ -512,6 +526,7 @@ class Inbox(Base):
 
 class Action(Base):
     __tablename__ = "actions"
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (Index("ix_actions_batch_state", "batch_id", "state"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     dedupe_key: Mapped[str] = mapped_column(String, unique=True)
@@ -529,6 +544,7 @@ class Action(Base):
     reason: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[float] = mapped_column(Float, default=now)
     updated_at: Mapped[float] = mapped_column(Float, default=now)
+    queue_scope: Mapped[str] = mapped_column(String, Computed(scope_sql(), persisted=False), info={"internal": True})
 
     @hybrid_property
     def target_message_id(self):
@@ -540,9 +556,33 @@ class Action(Base):
         # expression index, even when its runtime value is identical.
         return func.json_extract(cls.payload, literal_column("'$.message_id'"))
 
+    @hybrid_property
+    def advertisement_review_id(self):
+        return self.payload.get("advertisement_evidence", {}).get("review_id")
+
+    @advertisement_review_id.expression
+    def advertisement_review_id(cls):
+        return func.json_extract(cls.payload, literal_column("'$.advertisement_evidence.review_id'"))
+
+    @hybrid_property
+    def violation_id(self):
+        return self.payload.get("violation_id")
+
+    @violation_id.expression
+    def violation_id(cls):
+        return func.json_extract(cls.payload, literal_column("'$.violation_id'"))
+
 
 Index("ix_actions_message", Action.group_id, Action.kind, Action.target_message_id)
 Index("ix_actions_member_pending", Action.group_id, Action.user_id, Action.state)
+Index("ix_action_review_source", Action.advertisement_review_id)
+Index("ix_actions_violation", Action.group_id, Action.violation_id)
+Index("ix_actions_due", Action.state, Action.available_at)
+Index("ix_actions_scope_order", Action.queue_scope, Action.state, Action.priority, Action.created_at)
+Index("ix_points_pending", Action.group_id, Action.created_at,
+      sqlite_where=literal_column("state = 'pending' AND kind = 'points_message' AND json_extract(payload, '$.operation') = 'chat'"))
+Index("ix_points_job_raw", Action.created_at, Action.id,
+      sqlite_where=literal_column("kind = 'points_message' AND json_type(payload, '$.message') IS NOT NULL"))
 
 
 class Session(Base):
@@ -575,3 +615,12 @@ class Meta(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[float] = mapped_column(Float, default=0, server_default="0", index=True)
+
+
+from purrai.review_storage import install_accounting  # noqa: E402
+
+install_accounting(AdvertisementReview, Meta)
+
+from purrai.sample_index import install_index  # noqa: E402
+
+install_index(AdvertisementSample, AdvertisementSampleToken.__table__)

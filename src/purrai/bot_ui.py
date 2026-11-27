@@ -1,54 +1,28 @@
 """Telegram transport and reusable panel rendering."""
 
-import asyncio
 import hashlib
 import json
-import logging
 import secrets
 
 from aiogram.exceptions import TelegramBadRequest
 
 from purrai.bot_common import keyboard_rows
-from purrai.diagnostics import failure
-
-logger = logging.getLogger(__name__)
-
+from purrai.callback_answers import CallbackAnswers
 
 class BotUI:
     def __init__(self, telegram, settings, state):
         self.tg, self.settings, self.state = telegram, settings, state
-        self.ack_tasks = set()
-        self.ack_slots = asyncio.Semaphore(8)
-        self.closed = False
+        self.answers = CallbackAnswers(telegram, settings)
+        self.ack_tasks, self.ack_slots = self.answers.tasks, self.answers.slots
 
     async def acknowledge(self, identifier, answer):
-        if self.closed:
-            return
-        if len(self.ack_tasks) >= 64:
-            logger.warning("管理提示回执队列已满 callback=%s", identifier)
-            return
-        task = asyncio.create_task(self.answer(identifier, answer), name="admin-callback-answer")
-        self.ack_tasks.add(task)
-        task.add_done_callback(self.ack_tasks.discard)
-        # Start the acknowledgement promptly without waiting for its network reply.
-        await asyncio.sleep(0)
+        await self.answers.send(identifier, answer)
 
     async def answer(self, identifier, answer):
-        try:
-            async with asyncio.timeout(4):
-                async with self.ack_slots:
-                    await self.tg.call(
-                        "answer_callback_query", callback_query_id=identifier, text=answer, request_timeout=3
-                    )
-        except Exception as exc:
-            failure(logger, self.settings, exc, "管理提示回执失败", f"callback={identifier}")
+        await self.answers.answer(identifier, answer)
 
     async def close(self):
-        self.closed = True
-        tasks = list(self.ack_tasks)
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.answers.close()
 
     async def send(self, chat_id, text, *, request_id=None):
         if chat_id < 0:
